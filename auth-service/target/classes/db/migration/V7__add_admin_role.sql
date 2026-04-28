@@ -1,0 +1,1 @@
+ALTER TYPE auth_svc.user_role ADD VALUE IF NOT EXISTS 'ADMIN';

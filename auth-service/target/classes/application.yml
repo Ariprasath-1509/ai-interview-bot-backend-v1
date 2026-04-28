@@ -1,0 +1,28 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: auth-service
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:3308/bench_readiness}
+    username: postgres
+    password: root
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: auth_svc
+  flyway:
+    schemas: auth_svc
+    locations: classpath:db/migration
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
+    expiry-ms: ${JWT_EXPIRY_MS:86400000}
+  demo:
+    username: ${DEMO_USERNAME:Demo}
+    password: ${DEMO_PASSWORD:Demo123}

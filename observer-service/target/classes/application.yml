@@ -1,0 +1,37 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: observer-service
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:3308/bench_readiness}
+    username: postgres
+    password: root
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: observer_svc
+  flyway:
+    schemas: observer_svc
+    locations: classpath:db/migration
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:ariprasath6767@gmail.com}
+    password: ${MAIL_PASSWORD:xkvt ujsd xvvp nszz}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
+  interview-base-url: ${INTERVIEW_BASE_URL:http://localhost:3000/interview}
+  auth-service-url: ${AUTH_SERVICE_URL:http://localhost:8081}
+  interview-service-url: ${INTERVIEW_SERVICE_URL:http://localhost:8082}
+  digest:
+    cron: ${DIGEST_CRON:0 0 19 * * *}

@@ -1,0 +1,25 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: review-service
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:3308/bench_readiness}
+    username: postgres
+    password: root
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: review_svc
+  flyway:
+    schemas: review_svc
+    locations: classpath:db/migration
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
+  interview-service-url: ${INTERVIEW_SERVICE_URL:http://localhost:8082}

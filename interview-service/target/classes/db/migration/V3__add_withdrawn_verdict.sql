@@ -1,0 +1,1 @@
+ALTER TYPE interview_svc.readiness_verdict ADD VALUE IF NOT EXISTS 'WITHDRAWN';

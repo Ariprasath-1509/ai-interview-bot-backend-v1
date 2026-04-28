@@ -1,0 +1,26 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: interview-service
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:3308/bench_readiness}
+    username: postgres
+    password: root
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: interview_svc
+  flyway:
+    schemas: interview_svc
+    locations: classpath:db/migration
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
+  observer-service-url: ${OBSERVER_SERVICE_URL:http://localhost:8084}
+  ai-service-url: ${AI_SERVICE_URL:http://localhost:8083}
