@@ -5,16 +5,26 @@ spring:
   application:
     name: ai-service
 
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:6009/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+
 app:
   jwt:
-    secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
+    secret: dev-jwt-secret-change-in-production-min-32-chars
   claude:
-    api-key: ${CLAUDE_API_KEY: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}
-    model: ${CLAUDE_MODEL:claude-haiku-4-5}
-    assessment-model: ${CLAUDE_ASSESSMENT_MODEL:claude-sonnet-4-5}
+    api-key: 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
+    model: claude-haiku-4-5
+    assessment-model: claude-sonnet-4-5
     question-temperature: 0.55
     assessment-temperature: 0.25
     question-max-tokens: 300
     assessment-max-tokens: 4000
     rubric-max-tokens: 1000
-  compliance-service-url: ${COMPLIANCE_SERVICE_URL:http://localhost:8086}

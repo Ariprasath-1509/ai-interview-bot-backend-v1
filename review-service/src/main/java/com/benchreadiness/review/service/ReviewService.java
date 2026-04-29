@@ -1,17 +1,11 @@
 package com.benchreadiness.review.service;
 
+import com.benchreadiness.review.client.InterviewServiceClient;
 import com.benchreadiness.review.dto.SaveScoresRequest;
 import com.benchreadiness.review.dto.SignOffRequest;
 import com.benchreadiness.review.entity.*;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 import java.util.Map;
@@ -23,14 +17,12 @@ public class ReviewService {
 
     private final ScoreRepository scoreRepository;
     private final SignOffRepository signOffRepository;
-    private final RestTemplate restTemplate = new RestTemplate(new HttpComponentsClientHttpRequestFactory());
+    private final InterviewServiceClient interviewServiceClient;
 
-    @Value("${app.interview-service-url:http://localhost:8082}")
-    private String interviewServiceUrl;
-
-    public ReviewService(ScoreRepository scoreRepository, SignOffRepository signOffRepository) {
+    public ReviewService(ScoreRepository scoreRepository, SignOffRepository signOffRepository, InterviewServiceClient interviewServiceClient) {
         this.scoreRepository = scoreRepository;
         this.signOffRepository = signOffRepository;
+        this.interviewServiceClient = interviewServiceClient;
     }
 
     public List<Score> getScores(String interviewId) {
@@ -69,15 +61,8 @@ public class ReviewService {
 
         // Update interview status to SIGNED_OFF in interview-service
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<Map<String, String>> entity = new HttpEntity<>(
-                Map.of("status", "SIGNED_OFF", "finalVerdict", req.getVerdict().name()), headers
-            );
-            restTemplate.exchange(
-                interviewServiceUrl + "/interviews/" + req.getInterviewId() + "/complete",
-                HttpMethod.PATCH, entity, Void.class
-            );
+            interviewServiceClient.updateInterview(req.getInterviewId(), 
+                Map.of("status", "SIGNED_OFF", "finalVerdict", req.getVerdict().name()));
         } catch (Exception e) {
             log.warn("Failed to update interview status to SIGNED_OFF for {}: {}", req.getInterviewId(), e.getMessage());
         }

@@ -5,7 +5,7 @@ spring:
   application:
     name: auth-service
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:3308/bench_readiness}
+    url: jdbc:postgresql://localhost:3308/bench_readiness
     username: postgres
     password: root
     driver-class-name: org.postgresql.Driver
@@ -19,10 +19,21 @@ spring:
     schemas: auth_svc
     locations: classpath:db/migration
 
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:6009/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+
 app:
   jwt:
-    secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
-    expiry-ms: ${JWT_EXPIRY_MS:86400000}
+    secret: dev-jwt-secret-change-in-production-min-32-chars
+    expiry-ms: 86400000
   demo:
-    username: ${DEMO_USERNAME:Demo}
-    password: ${DEMO_PASSWORD:Demo123}
+    username: Demo
+    password: Demo123

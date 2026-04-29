@@ -1,16 +1,12 @@
 package com.benchreadiness.interview.service;
 
+import com.benchreadiness.interview.client.*;
 import com.benchreadiness.interview.dto.AbandonInterviewRequest;
 import com.benchreadiness.interview.dto.CreateInterviewRequest;
 import com.benchreadiness.interview.entity.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
 import java.util.*;
@@ -25,25 +21,25 @@ public class InterviewService {
     private final JobDescriptionRepository jdRepository;
     private final InterviewPlanRepository planRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final RestTemplate restTemplate = new RestTemplate();
-
-    @Value("${app.observer-service-url}")
-    private String observerServiceUrl;
-
-    @Value("${app.ai-service-url}")
-    private String aiServiceUrl;
-
-    @Value("${app.compliance-service-url:http://localhost:8086}")
-    private String complianceServiceUrl;
+    
+    private final AiServiceClient aiServiceClient;
+    private final ObserverServiceClient observerServiceClient;
+    private final ComplianceServiceClient complianceServiceClient;
 
     public InterviewService(InterviewRepository interviewRepository,
                             EngineerRepository engineerRepository,
                             JobDescriptionRepository jdRepository,
-                            InterviewPlanRepository planRepository) {
+                            InterviewPlanRepository planRepository,
+                            AiServiceClient aiServiceClient,
+                            ObserverServiceClient observerServiceClient,
+                            ComplianceServiceClient complianceServiceClient) {
         this.interviewRepository = interviewRepository;
         this.engineerRepository = engineerRepository;
         this.jdRepository = jdRepository;
         this.planRepository = planRepository;
+        this.aiServiceClient = aiServiceClient;
+        this.observerServiceClient = observerServiceClient;
+        this.complianceServiceClient = complianceServiceClient;
     }
 
     @Transactional
@@ -95,25 +91,23 @@ public class InterviewService {
 
         // Generate JD-driven rubric + candidate profile from ai-service
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("X-User-Id", createdByUserId); // Add user ID header
-            HttpEntity<Map<String, String>> rubricEntity = new HttpEntity<>(
-                Map.of(
-                    "jdTitle", req.getJdTitle(),
-                    "jdText", req.getJdText(),
-                    "resumeSummary", req.getResumeSummary() != null ? req.getResumeSummary() : "",
-                    "focusAreas", req.getFocusAreas() != null ? req.getFocusAreas() : "",
-                    "interviewId", plan.getId()
-                ), headers
+            Map<String, String> rubricRequest = Map.of(
+                "jdTitle", req.getJdTitle(),
+                "jdText", req.getJdText(),
+                "resumeSummary", req.getResumeSummary() != null ? req.getResumeSummary() : "",
+                "focusAreas", req.getFocusAreas() != null ? req.getFocusAreas() : ""
             );
-            var rubricResponse = restTemplate.postForEntity(
-                aiServiceUrl + "/ai/generate-rubric", rubricEntity, String.class
+            
+            String rubricResponse = aiServiceClient.generateRubric(
+                rubricRequest, 
+                createdByUserId, 
+                plan.getId()
             );
-            if (rubricResponse.getStatusCode().is2xxSuccessful() && rubricResponse.getBody() != null) {
+            
+            if (rubricResponse != null) {
                 // Parse and store rubricJson and candidateProfileJson separately
                 com.fasterxml.jackson.databind.JsonNode rubricNode =
-                    objectMapper.readTree(rubricResponse.getBody());
+                    objectMapper.readTree(rubricResponse);
                 plan.setRubricJson(objectMapper.writeValueAsString(rubricNode.path("rubric")));
                 plan.setCandidateProfileJson(objectMapper.writeValueAsString(rubricNode.path("candidateProfile")));
                 plan = planRepository.save(plan);
@@ -136,16 +130,12 @@ public class InterviewService {
 
         // Notify observer-service to send invite email (fire-and-forget)
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<Map<String, String>> entity = new HttpEntity<>(
-                Map.of(
-                    "interviewId", saved.getId(),
-                    "engineerEmail", req.getEngineerEmail(),
-                    "engineerName", req.getEngineerName() != null ? req.getEngineerName() : ""
-                ), headers
+            Map<String, String> notificationRequest = Map.of(
+                "interviewId", saved.getId(),
+                "engineerEmail", req.getEngineerEmail(),
+                "engineerName", req.getEngineerName() != null ? req.getEngineerName() : ""
             );
-            restTemplate.postForEntity(observerServiceUrl + "/observer/notify/interview-created", entity, Void.class);
+            observerServiceClient.notifyInterviewCreated(notificationRequest);
         } catch (Exception e) {
             log.warn("Failed to send interview invite email for {}: {}", saved.getId(), e.getMessage());
         }
@@ -169,16 +159,12 @@ public class InterviewService {
             String createdByUserId = planRepository.findById(saved.getPlanId())
                     .map(InterviewPlan::getCreatedByUserId).orElse(null);
             if (createdByUserId != null) {
-                HttpHeaders headers = new HttpHeaders();
-                headers.setContentType(MediaType.APPLICATION_JSON);
-                HttpEntity<Map<String, String>> entity = new HttpEntity<>(
-                    Map.of(
-                        "interviewId", saved.getId(),
-                        "createdByUserId", createdByUserId,
-                        "reason", req.getReason() != null ? req.getReason() : "not_prepared"
-                    ), headers
+                Map<String, String> abandonRequest = Map.of(
+                    "interviewId", saved.getId(),
+                    "createdByUserId", createdByUserId,
+                    "reason", req.getReason() != null ? req.getReason() : "not_prepared"
                 );
-                restTemplate.postForEntity(observerServiceUrl + "/observer/notify/interview-abandoned", entity, Void.class);
+                observerServiceClient.notifyInterviewAbandoned(abandonRequest);
             }
         } catch (Exception e) {
             log.warn("Failed to notify abandon for {}: {}", saved.getId(), e.getMessage());
@@ -373,24 +359,12 @@ public class InterviewService {
 
     private boolean checkTokenLimit(String userId) {
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("X-User-Id", userId);
-            HttpEntity<Void> entity = new HttpEntity<>(headers);
-            
-            var response = restTemplate.exchange(
-                complianceServiceUrl + "/tokens/check-limit", 
-                org.springframework.http.HttpMethod.GET, 
-                entity, 
-                java.util.Map.class
-            );
-            
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                return (Boolean) response.getBody().getOrDefault("canProceed", true);
-            }
+            Map<String, Object> response = complianceServiceClient.checkTokenLimit(userId);
+            return (Boolean) response.getOrDefault("canProceed", true);
         } catch (Exception e) {
             log.warn("Failed to check token limit for user {}: {}", userId, e.getMessage());
             // Allow creation if compliance service is down
+            return true;
         }
-        return true; // Default to allowing if check fails
     }
 }

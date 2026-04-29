@@ -1,19 +1,18 @@
 package com.benchreadiness.observer.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.benchreadiness.observer.client.AuthServiceClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+
+import java.util.Map;
 
 @Service
 public class EmailService {
 
     private final JavaMailSender mailSender;
-    private final RestTemplate restTemplate = new RestTemplate();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AuthServiceClient authServiceClient;
 
     @Value("${spring.mail.username}")
     private String from;
@@ -21,11 +20,9 @@ public class EmailService {
     @Value("${app.interview-base-url}")
     private String interviewBaseUrl;
 
-    @Value("${app.auth-service-url}")
-    private String authServiceUrl;
-
-    public EmailService(JavaMailSender mailSender) {
+    public EmailService(JavaMailSender mailSender, AuthServiceClient authServiceClient) {
         this.mailSender = mailSender;
+        this.authServiceClient = authServiceClient;
     }
 
     public void sendInterviewInvite(String toEmail, String candidateName, String interviewId) {
@@ -49,10 +46,8 @@ public class EmailService {
         // Look up manager email from auth-service
         String managerEmail = null;
         try {
-            String response = restTemplate.getForObject(
-                authServiceUrl + "/auth/users/" + createdByUserId, String.class);
-            JsonNode node = objectMapper.readTree(response);
-            managerEmail = node.path("email").asText(null);
+            Map<String, Object> user = authServiceClient.getUser(createdByUserId);
+            managerEmail = (String) user.get("email");
         } catch (Exception e) {
             // Can't look up manager — skip email
             return;
