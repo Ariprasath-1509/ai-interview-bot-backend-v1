@@ -146,6 +146,9 @@ public class OpenAiClient {
     private void trackTokenUsage(String interviewId, String operationType, String model, 
                                 int promptTokens, int completionTokens, String userId) {
         try {
+            log.info(">>> AI-SERVICE: Tracking token usage - interviewId: {}, operation: {}, model: {}, promptTokens: {}, completionTokens: {}, userId: {}",
+                    interviewId, operationType, model, promptTokens, completionTokens, userId);
+            
             Map<String, Object> trackingData = Map.of(
                 "interviewId", interviewId,
                 "operationType", operationType,
@@ -155,10 +158,10 @@ public class OpenAiClient {
             );
             
             complianceServiceClient.trackTokenUsage(trackingData, userId != null ? userId : "system");
-            log.debug("Successfully tracked {} tokens for interview {} ({})", 
+            log.info("<<< AI-SERVICE: Successfully tracked {} tokens for interview {} ({})", 
                     promptTokens + completionTokens, interviewId, operationType);
         } catch (Exception e) {
-            log.warn("Error tracking token usage: {}", e.getMessage());
+            log.error("<<< AI-SERVICE: Error tracking token usage for interview {}: {}", interviewId, e.getMessage(), e);
         }
     }
 

@@ -15,27 +15,63 @@ spring:
             allowCredentials: true
       routes:
         - id: auth-service
-          uri: lb://auth-service
+          uri: lb://AUTH-SERVICE
+          predicates:
+            - Path=/api/auth/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: auth-service-direct
+          uri: lb://AUTH-SERVICE
           predicates:
             - Path=/auth/**
         - id: interview-service
-          uri: lb://interview-service
+          uri: lb://INTERVIEW-SERVICE
+          predicates:
+            - Path=/api/interviews/**,/api/engineers/**,/api/jd/**,/api/analytics/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: interview-service-direct
+          uri: lb://INTERVIEW-SERVICE
           predicates:
             - Path=/interviews/**,/engineers/**,/jd/**,/analytics/**
         - id: ai-service
-          uri: lb://ai-service
+          uri: lb://AI-SERVICE
+          predicates:
+            - Path=/api/ai/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: ai-service-direct
+          uri: lb://AI-SERVICE
           predicates:
             - Path=/ai/**
         - id: observer-service
-          uri: lb://observer-service
+          uri: lb://OBSERVER-SERVICE
+          predicates:
+            - Path=/api/observer/**,/api/ws/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: observer-service-direct
+          uri: lb://OBSERVER-SERVICE
           predicates:
             - Path=/observer/**,/ws/**
         - id: review-service
-          uri: lb://review-service
+          uri: lb://REVIEW-SERVICE
+          predicates:
+            - Path=/api/reviews/**,/api/scores/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: review-service-direct
+          uri: lb://REVIEW-SERVICE
           predicates:
             - Path=/reviews/**,/scores/**
         - id: compliance-service
-          uri: lb://compliance-service
+          uri: lb://COMPLIANCE-SERVICE
+          predicates:
+            - Path=/api/compliance/**,/api/tokens/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: compliance-service-direct
+          uri: lb://COMPLIANCE-SERVICE
           predicates:
             - Path=/compliance/**,/tokens/**
 
@@ -46,7 +82,8 @@ eureka:
     fetch-registry: true
     register-with-eureka: true
   instance:
-    prefer-ip-address: true
+    hostname: localhost
+    prefer-ip-address: false
 
 app:
   jwt:

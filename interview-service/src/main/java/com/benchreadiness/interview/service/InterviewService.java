@@ -293,6 +293,43 @@ public class InterviewService {
         return interviewRepository.save(interview);
     }
 
+    @Transactional
+    public Interview updateInterview(String id, Map<String, String> updates) {
+        log.info("Updating interview {} with updates: {}", id, updates);
+        
+        Interview interview = interviewRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
+        
+        if (updates.containsKey("status")) {
+            try { 
+                InterviewStatus newStatus = InterviewStatus.valueOf(updates.get("status"));
+                log.info("Updating interview {} status from {} to {}", id, interview.getStatus(), newStatus);
+                interview.setStatus(newStatus);
+            } catch (Exception e) {
+                log.error("Failed to parse status: {}", updates.get("status"), e);
+            }
+        }
+        if (updates.containsKey("finalVerdict")) {
+            try { 
+                ReadinessVerdict newVerdict = ReadinessVerdict.valueOf(updates.get("finalVerdict"));
+                log.info("Updating interview {} finalVerdict to {}", id, newVerdict);
+                interview.setFinalVerdict(newVerdict);
+            } catch (Exception e) {
+                log.error("Failed to parse finalVerdict: {}", updates.get("finalVerdict"), e);
+            }
+        }
+        if (updates.containsKey("proposedVerdict")) {
+            try { 
+                interview.setProposedVerdict(ReadinessVerdict.valueOf(updates.get("proposedVerdict")));
+            } catch (Exception ignored) {}
+        }
+        
+        Interview saved = interviewRepository.save(interview);
+        log.info("Interview {} updated successfully. New status: {}, finalVerdict: {}", 
+            id, saved.getStatus(), saved.getFinalVerdict());
+        return saved;
+    }
+
     private Map<String, Object> slot(int num, String theme, String difficulty, int minutes) {
         Map<String, Object> s = new LinkedHashMap<>();
         s.put("slot", num);

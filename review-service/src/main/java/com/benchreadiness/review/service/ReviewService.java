@@ -50,6 +50,9 @@ public class ReviewService {
 
     @Transactional
     public SignOff signOff(SignOffRequest req, String reviewerUserId) {
+        log.info("Sign-off requested for interview {} by user {} with verdict {}", 
+            req.getInterviewId(), reviewerUserId, req.getVerdict());
+        
         SignOff signOff = signOffRepository.findByInterviewId(req.getInterviewId())
                 .orElseGet(SignOff::new);
 
@@ -58,13 +61,21 @@ public class ReviewService {
         signOff.setFinalVerdict(req.getVerdict());
         signOff.setNote(req.getNote());
         SignOff saved = signOffRepository.save(signOff);
+        
+        log.info("Sign-off saved for interview {}, now updating interview status", req.getInterviewId());
 
         // Update interview status to SIGNED_OFF in interview-service
         try {
-            interviewServiceClient.updateInterview(req.getInterviewId(), 
-                Map.of("status", "SIGNED_OFF", "finalVerdict", req.getVerdict().name()));
+            Map<String, Object> updates = Map.of(
+                "status", "SIGNED_OFF", 
+                "finalVerdict", req.getVerdict().name()
+            );
+            log.info("Calling interview-service to update interview {} with: {}", req.getInterviewId(), updates);
+            interviewServiceClient.updateInterview(req.getInterviewId(), updates);
+            log.info("Successfully updated interview {} status to SIGNED_OFF", req.getInterviewId());
         } catch (Exception e) {
-            log.warn("Failed to update interview status to SIGNED_OFF for {}: {}", req.getInterviewId(), e.getMessage());
+            log.error("Failed to update interview status to SIGNED_OFF for {}: {}", 
+                req.getInterviewId(), e.getMessage(), e);
         }
 
         return saved;
