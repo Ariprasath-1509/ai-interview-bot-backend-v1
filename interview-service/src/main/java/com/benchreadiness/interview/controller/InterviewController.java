@@ -92,6 +92,17 @@ public class InterviewController {
         }
     }
 
+    @PatchMapping("/{id}")
+    public ResponseEntity<?> update(@PathVariable String id,
+                                     @RequestBody Map<String, String> updates) {
+        try {
+            Interview updated = interviewService.updateInterview(id, updates);
+            return ResponseEntity.ok(updated);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     @PostMapping("/{id}/abandon")
     public ResponseEntity<?> abandon(@PathVariable String id,
                                       @RequestBody com.benchreadiness.interview.dto.AbandonInterviewRequest req) {
