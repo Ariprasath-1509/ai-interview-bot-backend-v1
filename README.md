@@ -74,31 +74,50 @@ The platform supports 5 interview modes with different question counts, difficul
 
 ```
 bench-readiness/
-├── api-gateway         (8080) — Spring Cloud Gateway, JWT validation, routing
-├── auth-service        (8081) — Login, registration, JWT issue, user management
-├── interview-service   (8082) — Interview CRUD, engineer, JD, plan, rubric generation
-├── ai-service          (8083) — Claude AI questions, two-pass assessment, rubric, manipulation detection
-├── observer-service    (8084) — WebSocket STOMP events, email notifications
-├── review-service      (8085) — Category scores, sign-off, benchmarking
-└── compliance-service  (8086) — Audit log, retention policies
+├── eureka-server       (6009) — Netflix Eureka service registry and discovery
+├── api-gateway         (6002) — Spring Cloud Gateway, JWT validation, Eureka-based routing
+├── auth-service        (6004) — Login, registration, JWT issue, user management
+├── interview-service   (6006) — Interview CRUD, engineer, JD, plan, rubric generation
+├── ai-service          (6003) — Claude AI questions, two-pass assessment, rubric, manipulation detection
+├── observer-service    (6007) — WebSocket STOMP events, email notifications
+├── review-service      (6008) — Category scores, sign-off, benchmarking
+└── compliance-service  (6005) — Audit log, token tracking, retention policies
 ```
 
 ### Frontend
 ```
-AiInterviewBot/   (3000) — Next.js 15, App Router, server actions
+AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 ```
+
+### Service Discovery
+- All services register with **Eureka Server** on startup
+- Services discover each other dynamically via Eureka registry
+- **Feign clients** provide declarative, type-safe inter-service communication
+- Built-in client-side load balancing via Spring Cloud LoadBalancer
+- No hardcoded service URLs — fully dynamic service discovery
 
 ---
 
 ## Service Details
 
-### api-gateway (8080)
+### eureka-server (6009)
+- **Netflix Eureka** service registry and discovery server
+- Central registry for all microservices
+- Health monitoring and service instance tracking
+- Dashboard UI at `http://localhost:6009`
+- Self-preservation mode disabled for development
+- All services register on startup and send heartbeats every 10 seconds
+
+### api-gateway (6002)
 - Spring Cloud Gateway with global JWT filter
+- **Eureka-based dynamic routing** using `lb://SERVICE-NAME` URIs
+- **Dual path support**: Accepts both `/path/**` and `/api/path/**` (strips `/api` prefix)
 - Extracts `X-User-Id`, `X-User-Role`, `X-User-Email` from JWT and forwards to downstream services
 - Public paths: `/auth/login`, `/auth/logout`, `/auth/register`, `/actuator`
-- CORS configured for `http://localhost:3000`
+- CORS configured for `http://localhost:6001`
+- Client-side load balancing for service instances
 
-### auth-service (8081)
+### auth-service (6004)
 - **Staff login** — real credentials (email + password), role determined by stored account
 - **Candidate registration** — `POST /auth/register` with name, email, password
 - **Candidate login** — email as username, password validated against stored value
@@ -111,7 +130,7 @@ AiInterviewBot/   (3000) — Next.js 15, App Router, server actions
 - Default admin: `admin@benchreadiness.com` / `Admin@123` (seeded on first startup)
 - JWT signed with HS384, configurable expiry
 
-### interview-service (8082)
+### interview-service (6006)
 - Interview CRUD with mode-specific slot plans (5-10 questions based on interview mode)
 - Engineer upsert by email — links candidate registration to interview
 - **Interview modes** — SCREENING (5q, 15min), L1 (7q, 20min), L2 (8q, 25min), L3 (10q, 30min), L4 (10q, 30min)
@@ -127,8 +146,10 @@ AiInterviewBot/   (3000) — Next.js 15, App Router, server actions
 - `PATCH /interviews/{id}/complete` — update status, transcript, verdict
 - `POST /interviews/{id}/abandon` — candidate exits early or time expires, notifies bench manager via observer-service
 - `resumeSummary` is required — used for candidate profile extraction and question calibration
+- **Feign clients**: AiServiceClient, ObserverServiceClient, ReviewServiceClient, ComplianceServiceClient, AuthServiceClient
+- Registers with Eureka as `INTERVIEW-SERVICE`
 
-### ai-service (8083)
+### ai-service (6003)
 - **Claude API** (`claude-haiku-4-5` for questions/rubric, `claude-sonnet-4-5` for assessment)
 - **Token limits** — 4000 tokens for assessment (prevents JSON truncation), 1000 for rubric, 300 for questions
 - **Rubric generation** (`POST /ai/generate-rubric`) — extracts 4–6 JD-specific categories + candidate profile (YOE, level, difficulty) at interview creation. Uses dedicated `rubric-max-tokens` to prevent JSON truncation.
@@ -150,12 +171,14 @@ AiInterviewBot/   (3000) — Next.js 15, App Router, server actions
   - If `rubricJson` not provided — generates rubric on-the-fly from JD before scoring
   - Automatic assessment response storage in compliance-service after successful completion
   - Recovery mechanism for truncated JSON responses with shorter prompts
-- **Token tracking** — calls compliance-service directly (port 8086) to avoid gateway authentication
+- **Token tracking** — uses Feign client to call compliance-service for token tracking
 - **Markdown fence stripping** — Claude responses wrapped in ` ```json ``` ` are automatically cleaned before parsing
 - **Fallback** — heuristic scoring when Claude unavailable
 - Spring Retry — 3 attempts with exponential backoff
+- **Feign client**: ComplianceServiceClient
+- Registers with Eureka as `AI-SERVICE`
 
-### observer-service (8084)
+### observer-service (6007)
 - WebSocket STOMP — bench manager can observe live interview at `/topic/observer/{interviewId}`
 - `POST /observer/inject` — inject follow-up question into live interview
 - `POST /observer/flag` — flag a candidate answer
@@ -163,16 +186,19 @@ AiInterviewBot/   (3000) — Next.js 15, App Router, server actions
   - Interview invite sent to candidate on creation
   - Bench manager alerted when candidate abandons or time expires
 - Auth-service lookup for manager email on abandon notification
+- **Feign clients**: AuthServiceClient, InterviewServiceClient
+- Registers with Eureka as `OBSERVER-SERVICE`
 
-### review-service (8085)
+### review-service (6008)
 - `GET /scores/{interviewId}` — category scores with rationale, evidence, gap, confidence
 - `POST /scores` — save/replace scores (called by frontend after assessment)
 - `GET /reviews/{interviewId}` — sign-off status `{ signedOff, finalVerdict, note, signedOffAt }`
 - `POST /reviews/{interviewId}/sign-off` — BENCH_MANAGER only, upsertable (can update existing sign-off)
 - On sign-off → calls interview-service to update status to `SIGNED_OFF` and store `finalVerdict`
-- Apache HttpClient5 for PATCH support
+- **Feign client**: InterviewServiceClient
+- Registers with Eureka as `REVIEW-SERVICE`
 
-### compliance-service (8086)
+### compliance-service (6005)
 - **Token tracking** — daily usage monitoring per interview with cost estimation
 - **Assessment response storage** — stores complete Claude assessment results per interview
 - **Per-interview token summaries** — aggregated token usage and cost breakdown by operation type
@@ -247,6 +273,9 @@ Flyway runs migrations automatically on startup.
 ### 2. Environment Variables
 
 ```bash
+# Service Discovery
+EUREKA_SERVER_URL=http://localhost:6009/eureka/
+
 # Database
 DATABASE_URL=jdbc:postgresql://localhost:3308/bench_readiness
 DB_USER=postgres
@@ -259,20 +288,22 @@ JWT_SECRET=dev-jwt-secret-change-in-production-min-32-chars
 CLAUDE_API_KEY=sk-ant-...
 CLAUDE_MODEL=claude-haiku-4-5
 CLAUDE_ASSESSMENT_MODEL=claude-sonnet-4-5
-CLAUDE_ASSESSMENT_MAX_TOKENS=4000  # Increased to prevent JSON truncation
+CLAUDE_ASSESSMENT_MAX_TOKENS=4000
+CLAUDE_RUBRIC_MAX_TOKENS=1000
+CLAUDE_QUESTION_MAX_TOKENS=300
 
 # Email (Gmail SMTP)
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
 MAIL_USERNAME=your-email@gmail.com
-MAIL_PASSWORD=your-app-password   # Gmail App Password, not real password
+MAIL_PASSWORD=your-app-password
 
-# Service URLs (defaults shown — only set if ports differ)
-OBSERVER_SERVICE_URL=http://localhost:8084
-AI_SERVICE_URL=http://localhost:8083
-AUTH_SERVICE_URL=http://localhost:8081
-INTERVIEW_SERVICE_URL=http://localhost:8082
-REVIEW_SERVICE_URL=http://localhost:8085
-INTERVIEW_BASE_URL=http://localhost:3000/interview
-COMPLIANCE_SERVICE_URL=http://localhost:8086  # Direct service URL for token tracking
+# Frontend URL
+INTERVIEW_BASE_URL=http://localhost:6001/interview
+FRONTEND_URL=http://localhost:6001
+
+# CORS Configuration
+CORS_ALLOWED_ORIGINS=http://localhost:6001
 ```
 
 ### 3. Build All Services
@@ -284,33 +315,40 @@ mvn clean install
 
 ### 4. Run Services
 
-```bash
-# Terminal 1
-cd api-gateway && mvn spring-boot:run
+Services must start in dependency order:
 
-# Terminal 2
+```bash
+# Terminal 1 - Service Registry (MUST START FIRST)
+cd eureka-server && mvn spring-boot:run
+
+# Terminal 2 - No dependencies
+cd compliance-service && mvn spring-boot:run
+
+# Terminal 3 - No dependencies
 cd auth-service && mvn spring-boot:run
 
-# Terminal 3
+# Terminal 4 - Depends on auth-service
 cd interview-service && mvn spring-boot:run
 
-# Terminal 4
+# Terminal 5 - Depends on compliance-service
 cd ai-service && mvn spring-boot:run
 
-# Terminal 5
+# Terminal 6 - Depends on auth-service
 cd observer-service && mvn spring-boot:run
 
-# Terminal 6
+# Terminal 7 - Depends on interview-service
 cd review-service && mvn spring-boot:run
 
-# Terminal 7
-cd compliance-service && mvn spring-boot:run
+# Terminal 8 - Depends on all services
+cd api-gateway && mvn spring-boot:run
 ```
 
-Or use the provided script:
+Or use the provided script (handles dependencies automatically):
 ```bash
 start-all.bat
 ```
+
+**Eureka Dashboard**: http://localhost:6009
 
 ### 5. Run Frontend
 
@@ -320,53 +358,53 @@ npm install
 npm run dev
 ```
 
-Frontend runs at `http://localhost:3000`.
+Frontend runs at `http://localhost:6001`.
 
 ---
 
 ## API Reference
 
-All requests go through the gateway at `http://localhost:8080`.
+All requests go through the gateway at `http://localhost:6002`.
 
 ### Auth
 
 ```bash
 # Staff login
-curl -X POST http://localhost:8080/auth/login \
+curl -X POST http://localhost:6002/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin@benchreadiness.com","password":"Admin@123"}'
 # Response: {"ok":true,"token":"eyJ...","role":"BENCH_MANAGER","name":"Admin"}
 
 # Candidate registration
-curl -X POST http://localhost:8080/auth/register \
+curl -X POST http://localhost:6002/auth/register \
   -H "Content-Type: application/json" \
   -d '{"name":"John Doe","email":"john@example.com","password":"secret123"}'
 
 # Candidate login
-curl -X POST http://localhost:8080/auth/login \
+curl -X POST http://localhost:6002/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"john@example.com","password":"secret123","role":"CANDIDATE"}'
 
 # Create staff account (BENCH_MANAGER only)
-curl -X POST http://localhost:8080/auth/staff \
+curl -X POST http://localhost:6002/auth/staff \
   -H "Authorization: Bearer <manager-token>" \
   -H "Content-Type: application/json" \
   -d '{"name":"Jane Smith","email":"jane@company.com","password":"Pass@123","role":"INTERVIEWER"}'
 
 # List all staff (BENCH_MANAGER only)
-curl http://localhost:8080/auth/staff \
+curl http://localhost:6002/auth/staff \
   -H "Authorization: Bearer <manager-token>"
 
 # Delete staff account (BENCH_MANAGER only)
-curl -X DELETE http://localhost:8080/auth/staff/<id> \
+curl -X DELETE http://localhost:6002/auth/staff/<id> \
   -H "Authorization: Bearer <manager-token>"
 
 # Search registered candidates (manager use)
-curl http://localhost:8080/auth/candidates?search=john \
+curl http://localhost:6002/auth/candidates?search=john \
   -H "Authorization: Bearer <token>"
 
 # Get current user
-curl http://localhost:8080/auth/me \
+curl http://localhost:6002/auth/me \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -374,7 +412,7 @@ curl http://localhost:8080/auth/me \
 
 ```bash
 # Create interview (resumeSummary required, interviewMode defaults to SCREENING, customDurationMinutes optional)
-curl -X POST http://localhost:8080/interviews \
+curl -X POST http://localhost:6002/interviews \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -391,21 +429,21 @@ curl -X POST http://localhost:8080/interviews \
 # Invite email sent to engineerEmail automatically
 
 # Get candidate's own interviews
-curl http://localhost:8080/interviews/mine \
+curl http://localhost:6002/interviews/mine \
   -H "Authorization: Bearer <candidate-token>"
 
 # Get all interviews (manager)
-curl http://localhost:8080/interviews/summary \
+curl http://localhost:6002/interviews/summary \
   -H "Authorization: Bearer <manager-token>"
 
 # Complete interview
-curl -X PATCH http://localhost:8080/interviews/<id>/complete \
+curl -X PATCH http://localhost:6002/interviews/<id>/complete \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"status":"COMPLETED","transcriptJson":"...","proposedVerdict":"NEEDS_1_WEEK_PREP"}'
 
 # Abandon interview (candidate not prepared or time expired)
-curl -X POST http://localhost:8080/interviews/<id>/abandon \
+curl -X POST http://localhost:6002/interviews/<id>/abandon \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"transcriptJson":"...","reason":"not_prepared"}'
@@ -417,7 +455,7 @@ curl -X POST http://localhost:8080/interviews/<id>/abandon \
 
 ```bash
 # Generate rubric (called automatically at interview creation)
-curl -X POST http://localhost:8080/ai/generate-rubric \
+curl -X POST http://localhost:6002/ai/generate-rubric \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -428,7 +466,7 @@ curl -X POST http://localhost:8080/ai/generate-rubric \
   }'
 
 # Get next question (with interviewMode for proper slot themes and difficulty)
-curl -X POST http://localhost:8080/ai/next-question \
+curl -X POST http://localhost:6002/ai/next-question \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -445,7 +483,7 @@ curl -X POST http://localhost:8080/ai/next-question \
 # Response: {"question":"...","manipulationDetected":false,"terminateInterview":false}
 
 # Assess interview (two-pass with interviewMode for verdict thresholds)
-curl -X POST http://localhost:8080/ai/assess \
+curl -X POST http://localhost:6002/ai/assess \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -463,11 +501,11 @@ curl -X POST http://localhost:8080/ai/assess \
 
 ```bash
 # Get scores for an interview
-curl http://localhost:8080/scores/<interviewId> \
+curl http://localhost:6002/scores/<interviewId> \
   -H "Authorization: Bearer <token>"
 
 # Save scores (after assessment)
-curl -X POST http://localhost:8080/scores \
+curl -X POST http://localhost:6002/scores \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -478,12 +516,12 @@ curl -X POST http://localhost:8080/scores \
   }'
 
 # Get sign-off
-curl http://localhost:8080/reviews/<interviewId> \
+curl http://localhost:6002/reviews/<interviewId> \
   -H "Authorization: Bearer <token>"
 # Response: {"signedOff":true,"finalVerdict":"READY","note":"...","signedOffAt":"..."}
 
 # Sign off (BENCH_MANAGER only, upsertable)
-curl -X POST http://localhost:8080/reviews/<interviewId>/sign-off \
+curl -X POST http://localhost:6002/reviews/<interviewId>/sign-off \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"interviewId":"<id>","verdict":"READY","note":"Strong candidate"}'
@@ -493,19 +531,19 @@ curl -X POST http://localhost:8080/reviews/<interviewId>/sign-off \
 
 ```bash
 # Inject question into live interview
-curl -X POST http://localhost:8080/observer/inject \
+curl -X POST http://localhost:6002/observer/inject \
   -H "Authorization: Bearer <manager-token>" \
   -H "Content-Type: application/json" \
   -d '{"interviewId":"<id>","question":"Can you elaborate on Kafka consumer groups?","mode":"INJECT"}'
 
 # Flag a candidate answer
-curl -X POST http://localhost:8080/observer/flag \
+curl -X POST http://localhost:6002/observer/flag \
   -H "Authorization: Bearer <manager-token>" \
   -H "Content-Type: application/json" \
   -d '{"interviewId":"<id>","note":"Candidate seemed to read from notes"}'
 
 # Get events for an interview
-curl http://localhost:8080/observer/events/<interviewId> \
+curl http://localhost:6002/observer/events/<interviewId> \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -513,17 +551,17 @@ curl http://localhost:8080/observer/events/<interviewId> \
 
 ```bash
 # Get real-time interview analytics
-curl http://localhost:8080/analytics/realtime \
+curl http://localhost:6002/analytics/realtime \
   -H "Authorization: Bearer <token>"
 # Response: {"statusCounts":{"scheduled":5,"inProgress":2,"completed":10,"signedOff":8},"timePeriods":{"today":3,"thisWeek":12},"successMetrics":{"readyCount":6,"successRate":75.0}}
 
 # Get interview mode distribution
-curl http://localhost:8080/analytics/modes \
+curl http://localhost:6002/analytics/modes \
   -H "Authorization: Bearer <token>"
 # Response: {"modeDistribution":{"SCREENING":5,"L1":3,"L2":4,"L3":2},"totalInterviews":14}
 
 # Get candidate performance analytics
-curl http://localhost:8080/analytics/candidates \
+curl http://localhost:6002/analytics/candidates \
   -H "Authorization: Bearer <token>"
 # Response: {"performanceByVerdict":{"READY":6,"NEEDS_1_WEEK_PREP":4},"performanceByMode":{"L1":{"totalCandidates":5,"readyCandidates":3,"successRate":60.0}},"topCandidates":[{"candidateName":"John Doe","averageScore":4.2,"verdict":"READY"}],"commonWeaknesses":[{"skill":"spring","candidateCount":8,"percentage":40.0}],"averageScoresBySkill":{"java":3.8,"spring":3.2}}
 ```
@@ -532,39 +570,39 @@ curl http://localhost:8080/analytics/candidates \
 
 ```bash
 # Check daily token limit status
-curl http://localhost:8080/tokens/check-limit \
+curl http://localhost:6002/tokens/check-limit \
   -H "Authorization: Bearer <token>"
 # Response: {"usage":15000,"limit":100000,"canProceed":true,"nearLimit":false,"remainingTokens":85000}
 
 # Get daily token analytics
-curl http://localhost:8080/tokens/analytics/daily \
+curl http://localhost:6002/tokens/analytics/daily \
   -H "Authorization: Bearer <token>"
 # Response: {"totalTokens":15000,"totalCost":0.45,"operationBreakdown":{"question":45,"assessment":12,"rubric":8}}
 
 # Update token limits (admin only)
-curl -X POST http://localhost:8080/tokens/limits \
+curl -X POST http://localhost:6002/tokens/limits \
   -H "Authorization: Bearer <admin-token>" \
   -H "Content-Type: application/json" \
   -d '{"dailyLimit":150000,"warningThreshold":120000}'
 
 # Store assessment response (called automatically by ai-service)
-curl -X POST http://localhost:8080/tokens/assessment-response \
+curl -X POST http://localhost:6002/tokens/assessment-response \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"interviewId":"<id>","assessmentJson":"{...}","tokensUsed":1250,"assessmentSource":"claude-two-pass"}'
 
 # Get stored assessment response
-curl http://localhost:8080/tokens/assessment-response/<interviewId> \
+curl http://localhost:6002/tokens/assessment-response/<interviewId> \
   -H "Authorization: Bearer <token>"
 # Response: {"interviewId":"...","assessmentJson":"{...}","tokensUsed":1250,"assessmentSource":"claude-two-pass","createdAt":"..."}
 
 # Get per-interview token summary
-curl http://localhost:8080/tokens/interview-summary/<interviewId> \
+curl http://localhost:6002/tokens/interview-summary/<interviewId> \
   -H "Authorization: Bearer <token>"
 # Response: {"interviewId":"...","totalTokens":2500,"totalCostUsd":0.75,"questionTokens":800,"assessmentTokens":1250,"rubricTokens":450}
 
 # Finalize interview tokens (called automatically after assessment)
-curl -X POST http://localhost:8080/tokens/finalize-interview \
+curl -X POST http://localhost:6002/tokens/finalize-interview \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"interviewId":"<id>"}'
@@ -717,6 +755,8 @@ See `MIGRATION.md` for the full local LLM migration guide including model recomm
 | Rubric at creation time | JD-specific categories generated once, reused for questions and assessment |
 | Resume required | Enables candidate profiling, question difficulty calibration, resume consistency check |
 | Upsertable sign-off | Bench manager can correct a verdict without creating a new record |
+| Eureka service discovery | Dynamic service discovery, no hardcoded URLs, built-in load balancing |
+| Feign clients | Declarative, type-safe inter-service communication with retry and circuit breaker support |
 
 ---
 
@@ -724,34 +764,43 @@ See `MIGRATION.md` for the full local LLM migration guide including model recomm
 
 ```
 bench-readiness/
+├── eureka-server/
+│   ├── EurekaServerApplication.java  — @EnableEurekaServer
+│   └── application.yml               — Eureka server configuration
 ├── api-gateway/
-│   └── JwtAuthFilter.java          — JWT validation + header injection
+│   ├── JwtAuthFilter.java            — JWT validation + header injection
+│   └── application.yml               — Eureka-based routing (lb://SERVICE-NAME)
 ├── auth-service/
-│   ├── AuthController.java         — login, register, candidates, user lookup
-│   ├── JwtService.java             — token generation
-│   └── db/migration/               — V1 init, V2 CANDIDATE role, V3 password
+│   ├── AuthController.java           — login, register, candidates, user lookup
+│   ├── JwtService.java               — token generation
+│   └── db/migration/                 — V1 init, V2 CANDIDATE role, V3 password
 ├── interview-service/
-│   ├── InterviewController.java    — CRUD, mine, summary, complete, abandon
-│   ├── InterviewService.java       — business logic, mode-specific slot plans, rubric call, notifications
-│   ├── InterviewMode.java          — enum for SCREENING, L1, L2, L3, L4 modes
-│   └── db/migration/               — V1 init, V2 email/name, V3 WITHDRAWN, V4 rubric, V5 interview_mode
+│   ├── InterviewController.java      — CRUD, mine, summary, complete, abandon
+│   ├── InterviewService.java         — business logic, mode-specific slot plans, rubric call, notifications
+│   ├── InterviewMode.java            — enum for SCREENING, L1, L2, L3, L4 modes
+│   ├── client/                       — Feign clients (AiServiceClient, ObserverServiceClient, etc.)
+│   └── db/migration/                 — V1 init, V2 email/name, V3 WITHDRAWN, V4 rubric, V5 interview_mode
 ├── ai-service/
-│   ├── AiController.java           — next-question, assess, generate-rubric
-│   ├── QuestionService.java        — mode-specific slot themes, manipulation detection, difficulty calibration, caching, vague answer detection
-│   ├── QuestionCacheService.java   — first question caching with 24h TTL
-│   ├── AssessmentService.java      — two-pass, evidence, scoring, mode-specific verdict thresholds, roadmap, transcript deduplication
-│   ├── RubricService.java          — JD category + candidate profile extraction
-│   ├── OpenAiClient.java           — Claude API client with slot-based model switching
+│   ├── AiController.java             — next-question, assess, generate-rubric
+│   ├── QuestionService.java          — mode-specific slot themes, manipulation detection, difficulty calibration, caching, vague answer detection
+│   ├── QuestionCacheService.java     — first question caching with 24h TTL
+│   ├── AssessmentService.java        — two-pass, evidence, scoring, mode-specific verdict thresholds, roadmap, transcript deduplication
+│   ├── RubricService.java            — JD category + candidate profile extraction
+│   ├── OpenAiClient.java             — Claude API client with slot-based model switching
+│   ├── client/ComplianceServiceClient.java — Feign client for compliance service
 │   └── config/CacheCleanupScheduler.java — hourly cache cleanup
 ├── observer-service/
-│   ├── ObserverController.java     — inject, flag, notify endpoints
-│   └── EmailService.java           — invite + abandon notifications
+│   ├── ObserverController.java       — inject, flag, notify endpoints
+│   ├── EmailService.java             — invite + abandon notifications
+│   └── client/                       — Feign clients (AuthServiceClient, InterviewServiceClient)
 ├── review-service/
-│   ├── ReviewController.java       — scores, sign-off
-│   ├── ReviewService.java          — upsert sign-off, update interview status
-│   └── db/migration/               — V1 init, V2 WITHDRAWN, V3 gap/confidence
+│   ├── ReviewController.java         — scores, sign-off
+│   ├── ReviewService.java            — upsert sign-off, update interview status
+│   ├── client/InterviewServiceClient.java — Feign client for interview service
+│   └── db/migration/                 — V1 init, V2 WITHDRAWN, V3 gap/confidence
 └── compliance-service/
-    └── AuditLogController.java     — audit log CRUD
+    ├── AuditLogController.java       — audit log CRUD
+    └── TokenController.java          — token tracking, limits, analytics
 ```
 
 ---
@@ -1280,3 +1329,663 @@ psql -h localhost -U benchuser -d bench_readiness
 # Check PostgreSQL logs
 sudo tail -f /var/log/postgresql/postgresql-*.log
 ```
+
+
+---
+
+## Docker Deployment Guide
+
+### Prerequisites
+
+- Docker 20.10+
+- Docker Compose 2.0+
+- 4GB RAM minimum, 8GB recommended
+- 20GB disk space
+
+### Recent Changes & Fixes
+
+**Critical Updates (April 2026):**
+
+1. **Vague Answer Detection Threshold**: Changed from 15 words to 100 words minimum to reduce false positives for detailed technical answers
+2. **Feign PATCH Support**: Added `feign-hc5` dependency to review-service to support PATCH HTTP method for sign-off updates
+3. **Interview Status Update**: Fixed sign-off flow to properly update interview status from `REVIEW_PENDING` to `SIGNED_OFF`
+4. **Frontend API Routes**: Removed Next.js rewrite rules that were bypassing API route handlers
+5. **Proxy Configuration**: Renamed `middleware.ts` to `proxy.ts` for Next.js 16 compatibility
+6. **Token Tracking**: Enhanced logging in AI service and compliance service for better debugging
+7. **Interview Quality Display**: Fixed frontend to properly map `categoriesCovered` and `categoriesMissed` fields
+
+**Configuration Changes:**
+
+- **review-service/pom.xml**: Added `feign-hc5` dependency
+- **review-service/application.yml**: Added `feign.httpclient.hc5.enabled: true`
+- **ai-service QuestionService**: Updated `isVagueAnswer()` word count threshold to 100
+- **interview-service**: Added `PATCH /interviews/{id}` endpoint and `updateInterview()` method
+- **frontend next.config.js**: Removed `/api/:path*` rewrite rule
+- **frontend proxy.ts**: Updated matcher to exclude all `/api` routes
+
+### 1. Create Docker Network
+
+```bash
+docker network create bench-network
+```
+
+### 2. Setup PostgreSQL Container
+
+```bash
+# Create volume for data persistence
+docker volume create bench-postgres-data
+
+# Run PostgreSQL
+docker run -d \
+  --name bench-postgres \
+  --network bench-network \
+  -e POSTGRES_DB=bench_readiness \
+  -e POSTGRES_USER=benchuser \
+  -e POSTGRES_PASSWORD=your-secure-password \
+  -p 5432:5432 \
+  -v bench-postgres-data:/var/lib/postgresql/data \
+  postgres:15-alpine
+
+# Wait for PostgreSQL to start
+sleep 10
+
+# Create schemas
+docker exec -it bench-postgres psql -U benchuser -d bench_readiness -c "
+CREATE SCHEMA IF NOT EXISTS auth_svc;
+CREATE SCHEMA IF NOT EXISTS interview_svc;
+CREATE SCHEMA IF NOT EXISTS observer_svc;
+CREATE SCHEMA IF NOT EXISTS review_svc;
+CREATE SCHEMA IF NOT EXISTS compliance_svc;
+"
+```
+
+### 3. Create Dockerfiles for Each Service
+
+#### Eureka Server Dockerfile
+
+Create `eureka-server/Dockerfile`:
+
+```dockerfile
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY target/eureka-server-0.0.1-SNAPSHOT.jar app.jar
+EXPOSE 6009
+ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
+```
+
+#### API Gateway Dockerfile
+
+Create `api-gateway/Dockerfile`:
+
+```dockerfile
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY target/api-gateway-0.0.1-SNAPSHOT.jar app.jar
+EXPOSE 6002
+ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
+```
+
+#### Auth Service Dockerfile
+
+Create `auth-service/Dockerfile`:
+
+```dockerfile
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY target/auth-service-0.0.1-SNAPSHOT.jar app.jar
+EXPOSE 6004
+ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
+```
+
+#### Interview Service Dockerfile
+
+Create `interview-service/Dockerfile`:
+
+```dockerfile
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY target/interview-service-0.0.1-SNAPSHOT.jar app.jar
+EXPOSE 6006
+ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
+```
+
+#### AI Service Dockerfile
+
+Create `ai-service/Dockerfile`:
+
+```dockerfile
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY target/ai-service-0.0.1-SNAPSHOT.jar app.jar
+EXPOSE 6003
+ENTRYPOINT ["java", "-Xmx1024m", "-jar", "app.jar"]
+```
+
+#### Observer Service Dockerfile
+
+Create `observer-service/Dockerfile`:
+
+```dockerfile
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY target/observer-service-0.0.1-SNAPSHOT.jar app.jar
+EXPOSE 6007
+ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
+```
+
+#### Review Service Dockerfile
+
+Create `review-service/Dockerfile`:
+
+```dockerfile
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY target/review-service-0.0.1-SNAPSHOT.jar app.jar
+EXPOSE 6008
+ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
+```
+
+#### Compliance Service Dockerfile
+
+Create `compliance-service/Dockerfile`:
+
+```dockerfile
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY target/compliance-service-0.0.1-SNAPSHOT.jar app.jar
+EXPOSE 6005
+ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
+```
+
+### 4. Create Docker Compose File
+
+Create `docker-compose.yml` in the root directory:
+
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: bench-postgres
+    environment:
+      POSTGRES_DB: bench_readiness
+      POSTGRES_USER: benchuser
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - bench-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U benchuser -d bench_readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  eureka-server:
+    build:
+      context: ./eureka-server
+      dockerfile: Dockerfile
+    container_name: bench-eureka
+    ports:
+      - "6009:6009"
+    networks:
+      - bench-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:6009/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  compliance-service:
+    build:
+      context: ./compliance-service
+      dockerfile: Dockerfile
+    container_name: bench-compliance
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/bench_readiness
+      SPRING_DATASOURCE_USERNAME: benchuser
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:6009/eureka/
+    ports:
+      - "6005:6005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - bench-network
+    restart: on-failure
+
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: bench-auth
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/bench_readiness
+      SPRING_DATASOURCE_USERNAME: benchuser
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      APP_JWT_SECRET: ${JWT_SECRET}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:6009/eureka/
+    ports:
+      - "6004:6004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - bench-network
+    restart: on-failure
+
+  interview-service:
+    build:
+      context: ./interview-service
+      dockerfile: Dockerfile
+    container_name: bench-interview
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/bench_readiness
+      SPRING_DATASOURCE_USERNAME: benchuser
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:6009/eureka/
+    ports:
+      - "6006:6006"
+    depends_on:
+      - postgres
+      - eureka-server
+      - auth-service
+      - compliance-service
+    networks:
+      - bench-network
+    restart: on-failure
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: bench-ai
+    environment:
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-haiku-4-5}
+      CLAUDE_ASSESSMENT_MODEL: ${CLAUDE_ASSESSMENT_MODEL:-claude-sonnet-4-5}
+      CLAUDE_ASSESSMENT_MAX_TOKENS: ${CLAUDE_ASSESSMENT_MAX_TOKENS:-4000}
+      CLAUDE_RUBRIC_MAX_TOKENS: ${CLAUDE_RUBRIC_MAX_TOKENS:-1000}
+      CLAUDE_QUESTION_MAX_TOKENS: ${CLAUDE_QUESTION_MAX_TOKENS:-300}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:6009/eureka/
+    ports:
+      - "6003:6003"
+    depends_on:
+      - eureka-server
+      - compliance-service
+    networks:
+      - bench-network
+    restart: on-failure
+
+  observer-service:
+    build:
+      context: ./observer-service
+      dockerfile: Dockerfile
+    container_name: bench-observer
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/bench_readiness
+      SPRING_DATASOURCE_USERNAME: benchuser
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      SPRING_MAIL_PORT: ${MAIL_PORT:-587}
+      SPRING_MAIL_USERNAME: ${MAIL_USERNAME}
+      SPRING_MAIL_PASSWORD: ${MAIL_PASSWORD}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:6009/eureka/
+    ports:
+      - "6007:6007"
+    depends_on:
+      - postgres
+      - eureka-server
+      - auth-service
+    networks:
+      - bench-network
+    restart: on-failure
+
+  review-service:
+    build:
+      context: ./review-service
+      dockerfile: Dockerfile
+    container_name: bench-review
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/bench_readiness
+      SPRING_DATASOURCE_USERNAME: benchuser
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      APP_JWT_SECRET: ${JWT_SECRET}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:6009/eureka/
+      FEIGN_HTTPCLIENT_HC5_ENABLED: true
+    ports:
+      - "6008:6008"
+    depends_on:
+      - postgres
+      - eureka-server
+      - interview-service
+    networks:
+      - bench-network
+    restart: on-failure
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: bench-gateway
+    environment:
+      APP_JWT_SECRET: ${JWT_SECRET}
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:6009/eureka/
+      SPRING_CLOUD_GATEWAY_GLOBALCORS_CORSCONFIGURATIONS_[/**]_ALLOWEDORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:6001}
+    ports:
+      - "6002:6002"
+    depends_on:
+      - eureka-server
+      - auth-service
+      - interview-service
+      - ai-service
+      - observer-service
+      - review-service
+      - compliance-service
+    networks:
+      - bench-network
+    restart: on-failure
+
+volumes:
+  postgres-data:
+
+networks:
+  bench-network:
+    driver: bridge
+```
+
+### 5. Create Environment File
+
+Create `.env` file in the root directory:
+
+```bash
+# Database
+DB_PASSWORD=your-secure-password
+
+# JWT
+JWT_SECRET=production-jwt-secret-min-32-chars-change-this
+
+# Claude AI
+CLAUDE_API_KEY=sk-ant-your-actual-key
+CLAUDE_MODEL=claude-haiku-4-5
+CLAUDE_ASSESSMENT_MODEL=claude-sonnet-4-5
+CLAUDE_ASSESSMENT_MAX_TOKENS=4000
+CLAUDE_RUBRIC_MAX_TOKENS=1000
+CLAUDE_QUESTION_MAX_TOKENS=300
+
+# Email (Gmail SMTP)
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=your-email@gmail.com
+MAIL_PASSWORD=your-gmail-app-password
+
+# CORS
+CORS_ALLOWED_ORIGINS=http://localhost:6001
+```
+
+### 6. Build and Deploy
+
+```bash
+# Build all services
+mvn clean package -DskipTests
+
+# Build Docker images and start containers
+docker-compose up -d --build
+
+# View logs
+docker-compose logs -f
+
+# Check service health
+docker-compose ps
+```
+
+### 7. Initialize Database Schemas
+
+```bash
+# Connect to PostgreSQL container
+docker exec -it bench-postgres psql -U benchuser -d bench_readiness
+
+# Create schemas (if not already created)
+CREATE SCHEMA IF NOT EXISTS auth_svc;
+CREATE SCHEMA IF NOT EXISTS interview_svc;
+CREATE SCHEMA IF NOT EXISTS observer_svc;
+CREATE SCHEMA IF NOT EXISTS review_svc;
+CREATE SCHEMA IF NOT EXISTS compliance_svc;
+
+# Exit
+\q
+```
+
+Flyway migrations will run automatically when services start.
+
+### 8. Verify Deployment
+
+```bash
+# Check Eureka Dashboard
+curl http://localhost:6009
+
+# Check API Gateway health
+curl http://localhost:6002/actuator/health
+
+# Test authentication
+curl -X POST http://localhost:6002/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin@benchreadiness.com","password":"Admin@123"}'
+```
+
+### 9. Frontend Deployment (Docker)
+
+Create `frontend/Dockerfile`:
+
+```dockerfile
+FROM node:18-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:18-alpine
+WORKDIR /app
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/public ./public
+EXPOSE 6001
+CMD ["npm", "start"]
+```
+
+Add to `docker-compose.yml`:
+
+```yaml
+  frontend:
+    build:
+      context: ../AiInterviewBot
+      dockerfile: Dockerfile
+    container_name: bench-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://api-gateway:6002
+    ports:
+      - "6001:6001"
+    depends_on:
+      - api-gateway
+    networks:
+      - bench-network
+    restart: on-failure
+```
+
+### 10. Management Commands
+
+```bash
+# Stop all services
+docker-compose down
+
+# Stop and remove volumes (WARNING: deletes data)
+docker-compose down -v
+
+# Restart a specific service
+docker-compose restart ai-service
+
+# View logs for a specific service
+docker-compose logs -f ai-service
+
+# Scale a service (if needed)
+docker-compose up -d --scale interview-service=2
+
+# Update a service
+mvn clean package -DskipTests -pl interview-service
+docker-compose up -d --build interview-service
+
+# Execute command in container
+docker exec -it bench-ai sh
+
+# Check resource usage
+docker stats
+```
+
+### 11. Production Considerations
+
+**Security:**
+- Change all default passwords
+- Use Docker secrets for sensitive data
+- Enable HTTPS with SSL certificates
+- Configure firewall rules
+- Use non-root users in containers
+
+**Performance:**
+- Adjust JVM heap sizes based on load
+- Configure connection pools
+- Enable caching where appropriate
+- Monitor resource usage
+
+**Monitoring:**
+- Add health check endpoints
+- Configure log aggregation (ELK stack)
+- Set up metrics collection (Prometheus + Grafana)
+- Configure alerts for failures
+
+**Backup:**
+```bash
+# Backup PostgreSQL
+docker exec bench-postgres pg_dump -U benchuser bench_readiness > backup_$(date +%Y%m%d).sql
+
+# Restore PostgreSQL
+docker exec -i bench-postgres psql -U benchuser bench_readiness < backup_20260429.sql
+```
+
+### 12. Troubleshooting
+
+**Service won't start:**
+```bash
+# Check logs
+docker-compose logs service-name
+
+# Check if port is in use
+netstat -tlnp | grep 6002
+
+# Restart service
+docker-compose restart service-name
+```
+
+**Database connection issues:**
+```bash
+# Check PostgreSQL logs
+docker-compose logs postgres
+
+# Test connection
+docker exec -it bench-postgres psql -U benchuser -d bench_readiness
+
+# Verify schemas exist
+docker exec -it bench-postgres psql -U benchuser -d bench_readiness -c "\dn"
+```
+
+**Eureka registration issues:**
+```bash
+# Check Eureka dashboard
+curl http://localhost:6009
+
+# Verify service can reach Eureka
+docker exec -it bench-ai wget -O- http://eureka-server:6009/eureka/apps
+```
+
+**Memory issues:**
+```bash
+# Check container memory usage
+docker stats
+
+# Increase memory limits in docker-compose.yml
+deploy:
+  resources:
+    limits:
+      memory: 2G
+```
+
+### 13. CI/CD Integration
+
+**GitHub Actions Example:**
+
+Create `.github/workflows/deploy.yml`:
+
+```yaml
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up JDK 21
+        uses: actions/setup-java@v3
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      
+      - name: Build with Maven
+        run: mvn clean package -DskipTests
+      
+      - name: Build Docker images
+        run: docker-compose build
+      
+      - name: Push to Registry
+        run: |
+          echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+          docker-compose push
+      
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/bench-readiness
+            docker-compose pull
+            docker-compose up -d
+```
+
+---
+
+## Summary of Critical Fixes
+
+1. **Vague Answer Detection**: Increased threshold to 100 words to prevent false positives
+2. **PATCH Method Support**: Added Apache HttpClient 5 to review-service for Feign PATCH support
+3. **Sign-off Status Update**: Fixed interview status update from REVIEW_PENDING to SIGNED_OFF
+4. **Frontend Routing**: Removed conflicting Next.js rewrite rules
+5. **Token Tracking**: Enhanced logging for better debugging
+6. **Interview Quality**: Fixed field mapping for categoriesCovered/categoriesMissed
+
+All services now properly communicate via Eureka service discovery with Feign clients supporting all HTTP methods including PATCH.
