@@ -56,6 +56,14 @@ public class AnalyticsController {
         return ResponseEntity.ok(analytics);
     }
 
+    @GetMapping("/candidates")
+    public ResponseEntity<Map<String, Object>> getCandidatePerformanceAnalytics(
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole) {
+        Map<String, Object> analytics = analyticsService.getCandidatePerformanceAnalytics(userId, userRole);
+        return ResponseEntity.ok(analytics);
+    }
+
     @GetMapping("/debug")
     public ResponseEntity<Map<String, Object>> getDebugInfo(
             @RequestHeader("X-User-Id") String userId,

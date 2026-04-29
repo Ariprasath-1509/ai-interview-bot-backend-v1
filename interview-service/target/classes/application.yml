@@ -1,5 +1,5 @@
 server:
-  port: 8082
+  port: 6006
 
 spring:
   application:
@@ -24,3 +24,4 @@ app:
     secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
   observer-service-url: ${OBSERVER_SERVICE_URL:http://localhost:8084}
   ai-service-url: ${AI_SERVICE_URL:http://localhost:8083}
+  review-service-url: ${REVIEW_SERVICE_URL:http://localhost:8085}

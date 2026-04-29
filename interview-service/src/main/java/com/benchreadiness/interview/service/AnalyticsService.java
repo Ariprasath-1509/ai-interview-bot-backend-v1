@@ -16,14 +16,20 @@ public class AnalyticsService {
 
     private final InterviewRepository interviewRepository;
     private final EngineerRepository engineerRepository;
+    private final JobDescriptionRepository jdRepository;
     private final AuthServiceClient authServiceClient;
+    private final ReviewServiceClient reviewServiceClient;
 
     public AnalyticsService(InterviewRepository interviewRepository, 
                            EngineerRepository engineerRepository,
-                           AuthServiceClient authServiceClient) {
+                           JobDescriptionRepository jdRepository,
+                           AuthServiceClient authServiceClient,
+                           ReviewServiceClient reviewServiceClient) {
         this.interviewRepository = interviewRepository;
         this.engineerRepository = engineerRepository;
+        this.jdRepository = jdRepository;
         this.authServiceClient = authServiceClient;
+        this.reviewServiceClient = reviewServiceClient;
     }
 
     public Map<String, Object> getRealTimeAnalytics(String userId, String userRole) {
@@ -275,6 +281,143 @@ public class AnalyticsService {
         
         // HR and COMPLIANCE see all interviews (read-only)
         return interviewRepository.findAll();
+    }
+
+    public Map<String, Object> getCandidatePerformanceAnalytics(String userId, String userRole) {
+        List<Interview> interviews = getUserInterviews(userId, userRole);
+        
+        // Filter to completed interviews with assessments
+        List<Interview> assessedInterviews = interviews.stream()
+                .filter(i -> i.getStatus() == InterviewStatus.COMPLETED || i.getStatus() == InterviewStatus.SIGNED_OFF)
+                .filter(i -> i.getFinalVerdict() != null)
+                .collect(Collectors.toList());
+        
+        // Candidate performance by verdict
+        Map<String, Long> performanceByVerdict = new LinkedHashMap<>();
+        performanceByVerdict.put("READY", 0L);
+        performanceByVerdict.put("NEEDS_1_WEEK_PREP", 0L);
+        performanceByVerdict.put("NEEDS_RESKILLING", 0L);
+        performanceByVerdict.put("MISMATCH_WITH_JD", 0L);
+        performanceByVerdict.put("WITHDRAWN", 0L);
+        
+        assessedInterviews.forEach(i -> {
+            String verdict = i.getFinalVerdict().name();
+            performanceByVerdict.put(verdict, performanceByVerdict.get(verdict) + 1);
+        });
+        
+        // Performance by interview mode
+        Map<String, Map<String, Object>> performanceByMode = new LinkedHashMap<>();
+        for (InterviewMode mode : InterviewMode.values()) {
+            List<Interview> modeInterviews = assessedInterviews.stream()
+                    .filter(i -> i.getInterviewMode() == mode)
+                    .collect(Collectors.toList());
+            
+            long total = modeInterviews.size();
+            long ready = modeInterviews.stream()
+                    .filter(i -> i.getFinalVerdict() == ReadinessVerdict.READY)
+                    .count();
+            double successRate = total > 0 ? (double) ready / total * 100 : 0;
+            
+            Map<String, Object> modeStats = new HashMap<>();
+            modeStats.put("totalCandidates", total);
+            modeStats.put("readyCandidates", ready);
+            modeStats.put("successRate", Math.round(successRate * 100.0) / 100.0);
+            
+            performanceByMode.put(mode.name(), modeStats);
+        }
+        
+        // Top performing candidates (highest average scores)
+        List<Map<String, Object>> topCandidates = assessedInterviews.stream()
+                .map(interview -> {
+                    // Get engineer details
+                    Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
+                    JobDescription jd = jdRepository.findById(interview.getJdId()).orElse(null);
+                    
+                    String candidateName = engineer != null && engineer.getName() != null && !engineer.getName().isBlank()
+                            ? engineer.getName()
+                            : (engineer != null ? engineer.getEmail() : "Unknown");
+                    String candidateEmail = engineer != null ? engineer.getEmail() : "";
+                    String jdTitle = jd != null ? jd.getTitle() : "";
+                    
+                    List<Map<String, Object>> scores = reviewServiceClient.getScores(interview.getId());
+                    
+                    double avgScore = scores.stream()
+                            .mapToInt(score -> (Integer) score.get("value"))
+                            .average()
+                            .orElse(0.0);
+                    
+                    Map<String, Object> candidate = new HashMap<>();
+                    candidate.put("candidateName", candidateName);
+                    candidate.put("candidateEmail", candidateEmail);
+                    candidate.put("interviewMode", interview.getInterviewMode().name());
+                    candidate.put("averageScore", Math.round(avgScore * 100.0) / 100.0);
+                    candidate.put("verdict", interview.getFinalVerdict().name());
+                    candidate.put("jdTitle", jdTitle);
+                    candidate.put("interviewDate", interview.getCreatedAt().toString().substring(0, 10));
+                    
+                    return candidate;
+                })
+                .sorted((a, b) -> Double.compare((Double) b.get("averageScore"), (Double) a.get("averageScore")))
+                .limit(10)
+                .collect(Collectors.toList());
+        
+        // Skill gap analysis - most common weak areas
+        Map<String, Integer> skillGaps = new HashMap<>();
+        assessedInterviews.forEach(interview -> {
+            List<Map<String, Object>> scores = reviewServiceClient.getScores(interview.getId());
+            scores.stream()
+                    .filter(score -> (Integer) score.get("value") < 3) // Below average performance
+                    .forEach(score -> {
+                        String dimension = (String) score.get("dimension");
+                        skillGaps.put(dimension, skillGaps.getOrDefault(dimension, 0) + 1);
+                    });
+        });
+        
+        List<Map<String, Object>> commonWeaknesses = skillGaps.entrySet().stream()
+                .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                .limit(5)
+                .map(entry -> {
+                    Map<String, Object> weakness = new HashMap<>();
+                    weakness.put("skill", entry.getKey());
+                    weakness.put("candidateCount", entry.getValue());
+                    weakness.put("percentage", Math.round((double) entry.getValue() / assessedInterviews.size() * 100 * 100.0) / 100.0);
+                    return weakness;
+                })
+                .collect(Collectors.toList());
+        
+        // Average scores by skill dimension
+        Map<String, Double> avgScoresByDimension = new HashMap<>();
+        Map<String, Integer> dimensionCounts = new HashMap<>();
+        
+        assessedInterviews.forEach(interview -> {
+            List<Map<String, Object>> scores = reviewServiceClient.getScores(interview.getId());
+            scores.forEach(score -> {
+                String dimension = (String) score.get("dimension");
+                Integer value = (Integer) score.get("value");
+                
+                avgScoresByDimension.put(dimension, avgScoresByDimension.getOrDefault(dimension, 0.0) + value);
+                dimensionCounts.put(dimension, dimensionCounts.getOrDefault(dimension, 0) + 1);
+            });
+        });
+        
+        Map<String, Double> finalAvgScores = avgScoresByDimension.entrySet().stream()
+                .collect(Collectors.toMap(
+                    Map.Entry::getKey,
+                    entry -> Math.round(entry.getValue() / dimensionCounts.get(entry.getKey()) * 100.0) / 100.0
+                ));
+        
+        Map<String, Object> result = new HashMap<>();
+        result.put("performanceByVerdict", performanceByVerdict);
+        result.put("performanceByMode", performanceByMode);
+        result.put("topCandidates", topCandidates);
+        result.put("commonWeaknesses", commonWeaknesses);
+        result.put("averageScoresBySkill", finalAvgScores);
+        result.put("totalAssessedCandidates", assessedInterviews.size());
+        result.put("overallSuccessRate", assessedInterviews.size() > 0 ? 
+            Math.round((double) performanceByVerdict.get("READY") / assessedInterviews.size() * 100 * 100.0) / 100.0 : 0);
+        result.put("hasData", !assessedInterviews.isEmpty());
+        
+        return result;
     }
 
     public Map<String, Object> getDebugInfo(String userId, String userRole) {

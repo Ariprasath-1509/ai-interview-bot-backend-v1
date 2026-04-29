@@ -118,6 +118,7 @@ AiInterviewBot/   (3000) — Next.js 15, App Router, server actions
 - **Duration customization** — override mode defaults with custom duration in interview creation
 - **Token limit enforcement** — checks daily usage before allowing new interviews
 - **Real-time analytics** — interview status counts, success rates, mode distribution
+- **Candidate performance analytics** — performance by verdict/mode, top candidates, skill gap analysis, average scores by dimension
 - **Rubric generation** — calls ai-service at creation time to generate JD-driven evaluation categories + candidate profile
 - `GET /interviews/mine` — candidate sees only their own interviews (filtered by `X-User-Email`)
 - `GET /interviews/summary` — manager list with candidate name, email, JD title, verdict, interview mode
@@ -269,6 +270,7 @@ OBSERVER_SERVICE_URL=http://localhost:8084
 AI_SERVICE_URL=http://localhost:8083
 AUTH_SERVICE_URL=http://localhost:8081
 INTERVIEW_SERVICE_URL=http://localhost:8082
+REVIEW_SERVICE_URL=http://localhost:8085
 INTERVIEW_BASE_URL=http://localhost:3000/interview
 COMPLIANCE_SERVICE_URL=http://localhost:8086  # Direct service URL for token tracking
 ```
@@ -519,6 +521,11 @@ curl http://localhost:8080/analytics/realtime \
 curl http://localhost:8080/analytics/modes \
   -H "Authorization: Bearer <token>"
 # Response: {"modeDistribution":{"SCREENING":5,"L1":3,"L2":4,"L3":2},"totalInterviews":14}
+
+# Get candidate performance analytics
+curl http://localhost:8080/analytics/candidates \
+  -H "Authorization: Bearer <token>"
+# Response: {"performanceByVerdict":{"READY":6,"NEEDS_1_WEEK_PREP":4},"performanceByMode":{"L1":{"totalCandidates":5,"readyCandidates":3,"successRate":60.0}},"topCandidates":[{"candidateName":"John Doe","averageScore":4.2,"verdict":"READY"}],"commonWeaknesses":[{"skill":"spring","candidateCount":8,"percentage":40.0}],"averageScoresBySkill":{"java":3.8,"spring":3.2}}
 ```
 
 ### Token Management

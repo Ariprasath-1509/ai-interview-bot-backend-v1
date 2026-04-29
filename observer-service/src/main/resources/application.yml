@@ -1,5 +1,5 @@
 server:
-  port: 8084
+  port: 6007
 
 spring:
   application:
@@ -31,7 +31,7 @@ app:
   jwt:
     secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
   interview-base-url: ${INTERVIEW_BASE_URL:http://localhost:3000/interview}
-  auth-service-url: ${AUTH_SERVICE_URL:http://localhost:8081}
-  interview-service-url: ${INTERVIEW_SERVICE_URL:http://localhost:8082}
+  auth-service-url: ${AUTH_SERVICE_URL:http://localhost:6004}
+  interview-service-url: ${INTERVIEW_SERVICE_URL:http://localhost:6006}
   digest:
     cron: ${DIGEST_CRON:0 0 19 * * *}

@@ -1,5 +1,5 @@
 server:
-  port: 8083
+  port: 6003
 
 spring:
   application:
@@ -17,4 +17,4 @@ app:
     question-max-tokens: 300
     assessment-max-tokens: 4000
     rubric-max-tokens: 1000
-  compliance-service-url: ${COMPLIANCE_SERVICE_URL:http://localhost:8086}
+  compliance-service-url: ${COMPLIANCE_SERVICE_URL:http://localhost:6005}

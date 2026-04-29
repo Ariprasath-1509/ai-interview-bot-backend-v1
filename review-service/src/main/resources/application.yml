@@ -1,5 +1,5 @@
 server:
-  port: 8085
+  port: 6008
 
 spring:
   application:
@@ -22,4 +22,4 @@ spring:
 app:
   jwt:
     secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
-  interview-service-url: ${INTERVIEW_SERVICE_URL:http://localhost:8082}
+  interview-service-url: ${INTERVIEW_SERVICE_URL:http://localhost:6006}
