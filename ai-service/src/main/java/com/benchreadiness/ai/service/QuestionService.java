@@ -278,9 +278,10 @@ public class QuestionService {
             }
         }
         
-        // Check word count (under 15 words)
-        if (trimmed.split("\\s+").length < 15) {
-            log.debug("Answer too short ({} words): '{}'", trimmed.split("\\s+").length, trimmed);
+        // Check word count (under 100 words)
+        int wordCount = trimmed.split("\\s+").length;
+        if (wordCount < 100) {
+            log.debug("Answer too short ({} words): '{}'", wordCount, trimmed);
             return true;
         }
         

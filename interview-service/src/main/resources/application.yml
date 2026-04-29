@@ -5,7 +5,7 @@ spring:
   application:
     name: interview-service
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:3308/bench_readiness}
+    url: jdbc:postgresql://localhost:3308/bench_readiness
     username: postgres
     password: root
     driver-class-name: org.postgresql.Driver
@@ -19,9 +19,18 @@ spring:
     schemas: interview_svc
     locations: classpath:db/migration
 
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:6009/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    hostname: localhost
+    prefer-ip-address: false
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+
 app:
   jwt:
-    secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
-  observer-service-url: ${OBSERVER_SERVICE_URL:http://localhost:6007}
-  ai-service-url: ${AI_SERVICE_URL:http://localhost:6003}
-  review-service-url: ${REVIEW_SERVICE_URL:http://localhost:6008}
+    secret: dev-jwt-secret-change-in-production-min-32-chars

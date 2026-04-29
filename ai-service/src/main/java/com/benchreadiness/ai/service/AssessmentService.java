@@ -1,5 +1,6 @@
 package com.benchreadiness.ai.service;
 
+import com.benchreadiness.ai.client.ComplianceServiceClient;
 import com.benchreadiness.ai.dto.AssessmentRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,11 +16,13 @@ public class AssessmentService {
 
     private final OpenAiClient openAiClient;
     private final RubricService rubricService;
+    private final ComplianceServiceClient complianceServiceClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public AssessmentService(OpenAiClient openAiClient, RubricService rubricService) {
+    public AssessmentService(OpenAiClient openAiClient, RubricService rubricService, ComplianceServiceClient complianceServiceClient) {
         this.openAiClient = openAiClient;
         this.rubricService = rubricService;
+        this.complianceServiceClient = complianceServiceClient;
     }
 
     public Map<String, Object> assess(AssessmentRequest req, String userId) {
@@ -626,22 +629,8 @@ public class AssessmentService {
                 "assessmentSource", source
             );
             
-            java.net.http.HttpRequest httpRequest = java.net.http.HttpRequest.newBuilder()
-                    .uri(java.net.URI.create("http://localhost:8080/tokens/assessment-response"))
-                    .header("Content-Type", "application/json")
-                    .header("X-User-Id", userId != null ? userId : "system")
-                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request)))
-                    .build();
-                    
-            java.net.http.HttpClient.newHttpClient()
-                    .sendAsync(httpRequest, java.net.http.HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(response -> {
-                        if (response.statusCode() == 200) {
-                            log.info("Successfully stored assessment response for interview {}", interviewId);
-                        } else {
-                            log.warn("Failed to store assessment response: {}", response.statusCode());
-                        }
-                    });
+            complianceServiceClient.storeAssessmentResponse(request, userId != null ? userId : "system");
+            log.info("Successfully stored assessment response for interview {}", interviewId);
         } catch (Exception e) {
             log.error("Error storing assessment response: {}", e.getMessage());
         }
@@ -649,24 +638,9 @@ public class AssessmentService {
 
     private void finalizeInterviewTokens(String interviewId, String userId) {
         try {
-            Map<String, Object> request = Map.of("interviewId", interviewId);
-            
-            java.net.http.HttpRequest httpRequest = java.net.http.HttpRequest.newBuilder()
-                    .uri(java.net.URI.create("http://localhost:8080/tokens/finalize-interview"))
-                    .header("Content-Type", "application/json")
-                    .header("X-User-Id", userId != null ? userId : "system")
-                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request)))
-                    .build();
-                    
-            java.net.http.HttpClient.newHttpClient()
-                    .sendAsync(httpRequest, java.net.http.HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(response -> {
-                        if (response.statusCode() == 200) {
-                            log.info("Successfully finalized token summary for interview {}", interviewId);
-                        } else {
-                            log.warn("Failed to finalize token summary: {}", response.statusCode());
-                        }
-                    });
+            Map<String, String> request = Map.of("interviewId", interviewId);
+            complianceServiceClient.finalizeInterviewTokens(request, userId != null ? userId : "system");
+            log.info("Successfully finalized token summary for interview {}", interviewId);
         } catch (Exception e) {
             log.error("Error finalizing interview tokens: {}", e.getMessage());
         }

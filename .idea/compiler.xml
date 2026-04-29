@@ -12,6 +12,7 @@
         <module name="interview-service" />
         <module name="observer-service" />
         <module name="compliance-service" />
+        <module name="eureka-server" />
         <module name="ai-service" />
       </profile>
     </annotationProcessing>
@@ -22,6 +23,7 @@
       <module name="api-gateway" options="-parameters" />
       <module name="auth-service" options="-parameters" />
       <module name="compliance-service" options="-parameters" />
+      <module name="eureka-server" options="-parameters" />
       <module name="interview-service" options="-parameters" />
       <module name="observer-service" options="-parameters" />
       <module name="review-service" options="-parameters" />

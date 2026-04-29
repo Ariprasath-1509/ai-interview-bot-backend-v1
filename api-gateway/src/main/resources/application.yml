@@ -15,30 +15,76 @@ spring:
             allowCredentials: true
       routes:
         - id: auth-service
-          uri: http://localhost:6004
+          uri: lb://AUTH-SERVICE
+          predicates:
+            - Path=/api/auth/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: auth-service-direct
+          uri: lb://AUTH-SERVICE
           predicates:
             - Path=/auth/**
         - id: interview-service
-          uri: http://localhost:6006
+          uri: lb://INTERVIEW-SERVICE
+          predicates:
+            - Path=/api/interviews/**,/api/engineers/**,/api/jd/**,/api/analytics/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: interview-service-direct
+          uri: lb://INTERVIEW-SERVICE
           predicates:
             - Path=/interviews/**,/engineers/**,/jd/**,/analytics/**
         - id: ai-service
-          uri: http://localhost:6003
+          uri: lb://AI-SERVICE
+          predicates:
+            - Path=/api/ai/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: ai-service-direct
+          uri: lb://AI-SERVICE
           predicates:
             - Path=/ai/**
         - id: observer-service
-          uri: http://localhost:6007
+          uri: lb://OBSERVER-SERVICE
+          predicates:
+            - Path=/api/observer/**,/api/ws/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: observer-service-direct
+          uri: lb://OBSERVER-SERVICE
           predicates:
             - Path=/observer/**,/ws/**
         - id: review-service
-          uri: http://localhost:6008
+          uri: lb://REVIEW-SERVICE
+          predicates:
+            - Path=/api/reviews/**,/api/scores/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: review-service-direct
+          uri: lb://REVIEW-SERVICE
           predicates:
             - Path=/reviews/**,/scores/**
         - id: compliance-service
-          uri: http://localhost:6005
+          uri: lb://COMPLIANCE-SERVICE
+          predicates:
+            - Path=/api/compliance/**,/api/tokens/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: compliance-service-direct
+          uri: lb://COMPLIANCE-SERVICE
           predicates:
             - Path=/compliance/**,/tokens/**
 
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:6009/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    hostname: localhost
+    prefer-ip-address: false
+
 app:
   jwt:
-    secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
+    secret: dev-jwt-secret-change-in-production-min-32-chars
