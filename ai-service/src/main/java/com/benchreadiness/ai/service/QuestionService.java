@@ -93,7 +93,7 @@ public class QuestionService {
         this.cacheService = cacheService;
     }
 
-    public QuestionResult getNextQuestion(NextQuestionRequest req) {
+    public QuestionResult getNextQuestion(NextQuestionRequest req, String userId) {
         // Check for manipulation
         ManipulationCheck check = checkManipulation(req.getLastAnswer(), req.getManipulationCount());
 
@@ -128,7 +128,7 @@ public class QuestionService {
                     }
                 }
                 
-                String question = llmQuestion(req);
+                String question = llmQuestion(req, userId);
                 
                 // Cache first question if this was slot 1
                 if (req.getSlot() == 1 && (req.getLastAnswer() == null || req.getLastAnswer().isBlank())) {
@@ -156,7 +156,7 @@ public class QuestionService {
         return new ManipulationCheck(true, newCount <= MANIPULATION_WARN_THRESHOLD, newCount >= MANIPULATION_TERMINATE_THRESHOLD);
     }
 
-    private String llmQuestion(NextQuestionRequest req) throws Exception {
+    private String llmQuestion(NextQuestionRequest req, String userId) throws Exception {
         String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";
         Map<Integer, String> slotThemes = MODE_SLOT_THEMES.getOrDefault(mode, MODE_SLOT_THEMES.get("L3"));
         String slotTheme = slotThemes.getOrDefault(req.getSlot(),
@@ -222,7 +222,8 @@ public class QuestionService {
             ? "Ask your opening technical question now. One or two sentences, no career narrative."
             : "Ask your next question now. Must follow from their last answer.");
 
-        return openAiClient.chatQuestionWithSlot(system, user.toString(), req.getSlot()).replaceAll("^[\"'\\s]+|[\"'\\s]+$", "");
+        String result = openAiClient.chatQuestionWithSlotAndTracking(system, user.toString(), req.getSlot(), req.getInterviewId(), userId);
+        return result.replaceAll("^[\"'\\s]+|[\"'\\s]+$", "");
     }
 
     private String extractCoveredTopics(List<NextQuestionRequest.Utterance> utterances) {
@@ -260,8 +261,26 @@ public class QuestionService {
         
         String trimmed = answer.trim().toLowerCase();
         
+        // Check for explicit skip/next requests - these should NOT be treated as vague
+        String[] skipPatterns = {
+            "next question", "skip", "skip this", "move on", "pass", "next",
+            "i don't know this", "i dont know this", "not prepared", "can we skip"
+        };
+        
+        for (String pattern : skipPatterns) {
+            if (trimmed.equals(pattern) || 
+                trimmed.startsWith(pattern + " ") || 
+                trimmed.startsWith(pattern + ",") ||
+                trimmed.endsWith(" " + pattern) ||
+                trimmed.contains(" " + pattern + " ")) {
+                log.info("Detected skip request: '{}' - allowing progression to next question", trimmed);
+                return false; // Allow moving to next question
+            }
+        }
+        
         // Check word count (under 15 words)
         if (trimmed.split("\\s+").length < 15) {
+            log.debug("Answer too short ({} words): '{}'", trimmed.split("\\s+").length, trimmed);
             return true;
         }
         
@@ -275,6 +294,7 @@ public class QuestionService {
         
         for (String pattern : vaguePatterns) {
             if (trimmed.contains(pattern)) {
+                log.debug("Detected vague pattern '{}' in answer: '{}'", pattern, trimmed);
                 return true;
             }
         }

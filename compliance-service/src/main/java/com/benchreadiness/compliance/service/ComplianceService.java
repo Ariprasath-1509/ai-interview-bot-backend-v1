@@ -2,6 +2,8 @@ package com.benchreadiness.compliance.service;
 
 import com.benchreadiness.compliance.dto.AuditLogRequest;
 import com.benchreadiness.compliance.entity.*;
+import com.benchreadiness.compliance.repository.AuditLogRepository;
+import com.benchreadiness.compliance.repository.RetentionPolicyRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;

@@ -9,6 +9,7 @@ public class AssessmentRequest {
     private String rubricJson;
     private String candidateProfileJson;
     private String interviewMode;
+    private String interviewId;
 
     public String getJdTitle() { return jdTitle; }
     public void setJdTitle(String jdTitle) { this.jdTitle = jdTitle; }
@@ -26,4 +27,6 @@ public class AssessmentRequest {
     public void setCandidateProfileJson(String candidateProfileJson) { this.candidateProfileJson = candidateProfileJson; }
     public String getInterviewMode() { return interviewMode; }
     public void setInterviewMode(String interviewMode) { this.interviewMode = interviewMode; }
+    public String getInterviewId() { return interviewId; }
+    public void setInterviewId(String interviewId) { this.interviewId = interviewId; }
 }

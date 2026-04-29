@@ -18,6 +18,8 @@ import java.util.LinkedHashMap;
 @Component
 public class OpenAiClient {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(OpenAiClient.class);
+
     @Value("${app.claude.api-key:}")
     private String apiKey;
 
@@ -36,11 +38,14 @@ public class OpenAiClient {
     @Value("${app.claude.question-max-tokens:300}")
     private int questionMaxTokens;
 
-    @Value("${app.claude.assessment-max-tokens:1200}")
+    @Value("${app.claude.assessment-max-tokens:4000}")
     private int assessmentMaxTokens;
 
     @Value("${app.claude.rubric-max-tokens:1000}")
     private int rubricMaxTokens;
+
+    @Value("${app.compliance-service-url:http://localhost:8086}")
+    private String complianceServiceUrl;
 
     private static final String CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
     private static final String ANTHROPIC_VERSION = "2023-06-01";
@@ -49,7 +54,10 @@ public class OpenAiClient {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public boolean isConfigured() {
-        return apiKey != null && !apiKey.isBlank();
+        boolean configured = apiKey != null && !apiKey.isBlank();
+        log.info("Claude API configured: {}, API key present: {}, API key starts with: {}", 
+                configured, apiKey != null, apiKey != null ? apiKey.substring(0, Math.min(10, apiKey.length())) + "..." : "null");
+        return configured;
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
@@ -71,16 +79,17 @@ public class OpenAiClient {
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatAssessment(String systemPrompt, String userPrompt) throws Exception {
-        // Claude doesn't support structured output schema like OpenAI — instruct via system prompt instead
-        String assessmentSystem = systemPrompt + "\n\nYou MUST respond with valid JSON only. No explanation, no markdown, no code block. Raw JSON matching this exact structure:\n" +
-            "{\"technicalKnowledge\":{\"score\":1-5,\"rationale\":\"...\"},\"communication\":{\"score\":1-5,\"rationale\":\"...\"}," +
-            "\"jdFit\":{\"score\":1-5,\"rationale\":\"...\"},\"proposedVerdict\":\"READY|NEEDS_1_WEEK_PREP|NEEDS_RESKILLING|MISMATCH_WITH_JD\"," +
-            "\"summary\":\"...\",\"strengths\":[\"...\"],\"gaps\":[\"...\"]}";
-        return chat(assessmentSystem, userPrompt, assessmentModel, assessmentTemperature, assessmentMaxTokens);
+        // Use the system prompt as-is - it already contains the proper JSON structure
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, assessmentMaxTokens);
     }
 
     private String chat(String systemPrompt, String userPrompt, String model,
                         double temperature, int maxTokens) throws Exception {
+        return chat(systemPrompt, userPrompt, model, temperature, maxTokens, null, null, null);
+    }
+
+    private String chat(String systemPrompt, String userPrompt, String model,
+                        double temperature, int maxTokens, String interviewId, String operationType, String userId) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model);
         body.put("max_tokens", maxTokens);
@@ -104,6 +113,17 @@ public class OpenAiClient {
         }
 
         JsonNode root = objectMapper.readTree(response.body());
+        
+        // Extract token usage
+        JsonNode usage = root.path("usage");
+        int promptTokens = usage.path("input_tokens").asInt(0);
+        int completionTokens = usage.path("output_tokens").asInt(0);
+        
+        // Track token usage if interview context provided
+        if (interviewId != null && operationType != null) {
+            trackTokenUsage(interviewId, operationType, model, promptTokens, completionTokens, userId);
+        }
+        
         String text = root.path("content").get(0).path("text").asText().trim();
         return stripMarkdownFences(text);
     }
@@ -117,5 +137,56 @@ public class OpenAiClient {
             if (end != -1) s = s.substring(0, end);
         }
         return s.trim();
+    }
+
+    private void trackTokenUsage(String interviewId, String operationType, String model, 
+                                int promptTokens, int completionTokens, String userId) {
+        try {
+            Map<String, Object> trackingData = Map.of(
+                "interviewId", interviewId,
+                "operationType", operationType,
+                "modelUsed", model,
+                "promptTokens", promptTokens,
+                "completionTokens", completionTokens
+            );
+            
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(complianceServiceUrl + "/tokens/track"))
+                    .header("Content-Type", "application/json")
+                    .header("X-User-Id", userId != null ? userId : "system")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(trackingData)))
+                    .build();
+                    
+            httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(response -> {
+                        if (response.statusCode() != 200) {
+                            System.err.println("Failed to track tokens: " + response.statusCode());
+                        } else {
+                            log.debug("Successfully tracked {} tokens for interview {} ({})", 
+                                    promptTokens + completionTokens, interviewId, operationType);
+                        }
+                    });
+        } catch (Exception e) {
+            System.err.println("Error tracking token usage: " + e.getMessage());
+        }
+    }
+
+    // Public methods for tracking with interview context
+    public String chatQuestionWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, questionMaxTokens, interviewId, "question", userId);
+    }
+
+    public String chatQuestionWithSlotAndTracking(String systemPrompt, String userPrompt, int slot, String interviewId, String userId) throws Exception {
+        String model = slot <= 5 ? questionModel : assessmentModel;
+        return chat(systemPrompt, userPrompt, model, questionTemperature, questionMaxTokens, interviewId, "question", userId);
+    }
+
+    public String chatAssessmentWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
+        // Use the system prompt as-is from AssessmentService - it already contains the proper JSON structure
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, assessmentMaxTokens, interviewId, "assessment", userId);
+    }
+
+    public String chatRubricWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, rubricMaxTokens, interviewId, "rubric", userId);
     }
 }

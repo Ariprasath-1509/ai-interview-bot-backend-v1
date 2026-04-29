@@ -15,7 +15,7 @@ public class CreateInterviewRequest {
     @NotBlank
     private String jdTitle;
 
-    @NotBlank @Size(min = 50, message = "JD text must be at least 50 characters")
+    @NotBlank @Size(min = 5, message = "JD text must be at least 50 characters")
     private String jdText;
 
     private String focusAreas;
@@ -24,6 +24,8 @@ public class CreateInterviewRequest {
     private String resumeSummary;
 
     private InterviewMode interviewMode = InterviewMode.SCREENING;
+    
+    private Integer customDurationMinutes; // Optional override for mode default
 
     public String getEngineerEmail() { return engineerEmail; }
     public void setEngineerEmail(String engineerEmail) { this.engineerEmail = engineerEmail; }
@@ -39,4 +41,6 @@ public class CreateInterviewRequest {
     public void setResumeSummary(String resumeSummary) { this.resumeSummary = resumeSummary; }
     public InterviewMode getInterviewMode() { return interviewMode; }
     public void setInterviewMode(InterviewMode interviewMode) { this.interviewMode = interviewMode; }
+    public Integer getCustomDurationMinutes() { return customDurationMinutes; }
+    public void setCustomDurationMinutes(Integer customDurationMinutes) { this.customDurationMinutes = customDurationMinutes; }
 }

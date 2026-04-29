@@ -15,5 +15,6 @@ app:
     question-temperature: 0.55
     assessment-temperature: 0.25
     question-max-tokens: 300
-    assessment-max-tokens: 2500
+    assessment-max-tokens: 4000
     rubric-max-tokens: 1000
+  compliance-service-url: ${COMPLIANCE_SERVICE_URL:http://localhost:8086}

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.Arrays;
 
 @Service
 public class AssessmentService {
@@ -21,7 +22,7 @@ public class AssessmentService {
         this.rubricService = rubricService;
     }
 
-    public Map<String, Object> assess(AssessmentRequest req) {
+    public Map<String, Object> assess(AssessmentRequest req, String userId) {
         List<Map<String, String>> utterances = parseUtterances(req.getTranscriptJson());
         long candidateWords = utterances.stream()
             .filter(u -> "CANDIDATE".equals(u.get("speaker")))
@@ -29,23 +30,32 @@ public class AssessmentService {
         long candidateTurns = utterances.stream()
             .filter(u -> "CANDIDATE".equals(u.get("speaker"))).count();
             
+        log.info("Assessment request for interview {}: {} candidate words, {} candidate turns", 
+                req.getInterviewId(), candidateWords, candidateTurns);
+            
         // Skip Claude for insufficient responses
         if (candidateWords < 50 || candidateTurns < 3) {
+            log.warn("Insufficient responses for interview {}: {} words, {} turns", 
+                    req.getInterviewId(), candidateWords, candidateTurns);
             return thinTranscriptResult("Insufficient responses — candidate answered fewer than 3 questions or provided less than 50 words total.");
         }
         
-        if (!openAiClient.isConfigured()) return heuristicAssessment(utterances);
+        if (!openAiClient.isConfigured()) {
+            log.warn("Claude API not configured - falling back to heuristic assessment");
+            return heuristicAssessment(utterances);
+        }
         try {
-            return twoPassAssessment(req, utterances);
+            log.info("Starting two-pass Claude assessment for interview: {}", req.getInterviewId());
+            return twoPassAssessment(req, utterances, userId);
         } catch (Exception e) {
-            log.warn("LLM assessment failed: {}", e.getMessage());
+            log.error("LLM assessment failed for interview {}: {}", req.getInterviewId(), e.getMessage(), e);
             return heuristicAssessment(utterances);
         }
     }
 
     // ── Pass 1: Evidence extraction ──────────────────────────────────────────
     private Map<String, List<String>> extractEvidence(
-            List<Map<String, String>> utterances, List<Map<String, Object>> categories) throws Exception {
+            List<Map<String, String>> utterances, List<Map<String, Object>> categories, String interviewId, String userId) throws Exception {
 
         String categoryList = categories.stream()
             .map(c -> "- " + c.get("key") + ": " + c.get("description"))
@@ -59,7 +69,7 @@ public class AssessmentService {
             "Categories:\n" + categoryList;
 
         String transcript = buildEfficientTranscript(utterances);
-        String raw = openAiClient.chatQuestion(system, "Transcript:\n" + transcript);
+        String raw = openAiClient.chatAssessmentWithTracking(system, "Transcript:\n" + transcript, interviewId, userId);
         JsonNode json = objectMapper.readTree(raw);
 
         Map<String, List<String>> evidence = new LinkedHashMap<>();
@@ -75,8 +85,10 @@ public class AssessmentService {
 
     // ── Pass 2: Full assessment ───────────────────────────────────────────────
     private Map<String, Object> twoPassAssessment(
-            AssessmentRequest req, List<Map<String, String>> utterances) throws Exception {
+            AssessmentRequest req, List<Map<String, String>> utterances, String userId) throws Exception {
 
+        log.info("Starting two-pass assessment for interview: {}", req.getInterviewId());
+        
         List<Map<String, Object>> categories;
         if (req.getRubricJson() == null || req.getRubricJson().isBlank()) {
             log.info("rubricJson not provided — generating from JD");
@@ -85,18 +97,33 @@ public class AssessmentService {
                 rubricReq.setJdTitle(req.getJdTitle());
                 rubricReq.setJdText(req.getJdText());
                 rubricReq.setResumeSummary(req.getResumeSummary() != null ? req.getResumeSummary() : "");
-                Map<String, Object> generated = rubricService.generateRubric(rubricReq);
+                rubricReq.setInterviewId(req.getInterviewId());
+                Map<String, Object> generated = rubricService.generateRubric(rubricReq, userId);
                 categories = parseCategories(objectMapper.writeValueAsString(generated.get("rubric")));
+                log.info("Generated {} categories from JD", categories.size());
             } catch (Exception e) {
                 log.warn("On-the-fly rubric generation failed: {}", e.getMessage());
                 categories = defaultCategories();
             }
         } else {
             categories = parseCategories(req.getRubricJson());
+            log.info("Using provided rubric with {} categories", categories.size());
         }
 
         Map<String, Object> candidateProfile = parseCandidateProfile(req.getCandidateProfileJson());
-        Map<String, List<String>> evidence = extractEvidence(utterances, categories);
+        log.info("Candidate profile: level={}, yoe={}", 
+                candidateProfile.getOrDefault("level", "unknown"), 
+                candidateProfile.getOrDefault("yearsOfExperience", "unknown"));
+        
+        log.info("Starting evidence extraction pass...");
+        Map<String, List<String>> evidence;
+        try {
+            evidence = extractEvidence(utterances, categories, req.getInterviewId(), userId);
+            log.info("Evidence extraction completed for {} categories", evidence.size());
+        } catch (Exception e) {
+            log.error("Evidence extraction failed: {}", e.getMessage(), e);
+            throw e;
+        }
 
         String categoryScoreSchema = categories.stream()
             .map(c -> "    \"" + c.get("key") + "\": {\n" +
@@ -205,9 +232,67 @@ public class AssessmentService {
             "Claimed expertise from profile: " + claimed + "\n" +
             "\nExtracted evidence per category:\n" + evidenceSummary;
 
-        String raw = openAiClient.chatAssessment(system, user);
-        JsonNode json = objectMapper.readTree(raw);
-        return buildResult(json, categories, evidence);
+        log.info("Starting final assessment pass with system prompt length: {}, user prompt length: {}", 
+                system.length(), user.length());
+        
+        String raw;
+        try {
+            raw = openAiClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
+            log.info("Final assessment completed, response length: {}", raw.length());
+        } catch (Exception e) {
+            log.error("Final assessment API call failed: {}", e.getMessage(), e);
+            throw e;
+        }
+        
+        JsonNode json;
+        try {
+            json = objectMapper.readTree(raw);
+            log.info("Assessment JSON parsed successfully");
+        } catch (com.fasterxml.jackson.core.io.JsonEOFException e) {
+            log.error("Failed to parse assessment JSON response - likely truncated: {}", e.getMessage());
+            log.error("Raw response (first 1000 chars): {}", raw.substring(0, Math.min(1000, raw.length())));
+            
+            // If JSON is truncated, try a shorter assessment
+            if (raw.length() > 500 && (raw.contains("categoryScores") || raw.contains("springBootProficiency"))) {
+                log.info("Attempting recovery with shorter assessment prompt...");
+                try {
+                    String shorterSystem = createShorterAssessmentPrompt(categories, req.getInterviewMode());
+                    String shorterUser = "Role: " + req.getJdTitle() + "\n" +
+                        "Evidence:\n" + evidenceSummary.substring(0, Math.min(800, evidenceSummary.length()));
+                    
+                    String retryRaw = openAiClient.chatAssessmentWithTracking(shorterSystem, shorterUser, req.getInterviewId(), userId);
+                    json = objectMapper.readTree(retryRaw);
+                    log.info("Recovery assessment successful");
+                } catch (Exception retryE) {
+                    log.error("Recovery assessment also failed: {}", retryE.getMessage());
+                    throw e; // Throw original exception
+                }
+            } else {
+                throw e;
+            }
+        } catch (com.fasterxml.jackson.core.JsonParseException e) {
+            log.error("Failed to parse assessment JSON response - parse error: {}", e.getMessage());
+            log.error("Raw response (first 1000 chars): {}", raw.substring(0, Math.min(1000, raw.length())));
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to parse assessment JSON response: {}", e.getMessage());
+            log.error("Raw response (first 500 chars): {}", raw.substring(0, Math.min(500, raw.length())));
+            throw e;
+        }
+        
+        Map<String, Object> result = buildResult(json, categories, evidence);
+        
+        // Store assessment response and finalize token summary
+        try {
+            String assessmentJson = objectMapper.writeValueAsString(result);
+            int totalTokens = calculateTotalTokensUsed(req.getInterviewId());
+            storeAssessmentResponse(req.getInterviewId(), assessmentJson, totalTokens, "claude-two-pass", userId);
+            finalizeInterviewTokens(req.getInterviewId(), userId);
+        } catch (Exception e) {
+            log.warn("Failed to store assessment response for interview {}: {}", req.getInterviewId(), e.getMessage());
+        }
+        
+        return result;
     }
 
     private Map<String, Object> buildResult(JsonNode json, List<Map<String, Object>> categories,
@@ -246,10 +331,45 @@ public class AssessmentService {
         result.put("categoryScores", scoreRows);
         result.put("proposedVerdict", json.path("proposedVerdict").asText("NEEDS_1_WEEK_PREP"));
         result.put("summary", json.path("summary").asText());
-        result.put("resumeConsistency", parseObject(json.path("resumeConsistency")));
-        result.put("behavioralSignals", parseObject(json.path("behavioralSignals")));
-        result.put("interviewQuality", parseObject(json.path("interviewQuality")));
-        result.put("candidateFeedback", parseCandidateFeedback(json.path("candidateFeedback")));
+        
+        // Handle optional fields that may not be present in shorter responses
+        JsonNode resumeConsistency = json.path("resumeConsistency");
+        if (!resumeConsistency.isMissingNode()) {
+            result.put("resumeConsistency", parseObject(resumeConsistency));
+        } else {
+            result.put("resumeConsistency", Map.of("claimed", List.of(), "demonstrated", List.of(), 
+                "notDemonstrated", List.of(), "consistencyScore", 3, "flags", List.of()));
+        }
+        
+        JsonNode behavioralSignals = json.path("behavioralSignals");
+        if (!behavioralSignals.isMissingNode()) {
+            result.put("behavioralSignals", parseObject(behavioralSignals));
+        } else {
+            result.put("behavioralSignals", Map.of("ownershipLevel", "medium", "learningAgility", "medium",
+                "communicationStructure", "medium", "confidenceCalibration", "medium", "summary", "Assessment abbreviated"));
+        }
+        
+        JsonNode interviewQuality = json.path("interviewQuality");
+        if (!interviewQuality.isMissingNode()) {
+            result.put("interviewQuality", parseObject(interviewQuality));
+        } else {
+            result.put("interviewQuality", Map.of("coverageScore", 3, "categoriesCovered", 
+                categories.stream().map(c -> c.get("key")).toList(), "categoriesMissed", List.of(), "note", "Standard coverage"));
+        }
+        
+        JsonNode candidateFeedback = json.path("candidateFeedback");
+        if (!candidateFeedback.isMissingNode()) {
+            result.put("candidateFeedback", parseCandidateFeedback(candidateFeedback));
+        } else {
+            result.put("candidateFeedback", Map.of(
+                "overallSummary", "Assessment completed with abbreviated feedback due to response length limits.",
+                "prosAndCons", List.of(),
+                "resumeConsistencyForCandidate", List.of(),
+                "roadmap", List.of(),
+                "estimatedReadinessTimeline", "Contact interviewer for detailed feedback"
+            ));
+        }
+        
         result.put("source", "claude-two-pass");
         return result;
     }
@@ -378,21 +498,25 @@ public class AssessmentService {
         long turns = utterances.stream().filter(u -> "CANDIDATE".equals(u.get("speaker"))).count();
         int techScore = (int) Math.max(1, Math.min(5, 1 + words / 150));
         int commScore = (int) Math.max(1, Math.min(5, turns));
+        
+        log.warn("Using heuristic assessment - candidate words: {}, turns: {}, techScore: {}, commScore: {}", 
+                words, turns, techScore, commScore);
+        
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("categoryScores", List.of(
-            Map.of("dimension", "coreJava", "value", techScore, "rationale", "Heuristic only.",
+            Map.of("dimension", "coreJava", "value", techScore, "rationale", "Heuristic assessment - Claude API failed or not configured. Words: " + words + ", Turns: " + turns,
                 "evidence", "", "gap", "", "strengths", "[]", "weaknesses", "[]", "confidence", "low"),
-            Map.of("dimension", "communication", "value", commScore, "rationale", "Heuristic only.",
+            Map.of("dimension", "communication", "value", commScore, "rationale", "Heuristic assessment - Claude API failed or not configured. Turns: " + turns,
                 "evidence", "", "gap", "", "strengths", "[]", "weaknesses", "[]", "confidence", "low")
         ));
         result.put("proposedVerdict", "NEEDS_1_WEEK_PREP");
-        result.put("summary", "Heuristic assessment — configure Claude API key for real scoring.");
+        result.put("summary", "Heuristic assessment used - Claude API unavailable or failed. Candidate provided " + words + " words in " + turns + " responses.");
         result.put("candidateFeedback", Map.of(
-            "overallSummary", "AI assessment not available.",
+            "overallSummary", "AI assessment not available - using basic word/turn count analysis.",
             "prosAndCons", List.of(),
             "resumeConsistencyForCandidate", List.of(),
             "roadmap", List.of(),
-            "estimatedReadinessTimeline", "Unknown"
+            "estimatedReadinessTimeline", "Unable to assess without AI analysis"
         ));
         result.put("source", "heuristic");
         return result;
@@ -453,8 +577,8 @@ public class AssessmentService {
         String[] words1 = s1.toLowerCase().split("\\s+");
         String[] words2 = s2.toLowerCase().split("\\s+");
         
-        Set<String> set1 = Set.of(words1);
-        Set<String> set2 = Set.of(words2);
+        Set<String> set1 = new HashSet<>(List.of(words1));
+        Set<String> set2 = new HashSet<>(List.of(words2));
         
         Set<String> intersection = new HashSet<>(set1);
         intersection.retainAll(set2);
@@ -463,6 +587,23 @@ public class AssessmentService {
         union.addAll(set2);
         
         return union.isEmpty() ? 0.0 : (double) intersection.size() / union.size();
+    }
+
+    private String createShorterAssessmentPrompt(List<Map<String, Object>> categories, String interviewMode) {
+        String categoryScoreSchema = categories.stream()
+            .map(c -> "    \"" + c.get("key") + "\": {\"score\": 1-5, \"evidence\": \"brief quote\", \"gap\": \"missing topics\"}")
+            .reduce("", (a, b) -> a + "\n" + b);
+
+        return "You are a technical assessor. Score each category 1-5 based on evidence.\n" +
+            "SCORING: 5=expert, 4=solid, 3=basic, 2=weak, 1=none\n" +
+            "VERDICT: " + getVerdictRulesForMode(interviewMode) + "\n" +
+            "Return ONLY valid JSON:\n" +
+            "{\n" +
+            "  \"categoryScores\": {\n" + categoryScoreSchema + "\n  },\n" +
+            "  \"communication\": {\"score\": 1-5, \"rationale\": \"\"},\n" +
+            "  \"proposedVerdict\": \"READY|NEEDS_1_WEEK_PREP|NEEDS_RESKILLING|MISMATCH_WITH_JD\",\n" +
+            "  \"summary\": \"brief summary for manager\"\n" +
+            "}";
     }
 
     private String getVerdictRulesForMode(String mode) {
@@ -474,5 +615,66 @@ public class AssessmentService {
             case "L4" -> "  READY: avg >= 4.5\n  NEEDS_1_WEEK_PREP: avg >= 4\n  NEEDS_RESKILLING: avg < 4\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
             default -> "  READY: avg >= 4, communication >= 4\n  NEEDS_1_WEEK_PREP: avg >= 3\n  NEEDS_RESKILLING: avg < 3\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
         };
+    }
+
+    private void storeAssessmentResponse(String interviewId, String assessmentJson, int tokensUsed, String source, String userId) {
+        try {
+            Map<String, Object> request = Map.of(
+                "interviewId", interviewId,
+                "assessmentJson", assessmentJson,
+                "tokensUsed", tokensUsed,
+                "assessmentSource", source
+            );
+            
+            java.net.http.HttpRequest httpRequest = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create("http://localhost:8080/tokens/assessment-response"))
+                    .header("Content-Type", "application/json")
+                    .header("X-User-Id", userId != null ? userId : "system")
+                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request)))
+                    .build();
+                    
+            java.net.http.HttpClient.newHttpClient()
+                    .sendAsync(httpRequest, java.net.http.HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(response -> {
+                        if (response.statusCode() == 200) {
+                            log.info("Successfully stored assessment response for interview {}", interviewId);
+                        } else {
+                            log.warn("Failed to store assessment response: {}", response.statusCode());
+                        }
+                    });
+        } catch (Exception e) {
+            log.error("Error storing assessment response: {}", e.getMessage());
+        }
+    }
+
+    private void finalizeInterviewTokens(String interviewId, String userId) {
+        try {
+            Map<String, Object> request = Map.of("interviewId", interviewId);
+            
+            java.net.http.HttpRequest httpRequest = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create("http://localhost:8080/tokens/finalize-interview"))
+                    .header("Content-Type", "application/json")
+                    .header("X-User-Id", userId != null ? userId : "system")
+                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request)))
+                    .build();
+                    
+            java.net.http.HttpClient.newHttpClient()
+                    .sendAsync(httpRequest, java.net.http.HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(response -> {
+                        if (response.statusCode() == 200) {
+                            log.info("Successfully finalized token summary for interview {}", interviewId);
+                        } else {
+                            log.warn("Failed to finalize token summary: {}", response.statusCode());
+                        }
+                    });
+        } catch (Exception e) {
+            log.error("Error finalizing interview tokens: {}", e.getMessage());
+        }
+    }
+
+    private int calculateTotalTokensUsed(String interviewId) {
+        // This is an estimate - the actual tracking happens in OpenAiClient
+        // We'll return 0 here since the real tracking is done per API call
+        return 0;
     }
 }

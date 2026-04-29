@@ -33,6 +33,9 @@ public class InterviewService {
     @Value("${app.ai-service-url}")
     private String aiServiceUrl;
 
+    @Value("${app.compliance-service-url:http://localhost:8086}")
+    private String complianceServiceUrl;
+
     public InterviewService(InterviewRepository interviewRepository,
                             EngineerRepository engineerRepository,
                             JobDescriptionRepository jdRepository,
@@ -45,6 +48,10 @@ public class InterviewService {
 
     @Transactional
     public Interview createInterview(CreateInterviewRequest req, String createdByUserId) throws Exception {
+        // Check daily token limit before creating interview
+        if (!checkTokenLimit(createdByUserId)) {
+            throw new IllegalStateException("Daily token limit reached. No more interviews can be created today.");
+        }
         // Upsert engineer by email
         Engineer engineer = engineerRepository.findByEmail(req.getEngineerEmail()).orElseGet(() -> {
             Engineer e = new Engineer();
@@ -90,12 +97,14 @@ public class InterviewService {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-User-Id", createdByUserId); // Add user ID header
             HttpEntity<Map<String, String>> rubricEntity = new HttpEntity<>(
                 Map.of(
                     "jdTitle", req.getJdTitle(),
                     "jdText", req.getJdText(),
-                    "resumeSummary", req.getResumeSummary(),
-                    "focusAreas", req.getFocusAreas() != null ? req.getFocusAreas() : ""
+                    "resumeSummary", req.getResumeSummary() != null ? req.getResumeSummary() : "",
+                    "focusAreas", req.getFocusAreas() != null ? req.getFocusAreas() : "",
+                    "interviewId", plan.getId()
                 ), headers
             );
             var rubricResponse = restTemplate.postForEntity(
@@ -119,6 +128,8 @@ public class InterviewService {
         interview.setJdId(jd.getId());
         interview.setPlanId(plan.getId());
         interview.setInterviewMode(req.getInterviewMode());
+        interview.setCustomDurationMinutes(req.getCustomDurationMinutes());
+        interview.setCreatedByUserId(createdByUserId);
         interview.setStatus(InterviewStatus.SCHEDULED);
         interview.setScheduledAt(Instant.now());
         Interview saved = interviewRepository.save(interview);
@@ -174,6 +185,43 @@ public class InterviewService {
         }
 
         return saved;
+    }
+
+    @Transactional
+    public boolean deleteInterview(String id) {
+        try {
+            // Check if interview exists
+            if (!interviewRepository.existsById(id)) {
+                return false;
+            }
+            
+            // Get the interview to find related entities
+            Interview interview = interviewRepository.findById(id).orElse(null);
+            if (interview == null) {
+                return false;
+            }
+            
+            String planId = interview.getPlanId();
+            String jdId = interview.getJdId();
+            
+            // Delete the interview first
+            interviewRepository.deleteById(id);
+            
+            // Then delete related entities
+            if (planId != null && planRepository.existsById(planId)) {
+                planRepository.deleteById(planId);
+            }
+            
+            if (jdId != null && jdRepository.existsById(jdId)) {
+                jdRepository.deleteById(jdId);
+            }
+            
+            log.info("Successfully deleted interview {} and related entities", id);
+            return true;
+        } catch (Exception e) {
+            log.error("Failed to delete interview {}: {}", id, e.getMessage());
+            throw new RuntimeException("Failed to delete interview: " + e.getMessage());
+        }
     }
 
     public Optional<Interview> findById(String id) {
@@ -321,5 +369,28 @@ public class InterviewService {
                 slot(10, "Business impact — connecting technical decisions to outcomes", "hard", 3)
             );
         };
+    }
+
+    private boolean checkTokenLimit(String userId) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-User-Id", userId);
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+            
+            var response = restTemplate.exchange(
+                complianceServiceUrl + "/tokens/check-limit", 
+                org.springframework.http.HttpMethod.GET, 
+                entity, 
+                java.util.Map.class
+            );
+            
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                return (Boolean) response.getBody().getOrDefault("canProceed", true);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to check token limit for user {}: {}", userId, e.getMessage());
+            // Allow creation if compliance service is down
+        }
+        return true; // Default to allowing if check fails
     }
 }

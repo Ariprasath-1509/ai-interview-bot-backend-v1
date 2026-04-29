@@ -32,6 +32,12 @@ public class Interview {
     @Column(name = "interview_mode", columnDefinition = "interview_svc.interview_mode")
     private InterviewMode interviewMode = InterviewMode.SCREENING;
 
+    @Column(name = "custom_duration_minutes")
+    private Integer customDurationMinutes;
+
+    @Column(name = "created_by_user_id")
+    private String createdByUserId;
+
     @Column(name = "scheduled_at")
     private Instant scheduledAt;
 
@@ -93,6 +99,10 @@ public class Interview {
     public void setStatus(InterviewStatus status) { this.status = status; }
     public InterviewMode getInterviewMode() { return interviewMode; }
     public void setInterviewMode(InterviewMode interviewMode) { this.interviewMode = interviewMode; }
+    public Integer getCustomDurationMinutes() { return customDurationMinutes; }
+    public void setCustomDurationMinutes(Integer customDurationMinutes) { this.customDurationMinutes = customDurationMinutes; }
+    public String getCreatedByUserId() { return createdByUserId; }
+    public void setCreatedByUserId(String createdByUserId) { this.createdByUserId = createdByUserId; }
     public Instant getScheduledAt() { return scheduledAt; }
     public void setScheduledAt(Instant scheduledAt) { this.scheduledAt = scheduledAt; }
     public Instant getStartedAt() { return startedAt; }

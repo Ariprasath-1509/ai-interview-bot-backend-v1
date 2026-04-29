@@ -34,6 +34,26 @@ public class InterviewController {
         }
     }
 
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> delete(@PathVariable String id,
+                                   @RequestHeader("X-User-Role") String userRole) {
+        // Only BENCH_MANAGER can delete interviews
+        if (!"BENCH_MANAGER".equals(userRole)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Only bench managers can delete interviews"));
+        }
+        
+        try {
+            boolean deleted = interviewService.deleteInterview(id);
+            if (deleted) {
+                return ResponseEntity.ok(Map.of("message", "Interview deleted successfully"));
+            } else {
+                return ResponseEntity.notFound().build();
+            }
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<?> getById(@PathVariable String id) {
         return interviewService.findById(id)

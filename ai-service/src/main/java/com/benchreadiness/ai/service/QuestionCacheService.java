@@ -38,11 +38,11 @@ public class QuestionCacheService {
     }
 
     private String generateCacheKey(String jdTitle, String jdText, String focusAreas, String interviewMode) {
+        String combined = (jdTitle != null ? jdTitle : "") + "|" + 
+                        (jdText != null ? jdText.substring(0, Math.min(500, jdText.length())) : "") + "|" +
+                        (focusAreas != null ? focusAreas : "") + "|" +
+                        (interviewMode != null ? interviewMode : "L3");
         try {
-            String combined = (jdTitle != null ? jdTitle : "") + "|" + 
-                            (jdText != null ? jdText.substring(0, Math.min(500, jdText.length())) : "") + "|" +
-                            (focusAreas != null ? focusAreas : "") + "|" +
-                            (interviewMode != null ? interviewMode : "L3");
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             byte[] hash = md.digest(combined.getBytes());
             StringBuilder sb = new StringBuilder();

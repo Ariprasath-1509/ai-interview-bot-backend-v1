@@ -115,17 +115,24 @@ AiInterviewBot/   (3000) — Next.js 15, App Router, server actions
 - Interview CRUD with mode-specific slot plans (5-10 questions based on interview mode)
 - Engineer upsert by email — links candidate registration to interview
 - **Interview modes** — SCREENING (5q, 15min), L1 (7q, 20min), L2 (8q, 25min), L3 (10q, 30min), L4 (10q, 30min)
+- **Duration customization** — override mode defaults with custom duration in interview creation
+- **Token limit enforcement** — checks daily usage before allowing new interviews
+- **Real-time analytics** — interview status counts, success rates, mode distribution
 - **Rubric generation** — calls ai-service at creation time to generate JD-driven evaluation categories + candidate profile
 - `GET /interviews/mine` — candidate sees only their own interviews (filtered by `X-User-Email`)
 - `GET /interviews/summary` — manager list with candidate name, email, JD title, verdict, interview mode
+- `GET /analytics/realtime` — real-time dashboard statistics by role
+- `GET /analytics/modes` — interview mode distribution analytics
 - `PATCH /interviews/{id}/complete` — update status, transcript, verdict
 - `POST /interviews/{id}/abandon` — candidate exits early or time expires, notifies bench manager via observer-service
 - `resumeSummary` is required — used for candidate profile extraction and question calibration
 
 ### ai-service (8083)
 - **Claude API** (`claude-haiku-4-5` for questions/rubric, `claude-sonnet-4-5` for assessment)
+- **Token limits** — 4000 tokens for assessment (prevents JSON truncation), 1000 for rubric, 300 for questions
 - **Rubric generation** (`POST /ai/generate-rubric`) — extracts 4–6 JD-specific categories + candidate profile (YOE, level, difficulty) at interview creation. Uses dedicated `rubric-max-tokens` to prevent JSON truncation.
 - **Question generation** (`POST /ai/next-question`) — mode-specific themed questions with difficulty calibration (easy to hard based on interview mode)
+- **Skip/Next detection** — recognizes "next question", "skip", "pass", "move on" to allow candidates to skip questions they're not prepared for
 - **Claude optimizations**:
   - First question caching (24h TTL) — saves ~800 tokens per interview
   - Vague answer detection — skips Claude for answers <15 words or containing "I don't know", "maybe", etc.
@@ -135,11 +142,14 @@ AiInterviewBot/   (3000) — Next.js 15, App Router, server actions
 - **Mode-specific slot themes** — different question focus areas for SCREENING, L1, L2, L3, L4 modes
 - **Manipulation detection** — 8 regex patterns detect prompt injection / score manipulation. Warn on first detection, terminate at 5th attempt
 - **Two-pass assessment** (`POST /ai/assess`):
-  - Pass 1 (haiku) — evidence extraction per category from transcript
+  - Pass 1 (sonnet) — evidence extraction per category from transcript
   - Pass 2 (sonnet) — scoring with evidence, resume consistency, behavioral signals, confidence per category, interview quality, 7-day roadmap
   - Mode-specific verdict thresholds (SCREENING: 3.0, L1: 3.5, L2: 4.0, L3: 4.0, L4: 4.5 for READY)
   - Skips Claude for transcripts <50 words or <3 candidate turns
   - If `rubricJson` not provided — generates rubric on-the-fly from JD before scoring
+  - Automatic assessment response storage in compliance-service after successful completion
+  - Recovery mechanism for truncated JSON responses with shorter prompts
+- **Token tracking** — calls compliance-service directly (port 8086) to avoid gateway authentication
 - **Markdown fence stripping** — Claude responses wrapped in ` ```json ``` ` are automatically cleaned before parsing
 - **Fallback** — heuristic scoring when Claude unavailable
 - Spring Retry — 3 attempts with exponential backoff
@@ -162,6 +172,19 @@ AiInterviewBot/   (3000) — Next.js 15, App Router, server actions
 - Apache HttpClient5 for PATCH support
 
 ### compliance-service (8086)
+- **Token tracking** — daily usage monitoring per interview with cost estimation
+- **Assessment response storage** — stores complete Claude assessment results per interview
+- **Per-interview token summaries** — aggregated token usage and cost breakdown by operation type
+- **Daily token limits** — configurable usage limits with hard blocks when exceeded
+- **Usage analytics** — daily/weekly token consumption reports
+- `POST /tokens/track` — record token usage per AI operation (called via gateway)
+- `GET /tokens/check-limit` — verify if user can create new interviews
+- `GET /tokens/analytics/daily` — daily usage statistics and cost breakdown
+- `POST /tokens/limits` — update daily token limits (admin only)
+- `POST /tokens/assessment-response` — store assessment JSON response with token count
+- `GET /tokens/assessment-response/{interviewId}` — retrieve stored assessment for interview
+- `GET /tokens/interview-summary/{interviewId}` — get per-interview token usage summary
+- `POST /tokens/finalize-interview` — aggregate and finalize token usage for completed interview
 - Audit log for all significant events
 - Retention policy management
 - Read-only access for COMPLIANCE role
@@ -178,7 +201,7 @@ Single PostgreSQL instance, schema-per-service isolation.
 | `interview_svc` | interview-service | `engineers`, `job_descriptions`, `interview_plans`, `interviews` |
 | `observer_svc` | observer-service | `observer_events` |
 | `review_svc` | review-service | `scores`, `sign_offs` |
-| `compliance_svc` | compliance-service | `audit_logs` |
+| `compliance_svc` | compliance-service | `audit_logs`, `token_usage`, `assessment_responses`, `interview_token_summary` |
 
 ### Interview Status Flow
 ```
@@ -235,6 +258,7 @@ JWT_SECRET=dev-jwt-secret-change-in-production-min-32-chars
 CLAUDE_API_KEY=sk-ant-...
 CLAUDE_MODEL=claude-haiku-4-5
 CLAUDE_ASSESSMENT_MODEL=claude-sonnet-4-5
+CLAUDE_ASSESSMENT_MAX_TOKENS=4000  # Increased to prevent JSON truncation
 
 # Email (Gmail SMTP)
 MAIL_USERNAME=your-email@gmail.com
@@ -246,6 +270,7 @@ AI_SERVICE_URL=http://localhost:8083
 AUTH_SERVICE_URL=http://localhost:8081
 INTERVIEW_SERVICE_URL=http://localhost:8082
 INTERVIEW_BASE_URL=http://localhost:3000/interview
+COMPLIANCE_SERVICE_URL=http://localhost:8086  # Direct service URL for token tracking
 ```
 
 ### 3. Build All Services
@@ -346,7 +371,7 @@ curl http://localhost:8080/auth/me \
 ### Interviews
 
 ```bash
-# Create interview (resumeSummary required, interviewMode defaults to SCREENING)
+# Create interview (resumeSummary required, interviewMode defaults to SCREENING, customDurationMinutes optional)
 curl -X POST http://localhost:8080/interviews \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
@@ -357,7 +382,8 @@ curl -X POST http://localhost:8080/interviews \
     "jdText": "5+ years Java/Spring, Kafka, Kubernetes, PostgreSQL...",
     "focusAreas": "Kafka, system design, API design",
     "resumeSummary": "8 years Java/Spring, led Kafka migration, built payment platform",
-    "interviewMode": "L3"
+    "interviewMode": "L3",
+    "customDurationMinutes": 45
   }'
 # On creation: rubric + candidate profile auto-generated by ai-service
 # Invite email sent to engineerEmail automatically
@@ -481,6 +507,62 @@ curl http://localhost:8080/observer/events/<interviewId> \
   -H "Authorization: Bearer <token>"
 ```
 
+### Analytics
+
+```bash
+# Get real-time interview analytics
+curl http://localhost:8080/analytics/realtime \
+  -H "Authorization: Bearer <token>"
+# Response: {"statusCounts":{"scheduled":5,"inProgress":2,"completed":10,"signedOff":8},"timePeriods":{"today":3,"thisWeek":12},"successMetrics":{"readyCount":6,"successRate":75.0}}
+
+# Get interview mode distribution
+curl http://localhost:8080/analytics/modes \
+  -H "Authorization: Bearer <token>"
+# Response: {"modeDistribution":{"SCREENING":5,"L1":3,"L2":4,"L3":2},"totalInterviews":14}
+```
+
+### Token Management
+
+```bash
+# Check daily token limit status
+curl http://localhost:8080/tokens/check-limit \
+  -H "Authorization: Bearer <token>"
+# Response: {"usage":15000,"limit":100000,"canProceed":true,"nearLimit":false,"remainingTokens":85000}
+
+# Get daily token analytics
+curl http://localhost:8080/tokens/analytics/daily \
+  -H "Authorization: Bearer <token>"
+# Response: {"totalTokens":15000,"totalCost":0.45,"operationBreakdown":{"question":45,"assessment":12,"rubric":8}}
+
+# Update token limits (admin only)
+curl -X POST http://localhost:8080/tokens/limits \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"dailyLimit":150000,"warningThreshold":120000}'
+
+# Store assessment response (called automatically by ai-service)
+curl -X POST http://localhost:8080/tokens/assessment-response \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"interviewId":"<id>","assessmentJson":"{...}","tokensUsed":1250,"assessmentSource":"claude-two-pass"}'
+
+# Get stored assessment response
+curl http://localhost:8080/tokens/assessment-response/<interviewId> \
+  -H "Authorization: Bearer <token>"
+# Response: {"interviewId":"...","assessmentJson":"{...}","tokensUsed":1250,"assessmentSource":"claude-two-pass","createdAt":"..."}
+
+# Get per-interview token summary
+curl http://localhost:8080/tokens/interview-summary/<interviewId> \
+  -H "Authorization: Bearer <token>"
+# Response: {"interviewId":"...","totalTokens":2500,"totalCostUsd":0.75,"questionTokens":800,"assessmentTokens":1250,"rubricTokens":450}
+
+# Finalize interview tokens (called automatically after assessment)
+curl -X POST http://localhost:8080/tokens/finalize-interview \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"interviewId":"<id>"}'
+```
+
 ---
 
 ## Assessment Output
@@ -573,6 +655,7 @@ Detected patterns include: score manipulation requests, topic restriction comman
 ## Interview Timer
 
 - Mode-specific countdown: SCREENING (15min), L1 (20min), L2 (25min), L3 (30min), L4 (30min)
+- Custom duration override available during interview creation
 - Timer starts when first BOT question is received
 - Timer displayed in interview UI, turns red under 5 minutes
 - On expiry: AI sends closing message → interview auto-submitted → bench manager notified with reason `time_expired`
@@ -681,4 +764,512 @@ AiInterviewBot/src/app/
 │   ├── review/             — Interview list with status/verdict badges
 │   └── interviews/[id]/review/ — Full review: scores, consistency, signals, sign-off
 └── observer/               — Live observer view with WebSocket
+```
+
+---
+
+## Production Deployment on Ubuntu Server
+
+### Prerequisites
+
+- Ubuntu 20.04+ server with sudo access
+- Java 21 installed
+- PostgreSQL 12+ installed and running
+- Domain name (optional, for HTTPS)
+- Minimum 4GB RAM, 2 CPU cores
+
+### 1. Install Java 21
+
+```bash
+sudo apt update
+sudo apt install -y openjdk-21-jdk
+java -version  # Verify installation
+```
+
+### 2. Setup PostgreSQL
+
+```bash
+sudo apt install -y postgresql postgresql-contrib
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# Create database and user
+sudo -u postgres psql
+```
+
+```sql
+CREATE DATABASE bench_readiness;
+CREATE USER benchuser WITH ENCRYPTED PASSWORD 'your-secure-password';
+GRANT ALL PRIVILEGES ON DATABASE bench_readiness TO benchuser;
+\c bench_readiness
+CREATE SCHEMA auth_svc;
+CREATE SCHEMA interview_svc;
+CREATE SCHEMA observer_svc;
+CREATE SCHEMA review_svc;
+CREATE SCHEMA compliance_svc;
+GRANT ALL ON SCHEMA auth_svc TO benchuser;
+GRANT ALL ON SCHEMA interview_svc TO benchuser;
+GRANT ALL ON SCHEMA observer_svc TO benchuser;
+GRANT ALL ON SCHEMA review_svc TO benchuser;
+GRANT ALL ON SCHEMA compliance_svc TO benchuser;
+\q
+```
+
+### 3. Build JAR Files
+
+On your development machine:
+
+```bash
+cd bench-readiness
+mvn clean package -DskipTests
+
+# JAR files will be in:
+# api-gateway/target/api-gateway-0.0.1-SNAPSHOT.jar
+# auth-service/target/auth-service-0.0.1-SNAPSHOT.jar
+# interview-service/target/interview-service-0.0.1-SNAPSHOT.jar
+# ai-service/target/ai-service-0.0.1-SNAPSHOT.jar
+# observer-service/target/observer-service-0.0.1-SNAPSHOT.jar
+# review-service/target/review-service-0.0.1-SNAPSHOT.jar
+# compliance-service/target/compliance-service-0.0.1-SNAPSHOT.jar
+```
+
+### 4. Transfer JARs to Server
+
+```bash
+# Create application directory on server
+ssh user@your-server "sudo mkdir -p /opt/bench-readiness/{api-gateway,auth-service,interview-service,ai-service,observer-service,review-service,compliance-service}"
+
+# Transfer JAR files
+scp api-gateway/target/api-gateway-0.0.1-SNAPSHOT.jar user@your-server:/opt/bench-readiness/api-gateway/
+scp auth-service/target/auth-service-0.0.1-SNAPSHOT.jar user@your-server:/opt/bench-readiness/auth-service/
+scp interview-service/target/interview-service-0.0.1-SNAPSHOT.jar user@your-server:/opt/bench-readiness/interview-service/
+scp ai-service/target/ai-service-0.0.1-SNAPSHOT.jar user@your-server:/opt/bench-readiness/ai-service/
+scp observer-service/target/observer-service-0.0.1-SNAPSHOT.jar user@your-server:/opt/bench-readiness/observer-service/
+scp review-service/target/review-service-0.0.1-SNAPSHOT.jar user@your-server:/opt/bench-readiness/review-service/
+scp compliance-service/target/compliance-service-0.0.1-SNAPSHOT.jar user@your-server:/opt/bench-readiness/compliance-service/
+```
+
+### 5. Create Environment Configuration
+
+On the server, create `/opt/bench-readiness/.env`:
+
+```bash
+sudo nano /opt/bench-readiness/.env
+```
+
+Add:
+
+```bash
+DATABASE_URL=jdbc:postgresql://localhost:5432/bench_readiness
+DB_USER=benchuser
+DB_PASSWORD=your-secure-password
+JWT_SECRET=production-jwt-secret-min-32-chars-change-this
+CLAUDE_API_KEY=sk-ant-your-actual-key
+CLAUDE_MODEL=claude-haiku-4-5
+CLAUDE_ASSESSMENT_MODEL=claude-sonnet-4-5
+CLAUDE_ASSESSMENT_MAX_TOKENS=4000
+MAIL_USERNAME=your-email@gmail.com
+MAIL_PASSWORD=your-gmail-app-password
+OBSERVER_SERVICE_URL=http://localhost:8084
+AI_SERVICE_URL=http://localhost:8083
+AUTH_SERVICE_URL=http://localhost:8081
+INTERVIEW_SERVICE_URL=http://localhost:8082
+INTERVIEW_BASE_URL=https://your-domain.com/interview
+COMPLIANCE_SERVICE_URL=http://localhost:8086
+```
+
+```bash
+sudo chmod 600 /opt/bench-readiness/.env
+```
+
+### 6. Create Systemd Service Files
+
+#### API Gateway Service
+
+```bash
+sudo nano /etc/systemd/system/bench-api-gateway.service
+```
+
+```ini
+[Unit]
+Description=Bench Readiness API Gateway
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bench-readiness/api-gateway
+EnvironmentFile=/opt/bench-readiness/.env
+ExecStart=/usr/bin/java -jar -Xmx512m api-gateway-0.0.1-SNAPSHOT.jar
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bench-api-gateway
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### Auth Service
+
+```bash
+sudo nano /etc/systemd/system/bench-auth-service.service
+```
+
+```ini
+[Unit]
+Description=Bench Readiness Auth Service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bench-readiness/auth-service
+EnvironmentFile=/opt/bench-readiness/.env
+ExecStart=/usr/bin/java -jar -Xmx512m auth-service-0.0.1-SNAPSHOT.jar
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bench-auth-service
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### Interview Service
+
+```bash
+sudo nano /etc/systemd/system/bench-interview-service.service
+```
+
+```ini
+[Unit]
+Description=Bench Readiness Interview Service
+After=network.target postgresql.service bench-auth-service.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bench-readiness/interview-service
+EnvironmentFile=/opt/bench-readiness/.env
+ExecStart=/usr/bin/java -jar -Xmx512m interview-service-0.0.1-SNAPSHOT.jar
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bench-interview-service
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### AI Service
+
+```bash
+sudo nano /etc/systemd/system/bench-ai-service.service
+```
+
+```ini
+[Unit]
+Description=Bench Readiness AI Service
+After=network.target bench-compliance-service.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bench-readiness/ai-service
+EnvironmentFile=/opt/bench-readiness/.env
+ExecStart=/usr/bin/java -jar -Xmx1024m ai-service-0.0.1-SNAPSHOT.jar
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bench-ai-service
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### Observer Service
+
+```bash
+sudo nano /etc/systemd/system/bench-observer-service.service
+```
+
+```ini
+[Unit]
+Description=Bench Readiness Observer Service
+After=network.target bench-auth-service.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bench-readiness/observer-service
+EnvironmentFile=/opt/bench-readiness/.env
+ExecStart=/usr/bin/java -jar -Xmx512m observer-service-0.0.1-SNAPSHOT.jar
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bench-observer-service
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### Review Service
+
+```bash
+sudo nano /etc/systemd/system/bench-review-service.service
+```
+
+```ini
+[Unit]
+Description=Bench Readiness Review Service
+After=network.target postgresql.service bench-interview-service.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bench-readiness/review-service
+EnvironmentFile=/opt/bench-readiness/.env
+ExecStart=/usr/bin/java -jar -Xmx512m review-service-0.0.1-SNAPSHOT.jar
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bench-review-service
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### Compliance Service
+
+```bash
+sudo nano /etc/systemd/system/bench-compliance-service.service
+```
+
+```ini
+[Unit]
+Description=Bench Readiness Compliance Service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/bench-readiness/compliance-service
+EnvironmentFile=/opt/bench-readiness/.env
+ExecStart=/usr/bin/java -jar -Xmx512m compliance-service-0.0.1-SNAPSHOT.jar
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bench-compliance-service
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 7. Enable and Start Services
+
+```bash
+# Reload systemd to recognize new services
+sudo systemctl daemon-reload
+
+# Enable services to start on boot
+sudo systemctl enable bench-compliance-service
+sudo systemctl enable bench-auth-service
+sudo systemctl enable bench-interview-service
+sudo systemctl enable bench-ai-service
+sudo systemctl enable bench-observer-service
+sudo systemctl enable bench-review-service
+sudo systemctl enable bench-api-gateway
+
+# Start services in order (dependencies first)
+sudo systemctl start bench-compliance-service
+sleep 5
+sudo systemctl start bench-auth-service
+sleep 5
+sudo systemctl start bench-interview-service
+sudo systemctl start bench-ai-service
+sudo systemctl start bench-observer-service
+sudo systemctl start bench-review-service
+sleep 5
+sudo systemctl start bench-api-gateway
+```
+
+### 8. Verify Services
+
+```bash
+# Check status of all services
+sudo systemctl status bench-api-gateway
+sudo systemctl status bench-auth-service
+sudo systemctl status bench-interview-service
+sudo systemctl status bench-ai-service
+sudo systemctl status bench-observer-service
+sudo systemctl status bench-review-service
+sudo systemctl status bench-compliance-service
+
+# View logs
+sudo journalctl -u bench-api-gateway -f
+sudo journalctl -u bench-auth-service -f
+
+# Check if services are listening on ports
+sudo netstat -tlnp | grep java
+```
+
+### 9. Setup Nginx Reverse Proxy (Optional)
+
+```bash
+sudo apt install -y nginx
+sudo nano /etc/nginx/sites-available/bench-readiness
+```
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    client_max_body_size 10M;
+
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /ws {
+        proxy_pass http://localhost:8084;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/bench-readiness /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+### 10. Setup SSL with Let's Encrypt (Optional)
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.com
+sudo systemctl reload nginx
+```
+
+### 11. Management Commands
+
+```bash
+# Stop all services
+sudo systemctl stop bench-api-gateway
+sudo systemctl stop bench-review-service
+sudo systemctl stop bench-observer-service
+sudo systemctl stop bench-ai-service
+sudo systemctl stop bench-interview-service
+sudo systemctl stop bench-auth-service
+sudo systemctl stop bench-compliance-service
+
+# Restart a specific service
+sudo systemctl restart bench-ai-service
+
+# View logs for a service
+sudo journalctl -u bench-ai-service -n 100 --no-pager
+
+# Follow logs in real-time
+sudo journalctl -u bench-api-gateway -f
+
+# Check service status
+sudo systemctl status bench-*
+```
+
+### 12. Update Deployment
+
+When deploying new versions:
+
+```bash
+# On development machine, build new JARs
+mvn clean package -DskipTests
+
+# Transfer to server
+scp service-name/target/service-name-0.0.1-SNAPSHOT.jar user@your-server:/opt/bench-readiness/service-name/
+
+# On server, restart the service
+sudo systemctl restart bench-service-name
+
+# Verify
+sudo systemctl status bench-service-name
+sudo journalctl -u bench-service-name -n 50
+```
+
+### 13. Monitoring and Maintenance
+
+```bash
+# Check disk usage
+df -h
+
+# Check memory usage
+free -h
+
+# Check Java processes
+ps aux | grep java
+
+# Monitor system resources
+top
+htop  # Install with: sudo apt install htop
+
+# Database backup
+sudo -u postgres pg_dump bench_readiness > backup_$(date +%Y%m%d).sql
+
+# View all service logs
+sudo journalctl -u 'bench-*' --since today
+```
+
+### Troubleshooting
+
+**Service won't start:**
+```bash
+# Check logs for errors
+sudo journalctl -u bench-service-name -n 100
+
+# Verify JAR file exists
+ls -lh /opt/bench-readiness/service-name/
+
+# Check environment variables
+sudo systemctl show bench-service-name --property=Environment
+
+# Test JAR manually
+cd /opt/bench-readiness/service-name
+source /opt/bench-readiness/.env
+java -jar service-name-0.0.1-SNAPSHOT.jar
+```
+
+**Port already in use:**
+```bash
+# Find process using port
+sudo lsof -i :8080
+
+# Kill process
+sudo kill -9 <PID>
+```
+
+**Database connection issues:**
+```bash
+# Check PostgreSQL is running
+sudo systemctl status postgresql
+
+# Test connection
+psql -h localhost -U benchuser -d bench_readiness
+
+# Check PostgreSQL logs
+sudo tail -f /var/log/postgresql/postgresql-*.log
 ```

@@ -16,6 +16,7 @@ public class NextQuestionRequest {
     private String rubricJson;
     private String candidateProfileJson;
     private String interviewMode;
+    private String interviewId;
 
     public record Utterance(String speaker, String text) {}
 
@@ -43,4 +44,6 @@ public class NextQuestionRequest {
     public void setCandidateProfileJson(String candidateProfileJson) { this.candidateProfileJson = candidateProfileJson; }
     public String getInterviewMode() { return interviewMode; }
     public void setInterviewMode(String interviewMode) { this.interviewMode = interviewMode; }
+    public String getInterviewId() { return interviewId; }
+    public void setInterviewId(String interviewId) { this.interviewId = interviewId; }
 }

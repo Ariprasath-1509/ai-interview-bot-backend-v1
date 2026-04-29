@@ -20,17 +20,17 @@ public class RubricService {
         this.openAiClient = openAiClient;
     }
 
-    public Map<String, Object> generateRubric(RubricRequest req) {
+    public Map<String, Object> generateRubric(RubricRequest req, String userId) {
         if (!openAiClient.isConfigured()) return fallbackRubric(req);
         try {
-            return llmRubric(req);
+            return llmRubric(req, userId);
         } catch (Exception e) {
             log.warn("Rubric generation failed: {}", e.getMessage());
             return fallbackRubric(req);
         }
     }
 
-    private Map<String, Object> llmRubric(RubricRequest req) throws Exception {
+    private Map<String, Object> llmRubric(RubricRequest req, String userId) throws Exception {
         String system =
             "You are a technical hiring expert. Given a JD and candidate resume, return ONLY valid JSON:\n" +
             "{\n" +
@@ -61,7 +61,7 @@ public class RubricService {
             (req.getFocusAreas() != null && !req.getFocusAreas().isBlank()
                 ? "\nFocus areas: " + req.getFocusAreas() : "");
 
-        String raw = openAiClient.chatRubric(system, user);
+        String raw = openAiClient.chatRubricWithTracking(system, user, req.getInterviewId(), userId);
         JsonNode json = objectMapper.readTree(raw);
 
         Map<String, Object> result = new LinkedHashMap<>();
