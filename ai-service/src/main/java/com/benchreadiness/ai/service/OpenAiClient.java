@@ -1,5 +1,6 @@
 package com.benchreadiness.ai.service;
 
+import com.benchreadiness.ai.client.ComplianceServiceClient;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -44,14 +45,17 @@ public class OpenAiClient {
     @Value("${app.claude.rubric-max-tokens:1000}")
     private int rubricMaxTokens;
 
-    @Value("${app.compliance-service-url:http://localhost:8086}")
-    private String complianceServiceUrl;
+    private final ComplianceServiceClient complianceServiceClient;
 
     private static final String CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
     private static final String ANTHROPIC_VERSION = "2023-06-01";
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public OpenAiClient(ComplianceServiceClient complianceServiceClient) {
+        this.complianceServiceClient = complianceServiceClient;
+    }
 
     public boolean isConfigured() {
         boolean configured = apiKey != null && !apiKey.isBlank();
@@ -142,6 +146,9 @@ public class OpenAiClient {
     private void trackTokenUsage(String interviewId, String operationType, String model, 
                                 int promptTokens, int completionTokens, String userId) {
         try {
+            log.info(">>> AI-SERVICE: Tracking token usage - interviewId: {}, operation: {}, model: {}, promptTokens: {}, completionTokens: {}, userId: {}",
+                    interviewId, operationType, model, promptTokens, completionTokens, userId);
+            
             Map<String, Object> trackingData = Map.of(
                 "interviewId", interviewId,
                 "operationType", operationType,
@@ -150,24 +157,11 @@ public class OpenAiClient {
                 "completionTokens", completionTokens
             );
             
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(complianceServiceUrl + "/tokens/track"))
-                    .header("Content-Type", "application/json")
-                    .header("X-User-Id", userId != null ? userId : "system")
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(trackingData)))
-                    .build();
-                    
-            httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(response -> {
-                        if (response.statusCode() != 200) {
-                            System.err.println("Failed to track tokens: " + response.statusCode());
-                        } else {
-                            log.debug("Successfully tracked {} tokens for interview {} ({})", 
-                                    promptTokens + completionTokens, interviewId, operationType);
-                        }
-                    });
+            complianceServiceClient.trackTokenUsage(trackingData, userId != null ? userId : "system");
+            log.info("<<< AI-SERVICE: Successfully tracked {} tokens for interview {} ({})", 
+                    promptTokens + completionTokens, interviewId, operationType);
         } catch (Exception e) {
-            System.err.println("Error tracking token usage: " + e.getMessage());
+            log.error("<<< AI-SERVICE: Error tracking token usage for interview {}: {}", interviewId, e.getMessage(), e);
         }
     }
 

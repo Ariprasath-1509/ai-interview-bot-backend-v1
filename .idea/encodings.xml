@@ -5,6 +5,7 @@
     <file url="file://$PROJECT_DIR$/api-gateway/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/auth-service/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/compliance-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/eureka-server/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/interview-service/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/observer-service/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/review-service/src/main/java" charset="UTF-8" />

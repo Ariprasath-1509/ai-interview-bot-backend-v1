@@ -17,14 +17,14 @@ public class AnalyticsService {
     private final InterviewRepository interviewRepository;
     private final EngineerRepository engineerRepository;
     private final JobDescriptionRepository jdRepository;
-    private final AuthServiceClient authServiceClient;
-    private final ReviewServiceClient reviewServiceClient;
+    private final com.benchreadiness.interview.client.AuthServiceClient authServiceClient;
+    private final com.benchreadiness.interview.client.ReviewServiceClient reviewServiceClient;
 
     public AnalyticsService(InterviewRepository interviewRepository, 
                            EngineerRepository engineerRepository,
                            JobDescriptionRepository jdRepository,
-                           AuthServiceClient authServiceClient,
-                           ReviewServiceClient reviewServiceClient) {
+                           com.benchreadiness.interview.client.AuthServiceClient authServiceClient,
+                           com.benchreadiness.interview.client.ReviewServiceClient reviewServiceClient) {
         this.interviewRepository = interviewRepository;
         this.engineerRepository = engineerRepository;
         this.jdRepository = jdRepository;
@@ -153,7 +153,16 @@ public class AnalyticsService {
                     double successRate = assessedCount > 0 ? (double) readyCount / assessedCount * 100 : 0;
                     
                     // Get user details from auth service
-                    Map<String, Object> userDetails = authServiceClient.getUserById(creatorId);
+                    Map<String, Object> userDetails;
+                    try {
+                        userDetails = authServiceClient.getUserById(creatorId);
+                    } catch (Exception e) {
+                        // Fallback if auth service is unavailable
+                        userDetails = Map.of(
+                            "name", "User " + creatorId.substring(0, Math.min(8, creatorId.length())),
+                            "email", creatorId + "@company.com"
+                        );
+                    }
                     
                     Map<String, Object> interviewer = new HashMap<>();
                     interviewer.put("name", userDetails.get("name"));
@@ -339,7 +348,13 @@ public class AnalyticsService {
                     String candidateEmail = engineer != null ? engineer.getEmail() : "";
                     String jdTitle = jd != null ? jd.getTitle() : "";
                     
-                    List<Map<String, Object>> scores = reviewServiceClient.getScores(interview.getId());
+                    List<Map<String, Object>> scores;
+                    try {
+                        scores = reviewServiceClient.getScores(interview.getId());
+                    } catch (Exception e) {
+                        System.err.println("Failed to get scores for interview " + interview.getId() + ": " + e.getMessage());
+                        scores = List.of();
+                    }
                     
                     double avgScore = scores.stream()
                             .mapToInt(score -> (Integer) score.get("value"))
@@ -364,7 +379,13 @@ public class AnalyticsService {
         // Skill gap analysis - most common weak areas
         Map<String, Integer> skillGaps = new HashMap<>();
         assessedInterviews.forEach(interview -> {
-            List<Map<String, Object>> scores = reviewServiceClient.getScores(interview.getId());
+            List<Map<String, Object>> scores;
+            try {
+                scores = reviewServiceClient.getScores(interview.getId());
+            } catch (Exception e) {
+                System.err.println("Failed to get scores for interview " + interview.getId() + ": " + e.getMessage());
+                scores = List.of();
+            }
             scores.stream()
                     .filter(score -> (Integer) score.get("value") < 3) // Below average performance
                     .forEach(score -> {
@@ -390,7 +411,13 @@ public class AnalyticsService {
         Map<String, Integer> dimensionCounts = new HashMap<>();
         
         assessedInterviews.forEach(interview -> {
-            List<Map<String, Object>> scores = reviewServiceClient.getScores(interview.getId());
+            List<Map<String, Object>> scores;
+            try {
+                scores = reviewServiceClient.getScores(interview.getId());
+            } catch (Exception e) {
+                System.err.println("Failed to get scores for interview " + interview.getId() + ": " + e.getMessage());
+                scores = List.of();
+            }
             scores.forEach(score -> {
                 String dimension = (String) score.get("dimension");
                 Integer value = (Integer) score.get("value");

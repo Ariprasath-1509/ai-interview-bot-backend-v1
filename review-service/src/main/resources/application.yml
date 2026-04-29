@@ -5,7 +5,7 @@ spring:
   application:
     name: review-service
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:3308/bench_readiness}
+    url: jdbc:postgresql://localhost:3308/bench_readiness
     username: postgres
     password: root
     driver-class-name: org.postgresql.Driver
@@ -19,7 +19,23 @@ spring:
     schemas: review_svc
     locations: classpath:db/migration
 
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:6009/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    hostname: localhost
+    prefer-ip-address: false
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+
+feign:
+  httpclient:
+    hc5:
+      enabled: true
+
 app:
   jwt:
-    secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
-  interview-service-url: ${INTERVIEW_SERVICE_URL:http://localhost:6006}
+    secret: dev-jwt-secret-change-in-production-min-32-chars

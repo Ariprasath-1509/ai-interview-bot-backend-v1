@@ -5,7 +5,7 @@ spring:
   application:
     name: observer-service
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:3308/bench_readiness}
+    url: jdbc:postgresql://localhost:3308/bench_readiness
     username: postgres
     password: root
     driver-class-name: org.postgresql.Driver
@@ -19,19 +19,30 @@ spring:
     schemas: observer_svc
     locations: classpath:db/migration
   mail:
-    host: ${MAIL_HOST:smtp.gmail.com}
-    port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:ariprasath6767@gmail.com}
-    password: ${MAIL_PASSWORD:xkvt ujsd xvvp nszz}
+    host: smtp.gmail.com
+    port: 587
+    username: learningdevelopment.tyss@gmail.com
+    password: xcbc bgrj lbql tgkd
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
 
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:6009/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    hostname: localhost
+    prefer-ip-address: false
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+
 app:
   jwt:
-    secret: ${JWT_SECRET:dev-jwt-secret-change-in-production-min-32-chars}
-  interview-base-url: ${INTERVIEW_BASE_URL:http://localhost:3000/interview}
-  auth-service-url: ${AUTH_SERVICE_URL:http://localhost:6004}
-  interview-service-url: ${INTERVIEW_SERVICE_URL:http://localhost:6006}
+    secret: dev-jwt-secret-change-in-production-min-32-chars
+  interview-base-url: http://localhost:6001/interview
+  frontend-url: http://localhost:6001
   digest:
-    cron: ${DIGEST_CRON:0 0 19 * * *}
+    cron: 0 0 19 * * *
