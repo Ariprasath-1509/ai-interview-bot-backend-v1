@@ -1406,6 +1406,12 @@ CREATE SCHEMA IF NOT EXISTS review_svc;
 CREATE SCHEMA IF NOT EXISTS compliance_svc;
 "
 ```
+### DB Pre seeding credential
+
+-- 1. Default Bench Manager (admin)
+INSERT INTO auth_svc.users (id, email, name, password, role, created_at, updated_at)
+VALUES (gen_random_uuid()::text, 'admin@benchreadiness.com', 'Admin', 'Admin@123', 'BENCH_MANAGER', NOW(), NOW())
+ON CONFLICT (email) DO NOTHING;
 
 ### 3. Create Dockerfiles for Each Service
 

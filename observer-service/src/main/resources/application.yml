@@ -5,9 +5,9 @@ spring:
   application:
     name: observer-service
   datasource:
-    url: jdbc:postgresql://localhost:3308/bench_readiness
-    username: postgres
-    password: root
+    url: jdbc:postgresql://103.182.211.219:5432/aibot
+    username: aibot
+    password: aibot!@#$%
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
