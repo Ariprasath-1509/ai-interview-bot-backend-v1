@@ -3,6 +3,7 @@ package com.benchreadiness.auth.entity;
 import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import java.math.BigDecimal;
 import java.time.Instant;
 
 @Entity
@@ -26,6 +27,50 @@ public class User {
     @Column(columnDefinition = "auth_svc.user_role")
     private UserRole role = UserRole.CANDIDATE;
 
+    @Column(name = "contact_number", length = 20)
+    private String contactNumber;
+
+    @Column(name = "official_email")
+    private String officialEmail;
+
+    @Column(name = "personal_email")
+    private String personalEmail;
+
+    @Column(name = "batch", length = 100)
+    private String batch;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "source", columnDefinition = "auth_svc.candidate_source")
+    private CandidateSource source;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "candidate_status", columnDefinition = "auth_svc.candidate_status")
+    private CandidateStatus candidateStatus;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "rating", columnDefinition = "auth_svc.candidate_rating")
+    private CandidateRating rating;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "skill_set", columnDefinition = "auth_svc.skill_set")
+    private SkillSet skillSet;
+
+    @Column(name = "yoe_actual", precision = 4, scale = 1)
+    private BigDecimal yoeActual;
+
+    @Column(name = "yoe_portrayed", precision = 4, scale = 1)
+    private BigDecimal yoePortrayed;
+
+    @Column(name = "no_of_interviews")
+    private Integer noOfInterviews = 0;
+
+    @Column(name = "yop")
+    private Integer yop;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -44,6 +89,7 @@ public class User {
         updatedAt = Instant.now();
     }
 
+    // Getters and setters
     public String getId() { return id; }
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
@@ -53,4 +99,28 @@ public class User {
     public void setPassword(String password) { this.password = password; }
     public UserRole getRole() { return role; }
     public void setRole(UserRole role) { this.role = role; }
+    public String getContactNumber() { return contactNumber; }
+    public void setContactNumber(String contactNumber) { this.contactNumber = contactNumber; }
+    public String getOfficialEmail() { return officialEmail; }
+    public void setOfficialEmail(String officialEmail) { this.officialEmail = officialEmail; }
+    public String getPersonalEmail() { return personalEmail; }
+    public void setPersonalEmail(String personalEmail) { this.personalEmail = personalEmail; }
+    public String getBatch() { return batch; }
+    public void setBatch(String batch) { this.batch = batch; }
+    public CandidateSource getSource() { return source; }
+    public void setSource(CandidateSource source) { this.source = source; }
+    public CandidateStatus getCandidateStatus() { return candidateStatus; }
+    public void setCandidateStatus(CandidateStatus candidateStatus) { this.candidateStatus = candidateStatus; }
+    public CandidateRating getRating() { return rating; }
+    public void setRating(CandidateRating rating) { this.rating = rating; }
+    public SkillSet getSkillSet() { return skillSet; }
+    public void setSkillSet(SkillSet skillSet) { this.skillSet = skillSet; }
+    public BigDecimal getYoeActual() { return yoeActual; }
+    public void setYoeActual(BigDecimal yoeActual) { this.yoeActual = yoeActual; }
+    public BigDecimal getYoePortrayed() { return yoePortrayed; }
+    public void setYoePortrayed(BigDecimal yoePortrayed) { this.yoePortrayed = yoePortrayed; }
+    public Integer getNoOfInterviews() { return noOfInterviews; }
+    public void setNoOfInterviews(Integer noOfInterviews) { this.noOfInterviews = noOfInterviews; }
+    public Integer getYop() { return yop; }
+    public void setYop(Integer yop) { this.yop = yop; }
 }

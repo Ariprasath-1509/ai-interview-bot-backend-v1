@@ -871,6 +871,7 @@ AiInterviewBot/src/app/
 ├── register/               — Candidate self-registration
 ├── candidate/
 │   ├── dashboard/          — Upcoming + past interviews
+│   ├── profile/            — View & edit candidate profile
 │   └── feedback/[id]/      — Category scores, roadmap, manager review
 ├── interview/[id]/         — Live interview, timer, abandon button
 ├── admin/
