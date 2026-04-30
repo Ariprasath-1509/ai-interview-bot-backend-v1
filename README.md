@@ -243,7 +243,7 @@ SCHEDULED → IN_PROGRESS → COMPLETED → REVIEW_PENDING → SIGNED_OFF
 
 ## Prerequisites
 
-- Java 21
+- Red Hat build of OpenJDK 21 (download from https://developers.redhat.com/products/openjdk/download)
 - Maven 3.9+
 - PostgreSQL 12+ on `localhost:3308`
 - Node.js 18+ (frontend)
@@ -834,12 +834,20 @@ AiInterviewBot/src/app/
 - Domain name (optional, for HTTPS)
 - Minimum 4GB RAM, 2 CPU cores
 
-### 1. Install Java 21
+### 1. Install Red Hat OpenJDK 21
 
 ```bash
 sudo apt update
-sudo apt install -y openjdk-21-jdk
-java -version  # Verify installation
+# Option 1: Install from Red Hat RPM (RHEL/Fedora)
+sudo yum install java-21-openjdk-devel
+
+# Option 2: Install from tarball (Ubuntu/Debian)
+# Download from https://developers.redhat.com/products/openjdk/download
+tar -xzf java-21-openjdk-*.tar.gz -C /usr/lib/jvm/
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+export PATH=$JAVA_HOME/bin:$PATH
+
+java -version  # Verify: should show "Red Hat" build
 ```
 
 ### 2. Setup PostgreSQL
@@ -1401,101 +1409,7 @@ CREATE SCHEMA IF NOT EXISTS compliance_svc;
 
 ### 3. Create Dockerfiles for Each Service
 
-#### Eureka Server Dockerfile
-
-Create `eureka-server/Dockerfile`:
-
-```dockerfile
-FROM eclipse-temurin:21-jre-alpine
-WORKDIR /app
-COPY target/eureka-server-0.0.1-SNAPSHOT.jar app.jar
-EXPOSE 6009
-ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
-```
-
-#### API Gateway Dockerfile
-
-Create `api-gateway/Dockerfile`:
-
-```dockerfile
-FROM eclipse-temurin:21-jre-alpine
-WORKDIR /app
-COPY target/api-gateway-0.0.1-SNAPSHOT.jar app.jar
-EXPOSE 6002
-ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
-```
-
-#### Auth Service Dockerfile
-
-Create `auth-service/Dockerfile`:
-
-```dockerfile
-FROM eclipse-temurin:21-jre-alpine
-WORKDIR /app
-COPY target/auth-service-0.0.1-SNAPSHOT.jar app.jar
-EXPOSE 6004
-ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
-```
-
-#### Interview Service Dockerfile
-
-Create `interview-service/Dockerfile`:
-
-```dockerfile
-FROM eclipse-temurin:21-jre-alpine
-WORKDIR /app
-COPY target/interview-service-0.0.1-SNAPSHOT.jar app.jar
-EXPOSE 6006
-ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
-```
-
-#### AI Service Dockerfile
-
-Create `ai-service/Dockerfile`:
-
-```dockerfile
-FROM eclipse-temurin:21-jre-alpine
-WORKDIR /app
-COPY target/ai-service-0.0.1-SNAPSHOT.jar app.jar
-EXPOSE 6003
-ENTRYPOINT ["java", "-Xmx1024m", "-jar", "app.jar"]
-```
-
-#### Observer Service Dockerfile
-
-Create `observer-service/Dockerfile`:
-
-```dockerfile
-FROM eclipse-temurin:21-jre-alpine
-WORKDIR /app
-COPY target/observer-service-0.0.1-SNAPSHOT.jar app.jar
-EXPOSE 6007
-ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
-```
-
-#### Review Service Dockerfile
-
-Create `review-service/Dockerfile`:
-
-```dockerfile
-FROM eclipse-temurin:21-jre-alpine
-WORKDIR /app
-COPY target/review-service-0.0.1-SNAPSHOT.jar app.jar
-EXPOSE 6008
-ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
-```
-
-#### Compliance Service Dockerfile
-
-Create `compliance-service/Dockerfile`:
-
-```dockerfile
-FROM eclipse-temurin:21-jre-alpine
-WORKDIR /app
-COPY target/compliance-service-0.0.1-SNAPSHOT.jar app.jar
-EXPOSE 6005
-ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
-```
+All services use `registry.access.redhat.com/ubi9/openjdk-21:1.20` as the Docker base image (Red Hat UBI 9 with OpenJDK 21). Dockerfiles are already included in each service directory.
 
 ### 4. Create Docker Compose File
 
@@ -1952,7 +1866,7 @@ jobs:
         uses: actions/setup-java@v3
         with:
           java-version: '21'
-          distribution: 'temurin'
+          distribution: 'temurin'  # Use 'temurin' in CI; local dev uses Red Hat OpenJDK 21
       
       - name: Build with Maven
         run: mvn clean package -DskipTests
