@@ -28,7 +28,7 @@ public class ComplianceController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
             @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("COMPLIANCE") && !role.equals("BENCH_MANAGER")) {
+        if (!role.equals("SUPER_ADMIN") && !role.equals("ADMIN")) {
             return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
         }
         Page<AuditLog> logs = complianceService.getAuditLogs(page, size);
@@ -44,7 +44,7 @@ public class ComplianceController {
     @GetMapping("/audit-logs/actor/{actorId}")
     public ResponseEntity<?> getLogsByActor(@PathVariable String actorId,
                                              @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("COMPLIANCE") && !role.equals("BENCH_MANAGER")) {
+        if (!role.equals("SUPER_ADMIN") && !role.equals("ADMIN")) {
             return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
         }
         return ResponseEntity.ok(complianceService.getLogsByActor(actorId));
@@ -54,7 +54,7 @@ public class ComplianceController {
     @GetMapping("/audit-logs/resource/{resourceId}")
     public ResponseEntity<?> getLogsByResource(@PathVariable String resourceId,
                                                 @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("COMPLIANCE") && !role.equals("BENCH_MANAGER")) {
+        if (!role.equals("SUPER_ADMIN") && !role.equals("ADMIN")) {
             return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
         }
         return ResponseEntity.ok(complianceService.getLogsByResource(resourceId));
@@ -79,8 +79,8 @@ public class ComplianceController {
             @PathVariable String region,
             @RequestBody Map<String, Integer> body,
             @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("COMPLIANCE")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Only COMPLIANCE role can update retention policies"));
+        if (!role.equals("SUPER_ADMIN")) {
+            return ResponseEntity.status(403).body(Map.of("error", "Only SUPER_ADMIN role can update retention policies"));
         }
         int transcriptDays = body.getOrDefault("transcriptDays", 365);
         int audioDays = body.getOrDefault("audioDays", 90);

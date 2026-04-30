@@ -59,6 +59,11 @@ public class User {
     @Column(name = "skill_set", columnDefinition = "auth_svc.skill_set")
     private SkillSet skillSet;
 
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "admin_source", columnDefinition = "auth_svc.admin_source")
+    private AdminSource adminSource;
+
     @Column(name = "yoe_actual", precision = 4, scale = 1)
     private BigDecimal yoeActual;
 
@@ -123,4 +128,6 @@ public class User {
     public void setNoOfInterviews(Integer noOfInterviews) { this.noOfInterviews = noOfInterviews; }
     public Integer getYop() { return yop; }
     public void setYop(Integer yop) { this.yop = yop; }
+    public AdminSource getAdminSource() { return adminSource; }
+    public void setAdminSource(AdminSource adminSource) { this.adminSource = adminSource; }
 }

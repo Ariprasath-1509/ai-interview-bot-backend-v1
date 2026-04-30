@@ -37,9 +37,9 @@ public class InterviewController {
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable String id,
                                    @RequestHeader("X-User-Role") String userRole) {
-        // Only BENCH_MANAGER can delete interviews
-        if (!"BENCH_MANAGER".equals(userRole)) {
-            return ResponseEntity.status(403).body(Map.of("error", "Only bench managers can delete interviews"));
+        // Only ADMIN can delete interviews
+        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Only admins can delete interviews"));
         }
         
         try {

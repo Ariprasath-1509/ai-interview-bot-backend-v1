@@ -1,6 +1,6 @@
 # Bench Readiness — Spring Boot Microservices
 
-AI-powered technical interview platform with bench manager sign-off, candidate dashboard, and evaluation engine.
+AI-powered technical interview platform with admin sign-off, candidate dashboard, and evaluation engine.
 
 ---
 
@@ -119,17 +119,18 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 
 ### auth-service (6004)
 - **Staff login** — real credentials (email + password), role determined by stored account
-- **Candidate registration** — `POST /auth/register` with full profile: name, email, password, contactNumber, batch, source (B2B/BENCH), skillSet (JAVA_SB/JFSR/REACT_JS), yoeActual, yoePortrayed, yop, officialEmail, personalEmail
+- **Candidate registration** — `POST /auth/register` with full profile: name, email, password, contactNumber, batch, source (B2B/BENCH/MARKET), skillSet (JAVA_SB/JFSR/REACT_JS), yoeActual, yoePortrayed, yop, officialEmail, personalEmail
 - **Candidate login** — email as username (official or personal), password validated against stored value
-- **Candidate profile update** — `PATCH /auth/candidates/{id}` (BENCH_MANAGER only) — update rating (ASSET/MEDIUM/LIABILITY), candidateStatus (RFD/NOT_RFD), noOfInterviews
+- **Candidate profile update** — `PATCH /auth/candidates/{id}` (ADMIN only) — update rating (ASSET/MEDIUM/LIABILITY), candidateStatus (RFD/NOT_RFD), noOfInterviews
 - **Candidate profile view** — `GET /auth/candidates/{id}` — full candidate profile with all fields
-- **Staff creation** — `POST /auth/staff` (BENCH_MANAGER only) — creates INTERVIEWER, HR, COMPLIANCE, or BENCH_MANAGER accounts
-- **Staff listing** — `GET /auth/staff` (BENCH_MANAGER only)
-- **Staff deletion** — `DELETE /auth/staff/{id}` (BENCH_MANAGER only)
-- **Roles** — `CANDIDATE`, `INTERVIEWER`, `HR`, `COMPLIANCE`, `BENCH_MANAGER`
-- **Candidate search** — `GET /auth/candidates?search=` for manager interview setup (returns full profile)
+- **Staff creation** — `POST /auth/staff` (SUPER_ADMIN only) — creates RECRUITER or ADMIN accounts
+- **Staff listing** — `GET /auth/staff` (SUPER_ADMIN only)
+- **Staff deletion** — `DELETE /auth/staff/{id}` (SUPER_ADMIN only)
+- **Roles** — `CANDIDATE`, `RECRUITER`, `ADMIN`, `SUPER_ADMIN`
+- **Admin source segregation** — BENCH admin manages B2B+BENCH candidates, RECRUITMENT admin manages MARKET candidates
+- **Candidate search** — `GET /auth/candidates?search=` filtered by admin source (returns full profile)
 - **User lookup** — `GET /auth/users/{id}` for internal service-to-service calls
-- Default admin: `admin@benchreadiness.com` / `Admin@123` (seeded on first startup)
+- Default super admin: `admin@benchreadiness.com` / `Admin@123` (seeded on first startup)
 - JWT signed with HS384, configurable expiry
 
 ### interview-service (6006)
@@ -146,7 +147,7 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 - `GET /analytics/realtime` — real-time dashboard statistics by role
 - `GET /analytics/modes` — interview mode distribution analytics
 - `PATCH /interviews/{id}/complete` — update status, transcript, verdict
-- `POST /interviews/{id}/abandon` — candidate exits early or time expires, notifies bench manager via observer-service
+- `POST /interviews/{id}/abandon` — candidate exits early or time expires, notifies admin via observer-service
 - `resumeSummary` is required — used for candidate profile extraction and question calibration
 - **Feign clients**: AiServiceClient, ObserverServiceClient, ReviewServiceClient, ComplianceServiceClient, AuthServiceClient
 - Registers with Eureka as `INTERVIEW-SERVICE`
@@ -181,13 +182,13 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 - Registers with Eureka as `AI-SERVICE`
 
 ### observer-service (6007)
-- WebSocket STOMP — bench manager can observe live interview at `/topic/observer/{interviewId}`
-- `POST /observer/inject` — inject follow-up question into live interview
-- `POST /observer/flag` — flag a candidate answer
+- WebSocket STOMP — admin can observe live interview at `/topic/observer/{interviewId}`
+- `POST /observer/inject` — inject follow-up question into live interview (ADMIN, SUPER_ADMIN, RECRUITER)
+- `POST /observer/flag` — flag a candidate answer (ADMIN, SUPER_ADMIN)
 - **Email notifications** via Gmail SMTP:
   - Interview invite sent to candidate on creation
-  - Bench manager alerted when candidate abandons or time expires
-- Auth-service lookup for manager email on abandon notification
+  - Admin alerted when candidate abandons or time expires
+- Auth-service lookup for admin email on abandon notification
 - **Feign clients**: AuthServiceClient, InterviewServiceClient
 - Registers with Eureka as `OBSERVER-SERVICE`
 
@@ -195,7 +196,7 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 - `GET /scores/{interviewId}` — category scores with rationale, evidence, gap, confidence
 - `POST /scores` — save/replace scores (called by frontend after assessment)
 - `GET /reviews/{interviewId}` — sign-off status `{ signedOff, finalVerdict, note, signedOffAt }`
-- `POST /reviews/{interviewId}/sign-off` — BENCH_MANAGER only, upsertable (can update existing sign-off)
+- `POST /reviews/{interviewId}/sign-off` — ADMIN only, upsertable (can update existing sign-off)
 - On sign-off → calls interview-service to update status to `SIGNED_OFF` and store `finalVerdict`
 - **Feign client**: InterviewServiceClient
 - Registers with Eureka as `REVIEW-SERVICE`
@@ -216,7 +217,7 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 - `POST /tokens/finalize-interview` — aggregate and finalize token usage for completed interview
 - Audit log for all significant events
 - Retention policy management
-- Read-only access for COMPLIANCE role
+- Audit log access for SUPER_ADMIN and ADMIN roles
 
 ---
 
@@ -408,7 +409,7 @@ All requests go through the gateway at `http://localhost:6002`.
 curl -X POST http://localhost:6002/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin@benchreadiness.com","password":"Admin@123"}'
-# Response: {"ok":true,"token":"eyJ...","role":"BENCH_MANAGER","name":"Admin"}
+# Response: {"ok":true,"token":"eyJ...","role":"ADMIN","name":"Admin"}
 
 # Candidate registration (full profile)
 curl -X POST http://localhost:6002/auth/register \
@@ -421,7 +422,7 @@ curl -X POST http://localhost:6002/auth/register \
     "officialEmail": "john@company.com",
     "personalEmail": "john@example.com",
     "batch": "Batch-2026-Q2",
-    "source": "BENCH",
+    "source": "MARKET",
     "skillSet": "JAVA_SB",
     "yoeActual": 3.5,
     "yoePortrayed": 5.0,
@@ -432,9 +433,9 @@ curl -X POST http://localhost:6002/auth/register \
 curl http://localhost:6002/auth/candidates/<id> \
   -H "Authorization: Bearer <token>"
 
-# Update candidate (BENCH_MANAGER only — rating, status, no_of_interviews)
+# Update candidate (ADMIN only — rating, status, no_of_interviews)
 curl -X PATCH http://localhost:6002/auth/candidates/<id> \
-  -H "Authorization: Bearer <manager-token>" \
+  -H "Authorization: Bearer <admin-token>" \
   -H "Content-Type: application/json" \
   -d '{"rating": "ASSET", "candidateStatus": "RFD", "noOfInterviews": 3}'
 
@@ -443,19 +444,19 @@ curl -X POST http://localhost:6002/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"john@example.com","password":"secret123","role":"CANDIDATE"}'
 
-# Create staff account (BENCH_MANAGER only)
+# Create staff account (SUPER_ADMIN only, adminSource required for ADMIN role)
 curl -X POST http://localhost:6002/auth/staff \
-  -H "Authorization: Bearer <manager-token>" \
+  -H "Authorization: Bearer <super-admin-token>" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Jane Smith","email":"jane@company.com","password":"Pass@123","role":"INTERVIEWER"}'
+  -d '{"name":"Jane Smith","email":"jane@company.com","password":"Pass@123","role":"ADMIN","adminSource":"BENCH"}'
 
-# List all staff (BENCH_MANAGER only)
+# List all staff (SUPER_ADMIN only)
 curl http://localhost:6002/auth/staff \
-  -H "Authorization: Bearer <manager-token>"
+  -H "Authorization: Bearer <super-admin-token>"
 
-# Delete staff account (BENCH_MANAGER only)
+# Delete staff account (SUPER_ADMIN only)
 curl -X DELETE http://localhost:6002/auth/staff/<id> \
-  -H "Authorization: Bearer <manager-token>"
+  -H "Authorization: Bearer <super-admin-token>"
 
 # Search registered candidates (manager use)
 curl http://localhost:6002/auth/candidates?search=john \
@@ -506,7 +507,7 @@ curl -X POST http://localhost:6002/interviews/<id>/abandon \
   -H "Content-Type: application/json" \
   -d '{"transcriptJson":"...","reason":"not_prepared"}'
 # reason: "not_prepared" | "time_expired" | "ai_manipulation"
-# Bench manager notified by email automatically
+# Admin notified by email automatically
 ```
 
 ### AI
@@ -578,7 +579,7 @@ curl http://localhost:6002/reviews/<interviewId> \
   -H "Authorization: Bearer <token>"
 # Response: {"signedOff":true,"finalVerdict":"READY","note":"...","signedOffAt":"..."}
 
-# Sign off (BENCH_MANAGER only, upsertable)
+# Sign off (ADMIN only, upsertable)
 curl -X POST http://localhost:6002/reviews/<interviewId>/sign-off \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
@@ -749,7 +750,7 @@ The AI question engine detects and handles prompt injection attempts:
 |---|---|
 | 1st detection | Warning message returned as next question |
 | 2nd–4th | Warning repeated |
-| 5th+ | Interview terminated, status set to `COMPLETED` with verdict `WITHDRAWN`, bench manager notified |
+| 5th+ | Interview terminated, status set to `COMPLETED` with verdict `WITHDRAWN`, admin notified |
 
 Detected patterns include: score manipulation requests, topic restriction commands, prompt injection, identity override attempts.
 
@@ -761,7 +762,7 @@ Detected patterns include: score manipulation requests, topic restriction comman
 - Custom duration override available during interview creation
 - Timer starts when first BOT question is received
 - Timer displayed in interview UI, turns red under 5 minutes
-- On expiry: AI sends closing message → interview auto-submitted → bench manager notified with reason `time_expired`
+- On expiry: AI sends closing message → interview auto-submitted → admin notified with reason `time_expired`
 
 ---
 
@@ -770,9 +771,9 @@ Detected patterns include: score manipulation requests, topic restriction comman
 | Event | Recipient | Content |
 |---|---|---|
 | Interview created | Candidate | Interview link + login instructions |
-| Candidate abandons | Bench Manager | Interview ID + review link + reason |
-| Time expired | Bench Manager | Interview ID + review link + reason |
-| Daily digest (7 PM) | ADMIN + BENCH_MANAGER | Today's interviews table with status and verdict |
+| Candidate abandons | Admin | Interview ID + review link + reason |
+| Time expired | Admin | Interview ID + review link + reason |
+| Daily digest (7 PM) | SUPER_ADMIN + ADMIN | Today's interviews table with status and verdict |
 
 ---
 
@@ -781,11 +782,21 @@ Detected patterns include: score manipulation requests, topic restriction comman
 | Role | Who they are | Can do |
 |---|---|---|
 | `CANDIDATE` | Job candidate | Take interview, view own dashboard, view own feedback |
-| `BENCH_MANAGER` | Hiring manager | Everything — create interviews, sign off, observe live, inject questions, manage staff |
-| `INTERVIEWER` | Technical reviewer | View interviews, view scores, view transcripts, observe live, inject questions |
-| `HR` | HR/Talent team | View interview results and verdicts only |
-| `COMPLIANCE` | Audit/legal team | Read-only audit logs only |
-| `ADMIN` | Platform monitor | View everything read-only, receive daily digest email |
+| `ADMIN` (BENCH) | Bench hiring manager | Create interviews, sign off, observe live, inject questions, flag answers, update candidates — only for B2B and BENCH source candidates |
+| `ADMIN` (RECRUITMENT) | Recruitment hiring manager | Same as Bench Admin — only for MARKET source candidates |
+| `RECRUITER` | Technical reviewer | View interviews, view scores, view transcripts, observe live, inject questions |
+| `SUPER_ADMIN` | Platform owner | Everything ADMIN can do + create/delete staff accounts (ADMIN, RECRUITER), manage retention policies, platform monitoring, sees all candidates regardless of source |
+
+### Admin Source Segregation
+
+| Admin Source | Manages Candidates With Source |
+|---|---|
+| `BENCH` | BENCH |
+| `BD` | B2B |
+| `RECRUITMENT` | MARKET |
+
+When creating an ADMIN via `POST /auth/staff`, the `adminSource` field is required (`BENCH`, `BD`, or `RECRUITMENT`).
+SUPER_ADMIN sees all candidates regardless of source.
 
 ---
 
@@ -812,7 +823,7 @@ See `MIGRATION.md` for the full local LLM migration guide including model recomm
 | Two-pass assessment | Evidence extraction (cheap) + scoring (accurate) = better results at lower cost |
 | Rubric at creation time | JD-specific categories generated once, reused for questions and assessment |
 | Resume required | Enables candidate profiling, question difficulty calibration, resume consistency check |
-| Upsertable sign-off | Bench manager can correct a verdict without creating a new record |
+| Upsertable sign-off | Admin can correct a verdict without creating a new record |
 | Eureka service discovery | Dynamic service discovery, no hardcoded URLs, built-in load balancing |
 | Feign clients | Declarative, type-safe inter-service communication with retry and circuit breaker support |
 
@@ -1467,9 +1478,9 @@ CREATE SCHEMA IF NOT EXISTS compliance_svc;
 ```
 ### DB Pre seeding credential
 
--- 1. Default Bench Manager (admin)
+-- 1. Default Super Admin
 INSERT INTO auth_svc.users (id, email, name, password, role, created_at, updated_at)
-VALUES (gen_random_uuid()::text, 'admin@benchreadiness.com', 'Admin', 'Admin@123', 'BENCH_MANAGER', NOW(), NOW())
+VALUES (gen_random_uuid()::text, 'admin@benchreadiness.com', 'Admin', 'Admin@123', 'SUPER_ADMIN', NOW(), NOW())
 ON CONFLICT (email) DO NOTHING;
 
 ### 3. Create Dockerfiles for Each Service

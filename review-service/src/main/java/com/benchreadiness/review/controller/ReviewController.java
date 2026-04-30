@@ -47,14 +47,14 @@ public class ReviewController {
         ));
     }
 
-    /** POST /reviews/{interviewId}/sign-off — BENCH_MANAGER signs off an interview */
+    /** POST /reviews/{interviewId}/sign-off — ADMIN signs off an interview */
     @PostMapping("/reviews/{interviewId}/sign-off")
     public ResponseEntity<?> signOff(@PathVariable String interviewId,
                                       @Valid @RequestBody SignOffRequest req,
                                       @RequestHeader("X-User-Id") String userId,
                                       @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("BENCH_MANAGER")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Only BENCH_MANAGER can sign off"));
+        if (!role.equals("ADMIN") && !role.equals("SUPER_ADMIN")) {
+            return ResponseEntity.status(403).body(Map.of("error", "Only ADMIN can sign off"));
         }
         req.setInterviewId(interviewId);
         try {

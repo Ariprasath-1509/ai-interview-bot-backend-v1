@@ -276,19 +276,19 @@ public class AnalyticsService {
     }
 
     private java.util.List<Interview> getUserInterviews(String userId, String userRole) {
-        // ADMIN and BENCH_MANAGER see all interviews
-        if ("ADMIN".equals(userRole) || "BENCH_MANAGER".equals(userRole)) {
+        // SUPER_ADMIN and ADMIN see all interviews
+        if ("SUPER_ADMIN".equals(userRole) || "ADMIN".equals(userRole)) {
             return interviewRepository.findAll();
         }
         
-        // INTERVIEWER sees only interviews they created
-        if ("INTERVIEWER".equals(userRole)) {
+        // RECRUITER sees only interviews they created
+        if ("RECRUITER".equals(userRole)) {
             return interviewRepository.findAll().stream()
                     .filter(i -> userId.equals(i.getCreatedByUserId()))
                     .collect(Collectors.toList());
         }
         
-        // HR and COMPLIANCE see all interviews (read-only)
+        // Default: return all interviews
         return interviewRepository.findAll();
     }
 

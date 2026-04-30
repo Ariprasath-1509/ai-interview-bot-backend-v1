@@ -38,10 +38,10 @@ public class DigestService {
     public void sendDailyDigest() {
         log.info("Sending daily interview digest...");
         try {
-            // 1. Get all admin + bench manager emails
+            // 1. Get all super_admin + admin emails
             List<Map<String, String>> recipients = fetchRecipients();
             if (recipients.isEmpty()) {
-                log.warn("No ADMIN or BENCH_MANAGER users found — skipping digest");
+                log.warn("No SUPER_ADMIN or ADMIN users found — skipping digest");
                 return;
             }
 

@@ -22,10 +22,14 @@ public class JwtService {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + expiryMs);
 
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .subject(user.getId())
                 .claim("email", user.getEmail())
-                .claim("role", user.getRole().name())
+                .claim("role", user.getRole().name());
+        if (user.getAdminSource() != null) {
+            builder.claim("adminSource", user.getAdminSource().name());
+        }
+        return builder
                 .issuedAt(now)
                 .expiration(expiry)
                 .signWith(Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8)))

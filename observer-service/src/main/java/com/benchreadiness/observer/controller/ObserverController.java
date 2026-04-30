@@ -59,12 +59,12 @@ public class ObserverController {
         return ResponseEntity.ok(observerService.getEventsByInterview(interviewId, limit));
     }
 
-    /** POST /observer/inject — BENCH_MANAGER or PRACTICE_LEAD queues a follow-up question */
+    /** POST /observer/inject — ADMIN or RECRUITER queues a follow-up question */
     @PostMapping("/inject")
     public ResponseEntity<?> inject(@Valid @RequestBody InjectRequest req,
                                      @RequestHeader("X-User-Id") String userId,
                                      @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("BENCH_MANAGER") && !role.equals("INTERVIEWER")) {
+        if (!role.equals("ADMIN") && !role.equals("SUPER_ADMIN") && !role.equals("RECRUITER")) {
             return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
         }
         try {
@@ -80,12 +80,12 @@ public class ObserverController {
         }
     }
 
-    /** POST /observer/flag — BENCH_MANAGER flags a candidate answer */
+    /** POST /observer/flag — ADMIN flags a candidate answer */
     @PostMapping("/flag")
     public ResponseEntity<?> flag(@Valid @RequestBody FlagRequest req,
                                    @RequestHeader("X-User-Id") String userId,
                                    @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("BENCH_MANAGER")) {
+        if (!role.equals("ADMIN") && !role.equals("SUPER_ADMIN")) {
             return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
         }
         try {

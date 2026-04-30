@@ -1,8 +1,12 @@
 package com.benchreadiness.auth.dto;
 
+import com.benchreadiness.auth.entity.CandidateSource;
+import com.benchreadiness.auth.entity.SkillSet;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
 
 public class RegisterRequest {
 
@@ -15,10 +19,54 @@ public class RegisterRequest {
     @NotBlank @Size(min = 6, message = "Password must be at least 6 characters")
     private String password;
 
+    @NotBlank
+    private String contactNumber;
+
+    private String officialEmail;
+
+    private String personalEmail;
+
+    @NotBlank
+    private String batch;
+
+    @NotNull
+    private CandidateSource source;
+
+    @NotNull
+    private SkillSet skillSet;
+
+    @NotNull
+    private BigDecimal yoeActual;
+
+    @NotNull
+    private BigDecimal yoePortrayed;
+
+    @NotNull
+    private Integer yop;
+
+    // Getters and setters
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
+    public String getContactNumber() { return contactNumber; }
+    public void setContactNumber(String contactNumber) { this.contactNumber = contactNumber; }
+    public String getOfficialEmail() { return officialEmail; }
+    public void setOfficialEmail(String officialEmail) { this.officialEmail = officialEmail; }
+    public String getPersonalEmail() { return personalEmail; }
+    public void setPersonalEmail(String personalEmail) { this.personalEmail = personalEmail; }
+    public String getBatch() { return batch; }
+    public void setBatch(String batch) { this.batch = batch; }
+    public CandidateSource getSource() { return source; }
+    public void setSource(CandidateSource source) { this.source = source; }
+    public SkillSet getSkillSet() { return skillSet; }
+    public void setSkillSet(SkillSet skillSet) { this.skillSet = skillSet; }
+    public BigDecimal getYoeActual() { return yoeActual; }
+    public void setYoeActual(BigDecimal yoeActual) { this.yoeActual = yoeActual; }
+    public BigDecimal getYoePortrayed() { return yoePortrayed; }
+    public void setYoePortrayed(BigDecimal yoePortrayed) { this.yoePortrayed = yoePortrayed; }
+    public Integer getYop() { return yop; }
+    public void setYop(Integer yop) { this.yop = yop; }
 }
