@@ -315,40 +315,73 @@ mvn clean install
 
 ### 4. Run Services
 
-Services must start in dependency order:
+Services share a remote PostgreSQL with limited connections. Each service uses a pool of 3 connections (max 15 total). **Start services one at a time** and wait for each to fully register with Eureka before starting the next.
+
+#### Start Sequence
+
+| Step | Service | Port | Wait for | Why |
+|------|---------|------|----------|-----|
+| 1 | eureka-server | 6009 | Dashboard at http://localhost:6009 | All services register here — must be up first |
+| 2 | compliance-service | 6005 | `Started ComplianceServiceApplication` in logs | ai-service and interview-service depend on it for token tracking |
+| 3 | auth-service | 6004 | `Started AuthServiceApplication` in logs | interview-service, observer-service need user lookups |
+| 4 | interview-service | 6006 | `Started InterviewServiceApplication` in logs | review-service and observer-service call it via Feign |
+| 5 | ai-service | 6003 | `Started AiServiceApplication` in logs | interview-service calls it for rubric generation |
+| 6 | observer-service | 6007 | `Started ObserverServiceApplication` in logs | interview-service calls it for email notifications |
+| 7 | review-service | 6008 | `Started ReviewServiceApplication` in logs | Calls interview-service for sign-off status updates |
+| 8 | api-gateway | 6002 | `Started ApiGatewayApplication` in logs | Routes to all services — start last |
+
+#### Terminal Commands
 
 ```bash
-# Terminal 1 - Service Registry (MUST START FIRST)
+# Terminal 1 — Service Registry (MUST START FIRST, wait for dashboard)
 cd eureka-server && mvn spring-boot:run
 
-# Terminal 2 - No dependencies
+# Terminal 2 — wait ~15s after eureka is up
 cd compliance-service && mvn spring-boot:run
 
-# Terminal 3 - No dependencies
+# Terminal 3 — wait ~15s after compliance starts
 cd auth-service && mvn spring-boot:run
 
-# Terminal 4 - Depends on auth-service
+# Terminal 4 — wait ~15s after auth starts
 cd interview-service && mvn spring-boot:run
 
-# Terminal 5 - Depends on compliance-service
+# Terminal 5 — wait ~15s after interview starts
 cd ai-service && mvn spring-boot:run
 
-# Terminal 6 - Depends on auth-service
+# Terminal 6 — can start alongside ai-service
 cd observer-service && mvn spring-boot:run
 
-# Terminal 7 - Depends on interview-service
+# Terminal 7 — wait ~15s after interview-service is registered in Eureka
 cd review-service && mvn spring-boot:run
 
-# Terminal 8 - Depends on all services
+# Terminal 8 — start after all services show UP in Eureka dashboard
 cd api-gateway && mvn spring-boot:run
 ```
 
-Or use the provided script (handles dependencies automatically):
+#### Quick Start Script
+
 ```bash
 start-all.bat
 ```
 
-**Eureka Dashboard**: http://localhost:6009
+Handles dependency order and wait times automatically.
+
+#### Connection Pool Configuration
+
+All database-connected services use HikariCP with limited pools to avoid exhausting the remote PostgreSQL `max_connections`:
+
+| Service | Pool Size | Idle |
+|---------|-----------|------|
+| auth-service | 3 | 1 |
+| interview-service | 3 | 1 |
+| observer-service | 3 | 1 |
+| review-service | 3 | 1 |
+| compliance-service | 3 | 1 |
+| **Total max** | **15** | **5** |
+
+If you see `too many clients already`, stop all services, wait 30s for connections to release, then restart in order.
+
+**Eureka Dashboard**: http://localhost:6009 — verify all 7 services show `UP` before using the platform.
 
 ### 5. Run Frontend
 
