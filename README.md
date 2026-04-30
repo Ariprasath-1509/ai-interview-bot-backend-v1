@@ -119,13 +119,15 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 
 ### auth-service (6004)
 - **Staff login** — real credentials (email + password), role determined by stored account
-- **Candidate registration** — `POST /auth/register` with name, email, password
-- **Candidate login** — email as username, password validated against stored value
+- **Candidate registration** — `POST /auth/register` with full profile: name, email, password, contactNumber, batch, source (B2B/BENCH), skillSet (JAVA_SB/JFSR/REACT_JS), yoeActual, yoePortrayed, yop, officialEmail, personalEmail
+- **Candidate login** — email as username (official or personal), password validated against stored value
+- **Candidate profile update** — `PATCH /auth/candidates/{id}` (BENCH_MANAGER only) — update rating (ASSET/MEDIUM/LIABILITY), candidateStatus (RFD/NOT_RFD), noOfInterviews
+- **Candidate profile view** — `GET /auth/candidates/{id}` — full candidate profile with all fields
 - **Staff creation** — `POST /auth/staff` (BENCH_MANAGER only) — creates INTERVIEWER, HR, COMPLIANCE, or BENCH_MANAGER accounts
 - **Staff listing** — `GET /auth/staff` (BENCH_MANAGER only)
 - **Staff deletion** — `DELETE /auth/staff/{id}` (BENCH_MANAGER only)
 - **Roles** — `CANDIDATE`, `INTERVIEWER`, `HR`, `COMPLIANCE`, `BENCH_MANAGER`
-- **Candidate search** — `GET /auth/candidates?search=` for manager interview setup
+- **Candidate search** — `GET /auth/candidates?search=` for manager interview setup (returns full profile)
 - **User lookup** — `GET /auth/users/{id}` for internal service-to-service calls
 - Default admin: `admin@benchreadiness.com` / `Admin@123` (seeded on first startup)
 - JWT signed with HS384, configurable expiry
@@ -224,7 +226,7 @@ Single PostgreSQL instance, schema-per-service isolation.
 
 | Schema | Service | Key Tables |
 |---|---|---|
-| `auth_svc` | auth-service | `users` |
+| `auth_svc` | auth-service | `users` (with candidate profile: batch, source, status, rating, skill_set, yoe_actual, yoe_portrayed, yop, contact_number, official_email, personal_email, no_of_interviews) |
 | `interview_svc` | interview-service | `engineers`, `job_descriptions`, `interview_plans`, `interviews` |
 | `observer_svc` | observer-service | `observer_events` |
 | `review_svc` | review-service | `scores`, `sign_offs` |
@@ -408,10 +410,33 @@ curl -X POST http://localhost:6002/auth/login \
   -d '{"username":"admin@benchreadiness.com","password":"Admin@123"}'
 # Response: {"ok":true,"token":"eyJ...","role":"BENCH_MANAGER","name":"Admin"}
 
-# Candidate registration
+# Candidate registration (full profile)
 curl -X POST http://localhost:6002/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"name":"John Doe","email":"john@example.com","password":"secret123"}'
+  -d '{
+    "name": "John Doe",
+    "email": "john@example.com",
+    "password": "secret123",
+    "contactNumber": "9876543210",
+    "officialEmail": "john@company.com",
+    "personalEmail": "john@example.com",
+    "batch": "Batch-2026-Q2",
+    "source": "BENCH",
+    "skillSet": "JAVA_SB",
+    "yoeActual": 3.5,
+    "yoePortrayed": 5.0,
+    "yop": 2022
+  }'
+
+# Get candidate profile
+curl http://localhost:6002/auth/candidates/<id> \
+  -H "Authorization: Bearer <token>"
+
+# Update candidate (BENCH_MANAGER only — rating, status, no_of_interviews)
+curl -X PATCH http://localhost:6002/auth/candidates/<id> \
+  -H "Authorization: Bearer <manager-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"rating": "ASSET", "candidateStatus": "RFD", "noOfInterviews": 3}'
 
 # Candidate login
 curl -X POST http://localhost:6002/auth/login \
