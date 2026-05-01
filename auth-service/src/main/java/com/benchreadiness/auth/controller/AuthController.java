@@ -670,4 +670,89 @@ public class AuthController {
             return ResponseEntity.status(500).body(Map.of("ok", false, "error", e.getMessage()));
         }
     }
+
+    /** GET /auth/candidates/{id}/deployment-history — Get deployment history for a candidate */
+    @GetMapping("/candidates/{id}/deployment-history")
+    public ResponseEntity<?> getDeploymentHistory(@PathVariable String id,
+                                                  @RequestHeader("X-User-Role") String callerRole) {
+        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN") && !callerRole.equals("RECRUITER")) {
+            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
+        }
+
+        List<DeploymentHistory> history = deploymentService.getDeploymentHistory(id);
+        return ResponseEntity.ok(history.stream()
+            .map(this::buildDeploymentHistoryMap)
+            .toList());
+    }
+
+    /** POST /auth/candidates/{id}/end-deployment — End current deployment and move back to B2B */
+    @PostMapping("/candidates/{id}/end-deployment")
+    public ResponseEntity<?> endDeployment(@PathVariable String id,
+                                          @RequestBody(required = false) Map<String, Object> requestBody,
+                                          @RequestHeader("X-User-Role") String callerRole) {
+        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
+            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can end deployments"));
+        }
+
+        try {
+            java.time.LocalDate endDate = null;
+            if (requestBody != null && requestBody.containsKey("endDate")) {
+                endDate = java.time.LocalDate.parse((String) requestBody.get("endDate"));
+            }
+            
+            User updated = deploymentService.endDeployment(id, endDate);
+            return ResponseEntity.ok(Map.of(
+                "ok", true,
+                "message", "Deployment ended successfully",
+                "candidate", buildCandidateMap(updated)
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", e.getMessage()));
+        }
+    }
+
+    /** GET /auth/deployment-history — Get all deployment history */
+    @GetMapping("/deployment-history")
+    public ResponseEntity<?> getAllDeploymentHistory(@RequestParam(required = false) String status,
+                                                     @RequestHeader("X-User-Role") String callerRole) {
+        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN") && !callerRole.equals("RECRUITER")) {
+            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
+        }
+
+        List<DeploymentHistory> history;
+        if ("ACTIVE".equalsIgnoreCase(status)) {
+            history = deploymentService.getAllActiveDeployments();
+        } else if ("COMPLETED".equalsIgnoreCase(status)) {
+            history = deploymentService.getAllCompletedDeployments();
+        } else {
+            // Return all if no status filter
+            history = deploymentService.getAllActiveDeployments();
+        }
+
+        return ResponseEntity.ok(history.stream()
+            .map(this::buildDeploymentHistoryMap)
+            .toList());
+    }
+
+    private Map<String, Object> buildDeploymentHistoryMap(DeploymentHistory dh) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", dh.getId());
+        map.put("candidateId", dh.getCandidateId());
+        map.put("empId", dh.getEmpId());
+        map.put("clientName", dh.getClientName());
+        map.put("deployedDate", dh.getDeployedDate() != null ? dh.getDeployedDate().toString() : null);
+        map.put("endDate", dh.getEndDate() != null ? dh.getEndDate().toString() : null);
+        map.put("mentor", dh.getMentor());
+        map.put("status", dh.getStatus());
+        map.put("createdAt", dh.getCreatedAt() != null ? dh.getCreatedAt().toString() : null);
+        map.put("updatedAt", dh.getUpdatedAt() != null ? dh.getUpdatedAt().toString() : null);
+        
+        // Add candidate info
+        userRepository.findById(dh.getCandidateId()).ifPresent(candidate -> {
+            map.put("candidateName", candidate.getName());
+            map.put("candidateEmail", candidate.getEmail());
+        });
+        
+        return map;
+    }
 }
