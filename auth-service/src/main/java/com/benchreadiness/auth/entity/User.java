@@ -73,6 +73,9 @@ public class User {
     @Column(name = "no_of_interviews")
     private Integer noOfInterviews = 0;
 
+    @Column(name = "system_interview_count")
+    private Integer systemInterviewCount = 0;
+
     @Column(name = "yop")
     private Integer yop;
 
@@ -81,6 +84,38 @@ public class User {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
+
+    // Resume-related fields
+    @Column(name = "resume_filename")
+    private String resumeFilename;
+
+    @Column(name = "resume_file_path", length = 500)
+    private String resumeFilePath;
+
+    @Column(name = "resume_parsed_text", columnDefinition = "TEXT")
+    private String resumeParsedText;
+
+    @Column(name = "resume_summary", columnDefinition = "TEXT")
+    private String resumeSummary;
+
+    @Column(name = "resume_uploaded_at")
+    private Instant resumeUploadedAt;
+
+    @Column(name = "resume_updated_at")
+    private Instant resumeUpdatedAt;
+
+    // Deployment fields
+    @Column(name = "emp_id", length = 50, unique = true)
+    private String empId;
+
+    @Column(name = "deployed_client_name")
+    private String deployedClientName;
+
+    @Column(name = "deployed_date")
+    private java.time.LocalDate deployedDate;
+
+    @Column(name = "mentor")
+    private String mentor;
 
     @PrePersist
     void prePersist() {
@@ -126,8 +161,34 @@ public class User {
     public void setYoePortrayed(BigDecimal yoePortrayed) { this.yoePortrayed = yoePortrayed; }
     public Integer getNoOfInterviews() { return noOfInterviews; }
     public void setNoOfInterviews(Integer noOfInterviews) { this.noOfInterviews = noOfInterviews; }
+    public Integer getSystemInterviewCount() { return systemInterviewCount; }
+    public void setSystemInterviewCount(Integer systemInterviewCount) { this.systemInterviewCount = systemInterviewCount; }
     public Integer getYop() { return yop; }
     public void setYop(Integer yop) { this.yop = yop; }
     public AdminSource getAdminSource() { return adminSource; }
     public void setAdminSource(AdminSource adminSource) { this.adminSource = adminSource; }
+
+    // Resume getters and setters
+    public String getResumeFilename() { return resumeFilename; }
+    public void setResumeFilename(String resumeFilename) { this.resumeFilename = resumeFilename; }
+    public String getResumeFilePath() { return resumeFilePath; }
+    public void setResumeFilePath(String resumeFilePath) { this.resumeFilePath = resumeFilePath; }
+    public String getResumeParsedText() { return resumeParsedText; }
+    public void setResumeParsedText(String resumeParsedText) { this.resumeParsedText = resumeParsedText; }
+    public String getResumeSummary() { return resumeSummary; }
+    public void setResumeSummary(String resumeSummary) { this.resumeSummary = resumeSummary; }
+    public Instant getResumeUploadedAt() { return resumeUploadedAt; }
+    public void setResumeUploadedAt(Instant resumeUploadedAt) { this.resumeUploadedAt = resumeUploadedAt; }
+    public Instant getResumeUpdatedAt() { return resumeUpdatedAt; }
+    public void setResumeUpdatedAt(Instant resumeUpdatedAt) { this.resumeUpdatedAt = resumeUpdatedAt; }
+
+    // Deployment getters and setters
+    public String getEmpId() { return empId; }
+    public void setEmpId(String empId) { this.empId = empId; }
+    public String getDeployedClientName() { return deployedClientName; }
+    public void setDeployedClientName(String deployedClientName) { this.deployedClientName = deployedClientName; }
+    public java.time.LocalDate getDeployedDate() { return deployedDate; }
+    public void setDeployedDate(java.time.LocalDate deployedDate) { this.deployedDate = deployedDate; }
+    public String getMentor() { return mentor; }
+    public void setMentor(String mentor) { this.mentor = mentor; }
 }

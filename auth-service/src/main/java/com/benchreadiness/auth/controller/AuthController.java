@@ -1,21 +1,33 @@
 package com.benchreadiness.auth.controller;
 
-import com.benchreadiness.auth.dto.CreateStaffRequest;
-import com.benchreadiness.auth.dto.LoginRequest;
-import com.benchreadiness.auth.dto.RegisterRequest;
-import com.benchreadiness.auth.dto.UpdateCandidateRequest;
+import com.benchreadiness.auth.dto.*;
 import com.benchreadiness.auth.entity.*;
+import com.benchreadiness.auth.repository.UserRepository;
+import com.benchreadiness.auth.service.BulkImportService;
+import com.benchreadiness.auth.service.DeploymentService;
+import com.benchreadiness.auth.service.ExcelParserService;
 import com.benchreadiness.auth.service.JwtService;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/auth")
 public class AuthController {
 
+    private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
     private static final Set<UserRole> STAFF_ROLES =
         Set.of(UserRole.RECRUITER, UserRole.ADMIN, UserRole.SUPER_ADMIN);
 
@@ -25,10 +37,18 @@ public class AuthController {
 
     private final UserRepository userRepository;
     private final JwtService jwtService;
+    private final ExcelParserService excelParserService;
+    private final BulkImportService bulkImportService;
+    private final DeploymentService deploymentService;
 
-    public AuthController(UserRepository userRepository, JwtService jwtService) {
+    public AuthController(UserRepository userRepository, JwtService jwtService,
+                         ExcelParserService excelParserService, BulkImportService bulkImportService,
+                         DeploymentService deploymentService) {
         this.userRepository = userRepository;
         this.jwtService = jwtService;
+        this.excelParserService = excelParserService;
+        this.bulkImportService = bulkImportService;
+        this.deploymentService = deploymentService;
     }
 
     /** POST /auth/register — candidate self-registration */
@@ -276,6 +296,229 @@ public class AuthController {
         return ResponseEntity.ok(buildCandidateMap(user));
     }
 
+    /** PATCH /auth/candidates/{id}/resume — Update candidate resume information */
+    @PatchMapping("/candidates/{id}/resume")
+    public ResponseEntity<?> updateCandidateResume(@PathVariable String id,
+                                                  @RequestBody Map<String, Object> resumeData) {
+        User user = userRepository.findById(id).orElse(null);
+        if (user == null) return ResponseEntity.notFound().build();
+        if (user.getRole() != UserRole.CANDIDATE) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "User is not a candidate"));
+        }
+        
+        // Update resume fields
+        if (resumeData.containsKey("resumeFilename")) {
+            user.setResumeFilename((String) resumeData.get("resumeFilename"));
+        }
+        if (resumeData.containsKey("resumeFilePath")) {
+            user.setResumeFilePath((String) resumeData.get("resumeFilePath"));
+        }
+        if (resumeData.containsKey("resumeParsedText")) {
+            user.setResumeParsedText((String) resumeData.get("resumeParsedText"));
+        }
+        if (resumeData.containsKey("resumeSummary")) {
+            user.setResumeSummary((String) resumeData.get("resumeSummary"));
+        }
+        if (resumeData.containsKey("resumeUploadedAt")) {
+            user.setResumeUploadedAt(java.time.Instant.parse((String) resumeData.get("resumeUploadedAt")));
+        }
+        if (resumeData.containsKey("resumeUpdatedAt")) {
+            user.setResumeUpdatedAt(java.time.Instant.parse((String) resumeData.get("resumeUpdatedAt")));
+        }
+        
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("ok", true, "message", "Resume information updated"));
+    }
+
+    /** POST /auth/candidates/{id}/resume — Update candidate resume information (alternative endpoint) */
+    @PostMapping("/candidates/{id}/resume")
+    public ResponseEntity<?> updateCandidateResumePost(@PathVariable String id,
+                                                      @RequestBody Map<String, Object> resumeData) {
+        return updateCandidateResume(id, resumeData);
+    }
+
+    /** POST /auth/candidates/{id}/increment-interview-count — Increment system interview count */
+    @PostMapping("/candidates/{id}/increment-interview-count")
+    public ResponseEntity<?> incrementSystemInterviewCount(@PathVariable String id) {
+        User user = userRepository.findById(id).orElse(null);
+        if (user == null) return ResponseEntity.notFound().build();
+        if (user.getRole() != UserRole.CANDIDATE) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "User is not a candidate"));
+        }
+        
+        Integer currentCount = user.getSystemInterviewCount() != null ? user.getSystemInterviewCount() : 0;
+        user.setSystemInterviewCount(currentCount + 1);
+        userRepository.save(user);
+        
+        return ResponseEntity.ok(Map.of("ok", true, "systemInterviewCount", user.getSystemInterviewCount()));
+    }
+
+    /** POST /auth/candidates/by-email/{email}/increment-interview-count — Increment by email */
+    @PostMapping("/candidates/by-email/{email}/increment-interview-count")
+    public ResponseEntity<?> incrementSystemInterviewCountByEmail(@PathVariable String email) {
+        // Try to find by email, officialEmail, or personalEmail
+        User user = userRepository.findByOfficialEmailOrPersonalEmail(email, email).orElse(null);
+        if (user == null) {
+            user = userRepository.findByEmail(email).orElse(null);
+        }
+        if (user == null) return ResponseEntity.notFound().build();
+        if (user.getRole() != UserRole.CANDIDATE) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "User is not a candidate"));
+        }
+        
+        Integer currentCount = user.getSystemInterviewCount() != null ? user.getSystemInterviewCount() : 0;
+        user.setSystemInterviewCount(currentCount + 1);
+        userRepository.save(user);
+        
+        return ResponseEntity.ok(Map.of("ok", true, "systemInterviewCount", user.getSystemInterviewCount()));
+    }
+
+    /** POST /auth/candidates/bulk-upload — Upload Excel file for bulk import validation */
+    @PostMapping("/candidates/bulk-upload")
+    public ResponseEntity<?> uploadBulkCandidates(@RequestParam("file") MultipartFile file,
+                                                 @RequestHeader("X-User-Role") String callerRole) {
+        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
+            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can bulk import candidates"));
+        }
+
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "Please select a file to upload"));
+        }
+
+        if (!file.getOriginalFilename().toLowerCase().endsWith(".xlsx")) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "Only Excel (.xlsx) files are supported"));
+        }
+
+        try {
+            BulkImportResponse response = excelParserService.parseExcelFile(file);
+            return ResponseEntity.ok(response);
+        } catch (IOException e) {
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Failed to process Excel file: " + e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Unexpected error: " + e.getMessage()));
+        }
+    }
+
+    /** POST /auth/candidates/bulk-confirm/{sessionId} — Confirm and process bulk import */
+    @PostMapping("/candidates/bulk-confirm/{sessionId}")
+    public ResponseEntity<?> confirmBulkImport(@PathVariable String sessionId,
+                                              @RequestHeader("X-User-Role") String callerRole) {
+        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
+            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can bulk import candidates"));
+        }
+
+        try {
+            BulkImportService.BulkImportResult result = bulkImportService.processBulkImport(sessionId);
+            
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("ok", true);
+            response.put("message", "Bulk import completed");
+            response.put("successCount", result.getSuccessCount());
+            response.put("errorCount", result.getErrorCount());
+            response.put("errors", result.getErrors());
+            response.put("sessionId", sessionId);
+            
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Import failed: " + e.getMessage()));
+        }
+    }
+
+    /** GET /auth/candidates/bulk-download/{sessionId} — Download credentials Excel after successful import */
+    @GetMapping("/candidates/bulk-download/{sessionId}")
+    public ResponseEntity<?> downloadCredentials(@PathVariable String sessionId,
+                                                @RequestHeader("X-User-Role") String callerRole) {
+        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
+            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can download credentials"));
+        }
+
+        try {
+            // Get the stored result from session
+            BulkImportService.BulkImportResult result = bulkImportService.getImportResult(sessionId);
+            
+            if (result == null) {
+                return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "Session not found or expired"));
+            }
+            
+            if (result.getCreatedCandidates().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "No candidates were created in this session"));
+            }
+
+            byte[] excelBytes = bulkImportService.generateCredentialsExcel(result.getCreatedCandidates());
+            
+            String filename = "login_credentials_" + 
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".xlsx";
+
+            return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(excelBytes);
+                
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Failed to generate credentials file: " + e.getMessage()));
+        }
+    }
+
+    /** POST /auth/candidates/bulk-download — Download credentials for existing candidates */
+    @PostMapping("/candidates/bulk-download")
+    public ResponseEntity<byte[]> downloadExistingCredentials(@RequestBody BulkDownloadRequest request,
+                                                             @RequestHeader("X-User-Role") String callerRole) {
+        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        try {
+            List<User> candidates = userRepository.findByIdIn(request.getCandidateIds());
+            
+            if (candidates.isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            // Generate new passwords for existing candidates and update them
+            List<BulkImportService.CreatedCandidate> credentialList = new ArrayList<>();
+            
+            for (User user : candidates) {
+                // Generate new password: FirstName@2025
+                String firstName = user.getName() != null ? 
+                    user.getName().split(" ")[0] : "User";
+                String newPassword = firstName + "@" + LocalDateTime.now().getYear();
+                
+                // Update user's password (store as plain text to match registration behavior)
+                user.setPassword(newPassword);
+                userRepository.save(user);
+                
+                credentialList.add(new BulkImportService.CreatedCandidate(
+                    user.getId(),
+                    user.getName(),
+                    user.getEmail(),
+                    newPassword, // Show the new readable password
+                    user.getSource() != null ? user.getSource().name() : "UNKNOWN",
+                    user.getBatch(),
+                    0
+                ));
+            }
+
+            byte[] excelData = bulkImportService.generateCredentialsExcel(credentialList);
+            
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+            headers.setContentDispositionFormData("attachment", 
+                "existing_credentials_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".xlsx");
+            
+            return ResponseEntity.ok()
+                .headers(headers)
+                .body(excelData);
+                
+        } catch (Exception e) {
+            logger.error("Error generating existing credentials file", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     /**
      * Returns the candidate sources an admin is allowed to see.
      * BENCH admin → B2B, BENCH | RECRUITMENT admin → MARKET | SUPER_ADMIN/RECRUITER → null (all)
@@ -330,7 +573,101 @@ public class AuthController {
         map.put("yoeActual", u.getYoeActual());
         map.put("yoePortrayed", u.getYoePortrayed());
         map.put("noOfInterviews", u.getNoOfInterviews());
+        map.put("systemInterviewCount", u.getSystemInterviewCount());
         map.put("yop", u.getYop());
+        
+        // Resume fields
+        map.put("resumeFilename", u.getResumeFilename());
+        map.put("resumeFilePath", u.getResumeFilePath());
+        map.put("resumeSummary", u.getResumeSummary());
+        map.put("resumeUploadedAt", u.getResumeUploadedAt() != null ? u.getResumeUploadedAt().toString() : null);
+        map.put("resumeUpdatedAt", u.getResumeUpdatedAt() != null ? u.getResumeUpdatedAt().toString() : null);
+        
+        // Deployment fields
+        map.put("empId", u.getEmpId());
+        map.put("deployedClientName", u.getDeployedClientName());
+        map.put("deployedDate", u.getDeployedDate() != null ? u.getDeployedDate().toString() : null);
+        map.put("mentor", u.getMentor());
+        
         return map;
+    }
+
+    /** POST /auth/candidates/deployment/bulk-import — Bulk import deployment data */
+    @PostMapping("/candidates/deployment/bulk-import")
+    public ResponseEntity<?> bulkImportDeployments(@RequestParam("file") MultipartFile file,
+                                                   @RequestHeader("X-User-Role") String callerRole) {
+        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
+            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can bulk import deployments"));
+        }
+
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "Please select a file to upload"));
+        }
+
+        if (!file.getOriginalFilename().toLowerCase().endsWith(".xlsx")) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "Only Excel (.xlsx) files are supported"));
+        }
+
+        try {
+            Map<String, Object> result = deploymentService.bulkImportDeployments(file);
+            return ResponseEntity.ok(result);
+        } catch (IOException e) {
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Failed to process Excel file: " + e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Unexpected error: " + e.getMessage()));
+        }
+    }
+
+    /** GET /auth/candidates/deployed — List only deployed candidates */
+    @GetMapping("/candidates/deployed")
+    public ResponseEntity<?> getDeployedCandidates(@RequestHeader("X-User-Role") String callerRole) {
+        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN") && !callerRole.equals("RECRUITER")) {
+            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
+        }
+        
+        List<User> deployed = deploymentService.getDeployedCandidates();
+        return ResponseEntity.ok(deployed.stream()
+            .map(this::buildCandidateMap)
+            .toList());
+    }
+
+    /** PATCH /auth/candidates/{id}/deployment — Update deployment fields */
+    @PatchMapping("/candidates/{id}/deployment")
+    public ResponseEntity<?> updateDeployment(@PathVariable String id,
+                                              @RequestBody Map<String, Object> deploymentData,
+                                              @RequestHeader("X-User-Role") String callerRole) {
+        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
+            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can update deployments"));
+        }
+
+        try {
+            String empId = (String) deploymentData.get("empId");
+            String clientName = (String) deploymentData.get("clientName");
+            java.time.LocalDate deployedDate = deploymentData.get("deployedDate") != null 
+                ? java.time.LocalDate.parse((String) deploymentData.get("deployedDate")) 
+                : null;
+            String mentor = (String) deploymentData.get("mentor");
+
+            User updated = deploymentService.updateDeployment(id, empId, clientName, deployedDate, mentor);
+            return ResponseEntity.ok(buildCandidateMap(updated));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", e.getMessage()));
+        }
+    }
+
+    /** DELETE /auth/candidates/{id}/deployment — Clear deployment fields */
+    @DeleteMapping("/candidates/{id}/deployment")
+    public ResponseEntity<?> clearDeployment(@PathVariable String id,
+                                             @RequestHeader("X-User-Role") String callerRole) {
+        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
+            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can clear deployments"));
+        }
+
+        try {
+            User updated = deploymentService.clearDeployment(id);
+            return ResponseEntity.ok(buildCandidateMap(updated));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", e.getMessage()));
+        }
     }
 }

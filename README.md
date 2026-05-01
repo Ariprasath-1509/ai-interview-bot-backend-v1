@@ -121,7 +121,11 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 - **Staff login** — real credentials (email + password), role determined by stored account
 - **Candidate registration** — `POST /auth/register` with full profile: name, email, password, contactNumber, batch, source (B2B/BENCH/MARKET), skillSet (JAVA_SB/JFSR/REACT_JS), yoeActual, yoePortrayed, yop, officialEmail, personalEmail
 - **Candidate login** — email as username (official or personal), password validated against stored value
-- **Candidate profile update** — `PATCH /auth/candidates/{id}` (ADMIN only) — update rating (ASSET/MEDIUM/LIABILITY), candidateStatus (RFD/NOT_RFD), noOfInterviews
+- **Candidate profile update** — `PATCH /auth/candidates/{id}` (ADMIN only) — update rating (ASSET/MEDIUM/LIABILITY), candidateStatus (RFD/WFD/DOB/DEPLOYED), noOfInterviews
+- **Deployment bulk import** — `POST /auth/candidates/deployment/bulk-import` (ADMIN only) — bulk import deployment data from Excel (matches by email)
+- **Get deployed candidates** — `GET /auth/candidates/deployed` — list all candidates with DEPLOYED status
+- **Update deployment** — `PATCH /auth/candidates/{id}/deployment` (ADMIN only) — update deployment fields (empId, clientName, deployedDate, mentor)
+- **Clear deployment** — `DELETE /auth/candidates/{id}/deployment` (ADMIN only) — clear deployment fields and reset status
 - **Candidate profile view** — `GET /auth/candidates/{id}` — full candidate profile with all fields
 - **Staff creation** — `POST /auth/staff` (SUPER_ADMIN only) — creates RECRUITER or ADMIN accounts
 - **Staff listing** — `GET /auth/staff` (SUPER_ADMIN only)
@@ -142,6 +146,9 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 - **Real-time analytics** — interview status counts, success rates, mode distribution
 - **Candidate performance analytics** — performance by verdict/mode, top candidates, skill gap analysis, average scores by dimension
 - **Rubric generation** — calls ai-service at creation time to generate JD-driven evaluation categories + candidate profile
+- **Client management** — client-centric approach with JD details and candidate requirements (BENCH/B2B vs MARKET)
+- **AI candidate matching** — calls ai-service for Claude-powered intelligent matching with detailed analysis, strengths/concerns, and recommendations. Falls back to rule-based algorithm if AI unavailable.
+- **Auto-fill interview creation** — automatically populate interview forms using candidate and client data with intelligent suggestions
 - `GET /interviews/mine` — candidate sees only their own interviews (filtered by `X-User-Email`)
 - `GET /interviews/summary` — manager list with candidate name, email, JD title, verdict, interview mode
 - `GET /analytics/realtime` — real-time dashboard statistics by role
@@ -149,14 +156,22 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 - `PATCH /interviews/{id}/complete` — update status, transcript, verdict
 - `POST /interviews/{id}/abandon` — candidate exits early or time expires, notifies admin via observer-service
 - `resumeSummary` is required — used for candidate profile extraction and question calibration
-- **Feign clients**: AiServiceClient, ObserverServiceClient, ReviewServiceClient, ComplianceServiceClient, AuthServiceClient
+- **Feign clients**: AiServiceClient (includes AiMatchingClient), ObserverServiceClient, ReviewServiceClient, ComplianceServiceClient, AuthServiceClient
 - Registers with Eureka as `INTERVIEW-SERVICE`
 
 ### ai-service (6003)
-- **Claude API** (`claude-haiku-4-5` for questions/rubric, `claude-sonnet-4-5` for assessment)
+- **Claude API** (`claude-haiku-4-5` for questions/rubric, `claude-sonnet-4-5` for assessment and matching)
 - **Token limits** — 4000 tokens for assessment (prevents JSON truncation), 1000 for rubric, 300 for questions
 - **Rubric generation** (`POST /ai/generate-rubric`) — extracts 4–6 JD-specific categories + candidate profile (YOE, level, difficulty) at interview creation. Uses dedicated `rubric-max-tokens` to prevent JSON truncation.
 - **Question generation** (`POST /ai/next-question`) — mode-specific themed questions with difficulty calibration (easy to hard based on interview mode)
+- **AI-powered candidate matching** (`POST /ai/match-candidates`) — uses Claude Sonnet to intelligently match candidates to client requirements:
+  - **Eligibility filtering**: Only matches RFD candidates with 3+ completed interviews (reduces AI calls by ~90%)
+  - **Interview evidence integration**: Uses pros/cons and category scores from recent 3 interviews for evidence-based matching
+  - Analyzes 6 weighted criteria: skill alignment (30%), experience level (25%), role complexity (20%), quality indicators (15%), interview performance (10%), frequency concerns (penalty)
+  - Provides detailed strengths, concerns, and recommendations (HIGHLY_RECOMMENDED / RECOMMENDED / CONSIDER / NOT_SUITABLE)
+  - Considers skill evolution potential, cultural fit indicators, and red flags
+  - Returns ranked matches with match scores, rationale, and actionable insights
+  - Fallback to rule-based matching when AI unavailable
 - **Skip/Next detection** — recognizes "next question", "skip", "pass", "move on" to allow candidates to skip questions they're not prepared for
 - **Claude optimizations**:
   - First question caching (24h TTL) — saves ~800 tokens per interview
@@ -188,6 +203,7 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 - **Email notifications** via Gmail SMTP:
   - Interview invite sent to candidate on creation
   - Admin alerted when candidate abandons or time expires
+  - Client creation notifications sent to bench admin (if benchB2bCandidatesNeeded > 0) and recruitment admin (if marketCandidatesNeeded > 0)
 - Auth-service lookup for admin email on abandon notification
 - **Feign clients**: AuthServiceClient, InterviewServiceClient
 - Registers with Eureka as `OBSERVER-SERVICE`
@@ -227,7 +243,7 @@ Single PostgreSQL instance, schema-per-service isolation.
 
 | Schema | Service | Key Tables |
 |---|---|---|
-| `auth_svc` | auth-service | `users` (with candidate profile: batch, source, status, rating, skill_set, yoe_actual, yoe_portrayed, yop, contact_number, official_email, personal_email, no_of_interviews) |
+| `auth_svc` | auth-service | `users` (with candidate profile: batch, source, status, rating, skill_set, yoe_actual, yoe_portrayed, yop, contact_number, official_email, personal_email, no_of_interviews (external client interviews), system_interview_count (auto-tracked interviews in our application), emp_id, deployed_client_name, deployed_date, mentor) |
 | `interview_svc` | interview-service | `engineers`, `job_descriptions`, `interview_plans`, `interviews` |
 | `observer_svc` | observer-service | `observer_events` |
 | `review_svc` | review-service | `scores`, `sign_offs` |
@@ -241,6 +257,12 @@ SCHEDULED → IN_PROGRESS → COMPLETED → REVIEW_PENDING → SIGNED_OFF
 
 ### Readiness Verdicts
 `READY` | `NEEDS_1_WEEK_PREP` | `NEEDS_RESKILLING` | `MISMATCH_WITH_JD` | `WITHDRAWN`
+
+### Candidate Status Values
+- **RFD** (Ready for Deployment) — Candidate passed interviews and ready to be deployed
+- **WFD** (Waiting for Deployment) — Candidate approved but waiting for client assignment
+- **DOB** (Deploy Observe on Bill) — Candidate deployed and being observed on billable project
+- **DEPLOYED** — Candidate currently deployed to a client with full deployment details (empId, clientName, deployedDate, mentor)
 
 ---
 
@@ -437,7 +459,28 @@ curl http://localhost:6002/auth/candidates/<id> \
 curl -X PATCH http://localhost:6002/auth/candidates/<id> \
   -H "Authorization: Bearer <admin-token>" \
   -H "Content-Type: application/json" \
-  -d '{"rating": "ASSET", "candidateStatus": "RFD", "noOfInterviews": 3}'
+  -d '{"rating": "ASSET", "candidateStatus": "DEPLOYED", "noOfInterviews": 3}'
+
+# Bulk import deployment data (ADMIN only)
+curl -X POST http://localhost:6002/auth/candidates/deployment/bulk-import \
+  -H "Authorization: Bearer <admin-token>" \
+  -F "file=@deployment_data.xlsx"
+# Excel format: Emp ID | Email | Client Name | Deployed Date (YYYY-MM-DD) | Mentor (optional)
+# Response: {"totalRows":50,"successCount":48,"warningCount":1,"failureCount":1,"details":[...]}
+
+# Get deployed candidates
+curl http://localhost:6002/auth/candidates/deployed \
+  -H "Authorization: Bearer <token>"
+
+# Update deployment fields
+curl -X PATCH http://localhost:6002/auth/candidates/<id>/deployment \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"empId":"EMP001","clientName":"TechCorp","deployedDate":"2024-01-15","mentor":"Jane Smith"}'
+
+# Clear deployment (reset to RFD status)
+curl -X DELETE http://localhost:6002/auth/candidates/<id>/deployment \
+  -H "Authorization: Bearer <admin-token>"
 
 # Candidate login
 curl -X POST http://localhost:6002/auth/login \
@@ -470,6 +513,11 @@ curl http://localhost:6002/auth/me \
 ### Interviews
 
 ```bash
+# Preview auto-fill data before creating interview
+curl "http://localhost:6002/interviews/auto-fill/preview?candidateId=<candidate-id>&clientId=<client-id>" \
+  -H "Authorization: Bearer <admin-token>"
+# Response: {"engineerEmail":"john@example.com","engineerName":"John Doe","jdTitle":"Senior Java Developer","suggestedMode":"L3","focusAreas":"Java & Spring Boot, Microservices Architecture","candidateDataFound":true,"clientDataFound":true}
+
 # Create interview (resumeSummary required, interviewMode defaults to SCREENING, customDurationMinutes optional)
 curl -X POST http://localhost:6002/interviews \
   -H "Authorization: Bearer <token>" \
@@ -604,6 +652,57 @@ curl -X POST http://localhost:6002/observer/flag \
 # Get events for an interview
 curl http://localhost:6002/observer/events/<interviewId> \
   -H "Authorization: Bearer <token>"
+
+# Notify client created (called automatically by interview-service)
+curl -X POST http://localhost:6002/observer/notify/client-created \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"clientId":"<id>","clientName":"TechCorp","jdRole":"Senior Java Developer","benchB2bCandidatesNeeded":3,"marketCandidatesNeeded":2}'
+```
+
+### AI Matching
+
+```bash
+# Get all clients with matching overview
+curl http://localhost:6002/clients/matching/overview \
+  -H "Authorization: Bearer <admin-token>"
+# Response: {"clients":[{"clientId":"...","clientName":"TechCorp","jdRole":"Senior Java Developer","benchB2bSummary":{"totalMatches":8,"highlyRecommended":2,"recommended":3,"lastComputedAt":"...","cached":true}}],"totalClients":5}
+# Note: Only RFD candidates with 3+ interviews are matched
+
+# Get detailed matches for a specific client
+curl "http://localhost:6002/clients/matching/<client-id>?source=BENCH_B2B" \
+  -H "Authorization: Bearer <admin-token>"
+# Response: {"clientId":"...","clientName":"TechCorp","source":"BENCH_B2B","matches":[...],"summary":{"totalCandidatesAnalyzed":8,"highlyRecommended":2},"computedAt":"...","cacheSource":"cached"}
+# Matches include interview evidence: strengths/weaknesses from recent 3 interviews, category scores
+
+# Refresh matches for a client (bypass cache)
+curl -X POST http://localhost:6002/clients/matching/<client-id>/refresh \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"source":"BENCH_B2B"}'
+# Response: Fresh AI-computed matches with "cacheSource":"ai-fresh"
+
+# Clear all matching caches (SUPER_ADMIN only)
+curl -X POST http://localhost:6002/clients/matching/cache/clear \
+  -H "Authorization: Bearer <super-admin-token>"
+
+# Get cache statistics
+curl http://localhost:6002/clients/matching/cache/stats \
+  -H "Authorization: Bearer <super-admin-token>"
+
+# Find matching candidates for a client (generic)
+curl -X POST http://localhost:6002/matching/candidates \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"clientId":"<client-id>","source":"BENCH_B2B","maxCandidates":10}'
+
+# Find BENCH/B2B candidates for a client
+curl -X POST http://localhost:6002/matching/clients/<client-id>/bench-candidates?maxCandidates=10 \
+  -H "Authorization: Bearer <admin-token>"
+
+# Find MARKET candidates for a client
+curl -X POST http://localhost:6002/matching/clients/<client-id>/market-candidates?maxCandidates=10 \
+  -H "Authorization: Bearer <admin-token>"
 ```
 
 ### Analytics
@@ -773,6 +872,8 @@ Detected patterns include: score manipulation requests, topic restriction comman
 | Interview created | Candidate | Interview link + login instructions |
 | Candidate abandons | Admin | Interview ID + review link + reason |
 | Time expired | Admin | Interview ID + review link + reason |
+| Client created | Bench Admin (if benchB2bCandidatesNeeded > 0) | Client details + action required |
+| Client created | Recruitment Admin (if marketCandidatesNeeded > 0) | Client details + action required |
 | Daily digest (7 PM) | SUPER_ADMIN + ADMIN | Today's interviews table with status and verdict |
 
 ---
@@ -883,14 +984,70 @@ AiInterviewBot/src/app/
 ├── candidate/
 │   ├── dashboard/          — Upcoming + past interviews
 │   ├── profile/            — View & edit candidate profile
+│   ├── resume/             — Resume upload (PDF, DOC, DOCX)
+│   ├── notifications/      — In-app notification center
 │   └── feedback/[id]/      — Category scores, roadmap, manager review
 ├── interview/[id]/         — Live interview, timer, abandon button
 ├── admin/
-│   ├── setup/              — Create interview with candidate search
+│   ├── interviews/create/  — Create interview with candidate search, resume upload, auto-fill, matching clients dropdown
+│   ├── setup/              — (Redirects to /admin/interviews/create for backward compatibility)
 │   ├── review/             — Interview list with status/verdict badges
+│   ├── calendar/           — Interview calendar view
+│   ├── candidates/         — Candidate management with filters
+│   ├── clients/
+│   │   └── matching/       — Client matching dashboard with AI-powered candidate recommendations
+│   ├── matching/           — AI candidate matching (legacy)
+│   ├── staff/              — Staff management (SUPER_ADMIN only)
+│   ├── settings/tokens/    — Token usage and limits
 │   └── interviews/[id]/review/ — Full review: scores, consistency, signals, sign-off
 └── observer/               — Live observer view with WebSocket
 ```
+
+### Frontend Features
+
+**Layout & Navigation:**
+- Collapsible sidebar layout with role-based navigation
+- Centralized role configuration with permissions
+- Dark/light theme toggle
+- Responsive design for mobile and desktop
+
+**UI Components:**
+- Toast notification system
+- Confirmation dialogs
+- Skeleton loading states
+- Pagination with search
+- Advanced search with filters
+- Status timeline component
+- Profile completion cards
+- Statistics grid widgets
+- Calendar widgets
+
+**Candidate Features:**
+- Resume upload with drag & drop (PDF preview)
+- Profile completion tracking
+- Interview status timeline
+- In-app notifications
+- Feedback and roadmap viewing
+
+**Admin Features:**
+- Interview calendar view
+- Advanced candidate filtering (source, skill, rating, status)
+- Real-time dashboard statistics
+- Token usage monitoring
+- Staff management (SUPER_ADMIN)
+- Bulk operations with confirmation
+- Client matching dashboard with AI-powered recommendations
+- Cached matching results with refresh capability
+- CSV export for candidate matches
+
+**API Integration:**
+- Resume upload: `POST /api/candidates/resume`
+- Notifications: `GET /api/notifications`
+- Mark notifications read: `PATCH /api/notifications/{id}/read`
+- Mark all read: `PATCH /api/notifications/read-all`
+- Client matching overview: `GET /api/recruiter/clients/matching/overview`
+- Client match details: `GET /api/recruiter/clients/matching/{clientId}?source=BENCH_B2B|MARKET`
+- Refresh matches: `POST /api/recruiter/clients/matching/{clientId}/refresh`
 
 ---
 

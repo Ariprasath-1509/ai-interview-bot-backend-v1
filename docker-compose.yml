@@ -1,0 +1,113 @@
+version: "3.8"
+
+services:
+
+  eureka-server:
+    image: registry.gitlab.com/ty_optimize/optimize/ai_eurekha:latest
+    container_name: eureka-server
+    ports:
+      - "6009:6009"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6009/actuator/health"]
+      interval: 10s
+      retries: 5
+      start_period: 20s
+
+  compliance-service:
+    image: registry.gitlab.com/ty_optimize/optimize/compliance_service:latest
+    container_name: compliance-service
+    ports:
+      - "6005:6005"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    restart: always
+
+  auth-service:
+    image: registry.gitlab.com/ty_optimize/optimize/ai_auth:latest
+    container_name: auth-service
+    ports:
+      - "6004:6004"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    restart: always
+
+  interview-service:
+    image: registry.gitlab.com/ty_optimize/optimize/interview_service:latest
+    container_name: interview-service
+    ports:
+      - "6006:6006"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      compliance-service:
+        condition: service_started
+      auth-service:
+        condition: service_started
+    restart: always
+
+  ai-service:
+    image: registry.gitlab.com/ty_optimize/optimize/ai_service:latest
+    container_name: ai-service
+    ports:
+      - "6003:6003"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      compliance-service:
+        condition: service_started
+    restart: always
+
+  observer-service:
+    image: registry.gitlab.com/ty_optimize/optimize/observer_service:latest
+    container_name: observer-service
+    ports:
+      - "6007:6007"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      interview-service:
+        condition: service_started
+    restart: always
+
+  review-service:
+    image: registry.gitlab.com/ty_optimize/optimize/review_service:latest
+    container_name: review-service
+    ports:
+      - "6008:6008"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      interview-service:
+        condition: service_started
+    restart: always
+
+  api-gateway:
+    image: registry.gitlab.com/ty_optimize/optimize/api_gateway:latest
+    container_name: api-gateway
+    ports:
+      - "6002:6002"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    restart: always

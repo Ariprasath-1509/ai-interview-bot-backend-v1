@@ -1,6 +1,7 @@
 package com.benchreadiness.interview.service;
 
 import com.benchreadiness.interview.entity.*;
+import com.benchreadiness.interview.repository.*;
 
 import org.springframework.stereotype.Service;
 

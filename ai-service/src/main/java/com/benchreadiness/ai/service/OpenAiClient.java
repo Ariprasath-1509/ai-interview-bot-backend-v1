@@ -45,6 +45,9 @@ public class OpenAiClient {
     @Value("${app.claude.rubric-max-tokens:1000}")
     private int rubricMaxTokens;
 
+    @Value("${app.claude.matching-max-tokens:6000}")
+    private int matchingMaxTokens;
+
     private final ComplianceServiceClient complianceServiceClient;
 
     private static final String CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
@@ -85,6 +88,12 @@ public class OpenAiClient {
     public String chatAssessment(String systemPrompt, String userPrompt) throws Exception {
         // Use the system prompt as-is - it already contains the proper JSON structure
         return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, assessmentMaxTokens);
+    }
+
+    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
+    public String chatMatching(String systemPrompt, String userPrompt) throws Exception {
+        // Use sonnet model for matching with higher token limit
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, matchingMaxTokens);
     }
 
     private String chat(String systemPrompt, String userPrompt, String model,

@@ -5,19 +5,18 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-@FeignClient(name = "ai-service")
+@FeignClient(name = "api-gateway-ai", url = "http://localhost:6002", configuration = com.benchreadiness.interview.config.FeignConfig.class)
 public interface AiServiceClient {
 
     @PostMapping("/ai/generate-rubric")
-    String generateRubric(@RequestBody Map<String, String> request,
-                         @RequestHeader("X-User-Id") String userId,
-                         @RequestHeader("X-Interview-Id") String interviewId);
+    String generateRubric(@RequestBody Map<String, String> request);
 
     @PostMapping("/ai/next-question")
-    Map<String, Object> getNextQuestion(@RequestBody Map<String, Object> request,
-                                       @RequestHeader("X-User-Id") String userId);
+    Map<String, Object> getNextQuestion(@RequestBody Map<String, Object> request);
 
     @PostMapping("/ai/assess")
-    String assessInterview(@RequestBody Map<String, Object> request,
-                          @RequestHeader("X-User-Id") String userId);
+    String assessInterview(@RequestBody Map<String, Object> request);
+
+    @PostMapping("/ai/resume-summary")
+    Map<String, Object> generateResumeSummary(@RequestBody Map<String, Object> request);
 }

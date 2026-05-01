@@ -5,6 +5,16 @@ public class CompleteInterviewRequest {
     private String proposedVerdict;
     private String finalVerdict;
     private String status;
+    
+    // Constructors
+    public CompleteInterviewRequest() {}
+    
+    public CompleteInterviewRequest(String transcriptJson, String proposedVerdict, String finalVerdict, String status) {
+        this.transcriptJson = transcriptJson;
+        this.proposedVerdict = proposedVerdict;
+        this.finalVerdict = finalVerdict;
+        this.status = status;
+    }
 
     public String getTranscriptJson() { return transcriptJson; }
     public void setTranscriptJson(String transcriptJson) { this.transcriptJson = transcriptJson; }

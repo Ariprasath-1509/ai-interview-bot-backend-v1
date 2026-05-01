@@ -1,15 +1,23 @@
 # Build output
 target/
+**/target/
+build/
+out/
 
-# IDE
+# IDE - IntelliJ IDEA
 .idea/
+**/.idea/
 *.iml
+**/*.iml
 *.iws
 *.ipr
 .vscode/
 .settings/
 .project
 .classpath
+*.swp
+*.swo
+*~
 
 # OS
 .DS_Store
@@ -22,10 +30,13 @@ pom.xml.releaseBackup
 pom.xml.versionsBackup
 pom.xml.next
 release.properties
+dependency-reduced-pom.xml
 
 # Logs
 *.log
 logs/
+**/*.log
+**/logs/
 
 # Environment / secrets
 .env
@@ -35,18 +46,40 @@ application-local.properties
 
 # Spring Boot
 *.pid
+spring-boot-devtools.properties
 
 # Amazon Q
 .amazonq/
+**/.amazonq/
 
 # Compiled classes
 *.class
+**/*.class
 
 # Package files
 *.jar
 *.war
 *.ear
+*.nar
 
 # JVM crash logs
 hs_err_pid*
 replay_pid*
+
+# Test output
+*.tmp
+*.bak
+*.swp
+*~.nib
+
+# Node modules (for frontend)
+node_modules/
+**/node_modules/
+
+# Next.js (frontend)
+.next/
+**/.next/
+
+# Gradle (if used)
+.gradle/
+**/.gradle/

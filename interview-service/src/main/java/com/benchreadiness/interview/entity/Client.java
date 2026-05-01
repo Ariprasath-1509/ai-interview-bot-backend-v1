@@ -1,0 +1,178 @@
+package com.benchreadiness.interview.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Entity
+@Table(name = "clients", schema = "interview_svc")
+public class Client {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    private UUID id;
+    
+    @Column(nullable = false)
+    private String clientName;
+    
+    @Column(nullable = false)
+    private String jdRole;
+    
+    @Column(columnDefinition = "TEXT", nullable = false)
+    private String jdDescription;
+    
+    @Column(nullable = false)
+    private Integer positionsVacant;
+    
+    @Column(nullable = false)
+    private Integer marketCandidatesNeeded;
+    
+    @Column(name = "bench_b2b_candidates_needed", nullable = false)
+    private Integer benchB2bCandidatesNeeded;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private ClientStatus status;
+    
+    @Column(nullable = false)
+    private Boolean benchReviewed = false;
+    
+    @Column(nullable = false)
+    private Boolean recruitmentReviewed = false;
+    
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+    
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+    
+    // Constructors
+    public Client() {}
+    
+    public Client(String clientName, String jdRole, String jdDescription, 
+                 Integer positionsVacant, Integer marketCandidatesNeeded, 
+                 Integer benchB2bCandidatesNeeded, ClientStatus status) {
+        this.clientName = clientName;
+        this.jdRole = jdRole;
+        this.jdDescription = jdDescription;
+        this.positionsVacant = positionsVacant;
+        this.marketCandidatesNeeded = marketCandidatesNeeded;
+        this.benchB2bCandidatesNeeded = benchB2bCandidatesNeeded;
+        this.status = status;
+        this.benchReviewed = false;
+        this.recruitmentReviewed = false;
+    }
+    
+    // Getters
+    public UUID getId() {
+        return id;
+    }
+    
+    public String getClientName() {
+        return clientName;
+    }
+    
+    public String getJdRole() {
+        return jdRole;
+    }
+    
+    public String getJdDescription() {
+        return jdDescription;
+    }
+    
+    public Integer getPositionsVacant() {
+        return positionsVacant;
+    }
+    
+    public Integer getMarketCandidatesNeeded() {
+        return marketCandidatesNeeded;
+    }
+    
+    public Integer getBenchB2bCandidatesNeeded() {
+        return benchB2bCandidatesNeeded;
+    }
+    
+    public ClientStatus getStatus() {
+        return status;
+    }
+    
+    public Boolean getBenchReviewed() {
+        return benchReviewed;
+    }
+    
+    public Boolean getRecruitmentReviewed() {
+        return recruitmentReviewed;
+    }
+    
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+    
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+    
+    // Setters
+    public void setId(UUID id) {
+        this.id = id;
+    }
+    
+    public void setClientName(String clientName) {
+        this.clientName = clientName;
+    }
+    
+    public void setJdRole(String jdRole) {
+        this.jdRole = jdRole;
+    }
+    
+    public void setJdDescription(String jdDescription) {
+        this.jdDescription = jdDescription;
+    }
+    
+    public void setPositionsVacant(Integer positionsVacant) {
+        this.positionsVacant = positionsVacant;
+    }
+    
+    public void setMarketCandidatesNeeded(Integer marketCandidatesNeeded) {
+        this.marketCandidatesNeeded = marketCandidatesNeeded;
+    }
+    
+    public void setBenchB2bCandidatesNeeded(Integer benchB2bCandidatesNeeded) {
+        this.benchB2bCandidatesNeeded = benchB2bCandidatesNeeded;
+    }
+    
+    public void setStatus(ClientStatus status) {
+        this.status = status;
+    }
+    
+    public void setBenchReviewed(Boolean benchReviewed) {
+        this.benchReviewed = benchReviewed;
+    }
+    
+    public void setRecruitmentReviewed(Boolean recruitmentReviewed) {
+        this.recruitmentReviewed = recruitmentReviewed;
+    }
+    
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+    
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+    
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+    
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
+    
+    public enum ClientStatus {
+        ACTIVE, INACTIVE
+    }
+}

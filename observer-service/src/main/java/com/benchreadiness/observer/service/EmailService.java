@@ -6,6 +6,7 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -72,6 +73,60 @@ public class EmailService {
         message.setTo(managerEmail);
         message.setSubject(subject);
         message.setText(body);
+        mailSender.send(message);
+    }
+
+    public void sendClientCreatedNotification(String clientId, String clientName, String jdRole, 
+                                            Integer benchB2bCandidatesNeeded, Integer marketCandidatesNeeded) {
+        try {
+            // Get all staff to find bench and recruitment admins
+            List<Map<String, Object>> staff = authServiceClient.getAllStaff();
+            
+            // Notify bench admin if bench/B2B candidates needed
+            if (benchB2bCandidatesNeeded > 0) {
+                staff.stream()
+                    .filter(user -> "ADMIN".equals(user.get("role")) && "BENCH".equals(user.get("adminSource")))
+                    .findFirst()
+                    .ifPresent(admin -> sendClientNotificationEmail(
+                        (String) admin.get("email"),
+                        (String) admin.get("name"),
+                        clientId, clientName, jdRole, benchB2bCandidatesNeeded, "BENCH/B2B"
+                    ));
+            }
+            
+            // Notify recruitment admin if market candidates needed
+            if (marketCandidatesNeeded > 0) {
+                staff.stream()
+                    .filter(user -> "ADMIN".equals(user.get("role")) && "RECRUITMENT".equals(user.get("adminSource")))
+                    .findFirst()
+                    .ifPresent(admin -> sendClientNotificationEmail(
+                        (String) admin.get("email"),
+                        (String) admin.get("name"),
+                        clientId, clientName, jdRole, marketCandidatesNeeded, "MARKET"
+                    ));
+            }
+        } catch (Exception e) {
+            // Log error but don't fail the client creation
+            System.err.println("Failed to send client creation notifications: " + e.getMessage());
+        }
+    }
+    
+    private void sendClientNotificationEmail(String toEmail, String adminName, String clientId, 
+                                           String clientName, String jdRole, Integer candidatesNeeded, String source) {
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom(from);
+        message.setTo(toEmail);
+        message.setSubject("New Client Position - Action Required");
+        message.setText(
+            "Hi " + (adminName != null ? adminName : "Admin") + ",\n\n" +
+            "A new client position has been created that requires " + source + " candidates:\n\n" +
+            "Client: " + clientName + "\n" +
+            "Role: " + jdRole + "\n" +
+            "Candidates Needed: " + candidatesNeeded + "\n\n" +
+            "Please review the position and trigger AI matching for suitable candidates.\n\n" +
+            "Review link: " + interviewBaseUrl.replace("/interview", "") + "/admin/clients\n\n" +
+            "Bench Readiness Team"
+        );
         mailSender.send(message);
     }
 }

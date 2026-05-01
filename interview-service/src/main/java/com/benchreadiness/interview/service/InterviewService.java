@@ -4,6 +4,7 @@ import com.benchreadiness.interview.client.*;
 import com.benchreadiness.interview.dto.AbandonInterviewRequest;
 import com.benchreadiness.interview.dto.CreateInterviewRequest;
 import com.benchreadiness.interview.entity.*;
+import com.benchreadiness.interview.repository.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,7 @@ public class InterviewService {
     private final AiServiceClient aiServiceClient;
     private final ObserverServiceClient observerServiceClient;
     private final ComplianceServiceClient complianceServiceClient;
+    private final AuthServiceClient authServiceClient;
 
     public InterviewService(InterviewRepository interviewRepository,
                             EngineerRepository engineerRepository,
@@ -32,7 +34,8 @@ public class InterviewService {
                             InterviewPlanRepository planRepository,
                             AiServiceClient aiServiceClient,
                             ObserverServiceClient observerServiceClient,
-                            ComplianceServiceClient complianceServiceClient) {
+                            ComplianceServiceClient complianceServiceClient,
+                            AuthServiceClient authServiceClient) {
         this.interviewRepository = interviewRepository;
         this.engineerRepository = engineerRepository;
         this.jdRepository = jdRepository;
@@ -40,6 +43,7 @@ public class InterviewService {
         this.aiServiceClient = aiServiceClient;
         this.observerServiceClient = observerServiceClient;
         this.complianceServiceClient = complianceServiceClient;
+        this.authServiceClient = authServiceClient;
     }
 
     @Transactional
@@ -98,11 +102,7 @@ public class InterviewService {
                 "focusAreas", req.getFocusAreas() != null ? req.getFocusAreas() : ""
             );
             
-            String rubricResponse = aiServiceClient.generateRubric(
-                rubricRequest, 
-                createdByUserId, 
-                plan.getId()
-            );
+            String rubricResponse = aiServiceClient.generateRubric(rubricRequest);
             
             if (rubricResponse != null) {
                 // Parse and store rubricJson and candidateProfileJson separately
@@ -290,7 +290,22 @@ public class InterviewService {
             try { interview.setFinalVerdict(ReadinessVerdict.valueOf(req.getFinalVerdict())); } catch (Exception ignored) {}
         }
         interview.setEndedAt(Instant.now());
-        return interviewRepository.save(interview);
+        Interview saved = interviewRepository.save(interview);
+        
+        // Increment system interview count for the candidate
+        if (interview.getStatus() == InterviewStatus.COMPLETED || interview.getStatus() == InterviewStatus.SIGNED_OFF) {
+            try {
+                Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
+                if (engineer != null && engineer.getEmail() != null) {
+                    // Find candidate by email and increment count
+                    authServiceClient.incrementSystemInterviewCountByEmail(engineer.getEmail());
+                }
+            } catch (Exception e) {
+                log.warn("Failed to increment system interview count for interview {}: {}", id, e.getMessage());
+            }
+        }
+        
+        return saved;
     }
 
     @Transactional

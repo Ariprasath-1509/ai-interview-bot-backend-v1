@@ -1,5 +1,6 @@
 package com.benchreadiness.observer.controller;
 
+import com.benchreadiness.observer.dto.ClientCreatedRequest;
 import com.benchreadiness.observer.dto.FlagRequest;
 import com.benchreadiness.observer.dto.InjectRequest;
 import com.benchreadiness.observer.dto.InterviewAbandonedRequest;
@@ -27,6 +28,23 @@ public class ObserverController {
         this.observerService = observerService;
         this.messagingTemplate = messagingTemplate;
         this.emailService = emailService;
+    }
+
+    /** POST /observer/notify/client-created — notify admins when new client is created */
+    @PostMapping("/notify/client-created")
+    public ResponseEntity<?> notifyClientCreated(@Valid @RequestBody ClientCreatedRequest req) {
+        try {
+            emailService.sendClientCreatedNotification(
+                req.getClientId(), 
+                req.getClientName(), 
+                req.getJdRole(),
+                req.getBenchB2bCandidatesNeeded(), 
+                req.getMarketCandidatesNeeded()
+            );
+            return ResponseEntity.ok(Map.of("ok", true));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", "Failed to send notifications: " + e.getMessage()));
+        }
     }
 
     /** POST /observer/notify/interview-created — send invite email to candidate */
