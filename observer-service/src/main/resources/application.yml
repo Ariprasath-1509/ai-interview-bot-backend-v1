@@ -45,7 +45,7 @@ eureka:
 app:
   jwt:
     secret: dev-jwt-secret-change-in-production-min-32-chars
-  interview-base-url: http://localhost:6001/interview
-  frontend-url: http://localhost:6001
+  interview-base-url: http://103.182.211.219:6001/interview
+  frontend-url: http://103.182.211.219:6001
   digest:
     cron: 0 0 19 * * *
