@@ -1,3 +1,0 @@
-ALTER TABLE interview_svc.engineers
-    ADD COLUMN IF NOT EXISTS email VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS name  VARCHAR(255);

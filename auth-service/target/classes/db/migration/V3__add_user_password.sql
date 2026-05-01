@@ -1,2 +1,0 @@
-ALTER TABLE auth_svc.users
-    ADD COLUMN IF NOT EXISTS password VARCHAR(255);
