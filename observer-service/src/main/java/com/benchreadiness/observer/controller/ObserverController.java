@@ -69,6 +69,23 @@ public class ObserverController {
         }
     }
 
+    /** POST /observer/notify/interview-cancelled — notify candidate when interview is cancelled */
+    @PostMapping("/notify/interview-cancelled")
+    public ResponseEntity<?> notifyInterviewCancelled(@RequestBody Map<String, String> req) {
+        try {
+            String candidateEmail = req.get("candidateEmail");
+            String candidateName = req.get("candidateName");
+            String interviewId = req.get("interviewId");
+            String jdTitle = req.get("jdTitle");
+            String reason = req.get("reason");
+            
+            emailService.sendInterviewCancellation(candidateEmail, candidateName, interviewId, jdTitle, reason);
+            return ResponseEntity.ok(Map.of("ok", true));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", "Failed to send email: " + e.getMessage()));
+        }
+    }
+
     /** GET /observer/events/{interviewId} — list latest events for an interview */
     @GetMapping("/events/{interviewId}")
     public ResponseEntity<List<ObserverEvent>> getEvents(

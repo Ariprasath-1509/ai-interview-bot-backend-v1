@@ -3,10 +3,7 @@ package com.benchreadiness.auth.controller;
 import com.benchreadiness.auth.dto.*;
 import com.benchreadiness.auth.entity.*;
 import com.benchreadiness.auth.repository.UserRepository;
-import com.benchreadiness.auth.service.BulkImportService;
-import com.benchreadiness.auth.service.DeploymentService;
-import com.benchreadiness.auth.service.ExcelParserService;
-import com.benchreadiness.auth.service.JwtService;
+import com.benchreadiness.auth.service.*;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,17 +37,22 @@ public class AuthController {
     private final ExcelParserService excelParserService;
     private final BulkImportService bulkImportService;
     private final DeploymentService deploymentService;
+    private final OtpService otpService;
+    private final EmailService emailService;
     private final com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient;
 
     public AuthController(UserRepository userRepository, JwtService jwtService,
                          ExcelParserService excelParserService, BulkImportService bulkImportService,
-                         DeploymentService deploymentService,
+                         DeploymentService deploymentService, OtpService otpService,
+                         EmailService emailService,
                          com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient) {
         this.userRepository = userRepository;
         this.jwtService = jwtService;
         this.excelParserService = excelParserService;
         this.bulkImportService = bulkImportService;
         this.deploymentService = deploymentService;
+        this.otpService = otpService;
+        this.emailService = emailService;
         this.complianceServiceClient = complianceServiceClient;
     }
 
@@ -190,6 +192,47 @@ public class AuthController {
     @PostMapping("/logout")
     public ResponseEntity<?> logout() {
         return ResponseEntity.ok(Map.of("ok", true));
+    }
+
+    /** POST /auth/forgot-password — Request OTP for password reset */
+    @PostMapping("/forgot-password")
+    public ResponseEntity<?> forgotPassword(@Valid @RequestBody ForgotPasswordRequest req) {
+        User user = userRepository.findByEmail(req.getEmail()).orElse(null);
+        if (user == null) {
+            // Return error to indicate email not found (less secure but more user-friendly)
+            return ResponseEntity.status(404).body(Map.of("ok", false, "error", "Email not registered. Please check your email or register first."));
+        }
+        
+        String otp = otpService.generateOtp(req.getEmail());
+        try {
+            emailService.sendOtpEmail(req.getEmail(), otp, user.getName());
+            logger.info("OTP sent successfully to: {}", req.getEmail());
+        } catch (Exception e) {
+            logger.error("Failed to send OTP email to {}: {}", req.getEmail(), e.getMessage());
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Failed to send OTP email. Please try again later."));
+        }
+        
+        return ResponseEntity.ok(Map.of("ok", true, "message", "OTP sent to your email. Please check your inbox."));
+    }
+
+    /** POST /auth/reset-password — Verify OTP and reset password */
+    @PostMapping("/reset-password")
+    public ResponseEntity<?> resetPassword(@Valid @RequestBody ResetPasswordRequest req) {
+        if (!otpService.validateOtp(req.getEmail(), req.getOtp())) {
+            return ResponseEntity.status(400).body(Map.of("ok", false, "error", "Invalid or expired OTP"));
+        }
+        User user = userRepository.findByEmail(req.getEmail()).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(404).body(Map.of("ok", false, "error", "User not found"));
+        }
+        user.setPassword(req.getNewPassword());
+        userRepository.save(user);
+        otpService.markOtpAsUsed(req.getEmail(), req.getOtp());
+        
+        logAudit(user.getId(), user.getName(), user.getRole().name(), "PASSWORD_RESET", user.getId(),
+            "Password reset via OTP", null, null);
+        
+        return ResponseEntity.ok(Map.of("ok", true, "message", "Password reset successful. You can now log in."));
     }
 
     /** GET /auth/users/{id} — internal service-to-service lookup */

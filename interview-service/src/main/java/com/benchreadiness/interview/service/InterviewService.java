@@ -141,7 +141,8 @@ public class InterviewService {
         }
 
         // Log audit trail
-        logAudit(createdByUserId, null, "ADMIN", "INTERVIEW_CREATED", saved.getId(),
+        String actorName = getUserName(createdByUserId);
+        logAudit(createdByUserId, actorName, "ADMIN", "INTERVIEW_CREATED", saved.getId(),
             String.format("Created %s interview for %s - %s", 
                 req.getInterviewMode(), req.getEngineerName(), req.getJdTitle()),
             null, null);
@@ -189,12 +190,10 @@ public class InterviewService {
     @Transactional
     public boolean deleteInterview(String id) {
         try {
-            // Check if interview exists
             if (!interviewRepository.existsById(id)) {
                 return false;
             }
             
-            // Get the interview to find related entities
             Interview interview = interviewRepository.findById(id).orElse(null);
             if (interview == null) {
                 return false;
@@ -202,6 +201,27 @@ public class InterviewService {
             
             String planId = interview.getPlanId();
             String jdId = interview.getJdId();
+            String engineerId = interview.getEngineerId();
+            
+            // Get engineer and JD details for email notification
+            Engineer engineer = engineerRepository.findById(engineerId).orElse(null);
+            JobDescription jd = jdRepository.findById(jdId).orElse(null);
+            
+            // Send cancellation email to candidate
+            if (engineer != null && engineer.getEmail() != null) {
+                try {
+                    Map<String, String> cancelRequest = Map.of(
+                        "candidateEmail", engineer.getEmail(),
+                        "candidateName", engineer.getName() != null ? engineer.getName() : "Candidate",
+                        "interviewId", id,
+                        "jdTitle", jd != null ? jd.getTitle() : "Technical Interview",
+                        "reason", "Interview cancelled by administrator"
+                    );
+                    observerServiceClient.notifyInterviewCancelled(cancelRequest);
+                } catch (Exception e) {
+                    log.warn("Failed to send cancellation email for interview {}: {}", id, e.getMessage());
+                }
+            }
             
             // Delete the interview first
             interviewRepository.deleteById(id);
@@ -451,8 +471,17 @@ public class InterviewService {
             return (Boolean) response.getOrDefault("canProceed", true);
         } catch (Exception e) {
             log.warn("Failed to check token limit for user {}: {}", userId, e.getMessage());
-            // Allow creation if compliance service is down
             return true;
+        }
+    }
+
+    private String getUserName(String userId) {
+        try {
+            Map<String, Object> user = authServiceClient.getUserById(userId);
+            return (String) user.getOrDefault("name", "Unknown");
+        } catch (Exception e) {
+            log.warn("Failed to fetch user name for {}: {}", userId, e.getMessage());
+            return "Unknown";
         }
     }
 

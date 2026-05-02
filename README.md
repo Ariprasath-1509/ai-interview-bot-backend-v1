@@ -113,7 +113,7 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 - **Eureka-based dynamic routing** using `lb://SERVICE-NAME` URIs
 - **Dual path support**: Accepts both `/path/**` and `/api/path/**` (strips `/api` prefix)
 - Extracts `X-User-Id`, `X-User-Role`, `X-User-Email` from JWT and forwards to downstream services
-- Public paths: `/auth/login`, `/auth/logout`, `/auth/register`, `/actuator`
+- Public paths: `/auth/login`, `/auth/logout`, `/auth/register`, `/auth/forgot-password`, `/auth/reset-password`, `/actuator`
 - CORS configured for `http://localhost:6001`
 - Client-side load balancing for service instances
 
@@ -121,6 +121,8 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 - **Staff login** — real credentials (email + password), role determined by stored account
 - **Candidate registration** — `POST /auth/register` with full profile: name, email, password, contactNumber, batch, source (B2B/BENCH/MARKET), skillSet (JAVA_SB/JFSR/REACT_JS), yoeActual, yoePortrayed, yop, officialEmail, personalEmail
 - **Candidate login** — email as username (official or personal), password validated against stored value
+- **Forgot password** — `POST /auth/forgot-password` sends 6-digit OTP to email (valid 10 minutes)
+- **Reset password** — `POST /auth/reset-password` verifies OTP and updates password
 - **Candidate profile update** — `PATCH /auth/candidates/{id}` (ADMIN only) — update rating (ASSET/MEDIUM/LIABILITY), candidateStatus (RFD/WFD/DOB/DEPLOYED), noOfInterviews
 - **Deployment bulk import** — `POST /auth/candidates/deployment/bulk-import` (ADMIN only) — bulk import deployment data from Excel (matches by email)
 - **Get deployed candidates** — `GET /auth/candidates/deployed` — list all candidates with DEPLOYED status
@@ -243,7 +245,7 @@ Single PostgreSQL instance, schema-per-service isolation.
 
 | Schema | Service | Key Tables |
 |---|---|---|
-| `auth_svc` | auth-service | `users` (with candidate profile: batch, source, status, rating, skill_set, yoe_actual, yoe_portrayed, yop, contact_number, official_email, personal_email, no_of_interviews (external client interviews), system_interview_count (auto-tracked interviews in our application), emp_id, deployed_client_name, deployed_date, mentor) |
+| `auth_svc` | auth-service | `users` (with candidate profile: batch, source, status, rating, skill_set, yoe_actual, yoe_portrayed, yop, contact_number, official_email, personal_email, no_of_interviews (external client interviews), system_interview_count (auto-tracked interviews in our application), emp_id, deployed_client_name, deployed_date, mentor), `password_reset_otps` (OTP storage with expiration) |
 | `interview_svc` | interview-service | `engineers`, `job_descriptions`, `interview_plans`, `interviews` |
 | `observer_svc` | observer-service | `observer_events` |
 | `review_svc` | review-service | `scores`, `sign_offs` |
@@ -508,6 +510,18 @@ curl http://localhost:6002/auth/candidates?search=john \
 # Get current user
 curl http://localhost:6002/auth/me \
   -H "Authorization: Bearer <token>"
+
+# Forgot password - Request OTP
+curl -X POST http://localhost:6002/auth/forgot-password \
+  -H "Content-Type: application/json" \
+  -d '{"email":"john@example.com"}'
+# Response: {"ok":true,"message":"OTP sent to your email"}
+
+# Reset password - Verify OTP and set new password
+curl -X POST http://localhost:6002/auth/reset-password \
+  -H "Content-Type: application/json" \
+  -d '{"email":"john@example.com","otp":"123456","newPassword":"newSecret123"}'
+# Response: {"ok":true,"message":"Password reset successful. You can now log in."}
 ```
 
 ### Interviews
@@ -870,6 +884,7 @@ Detected patterns include: score manipulation requests, topic restriction comman
 | Event | Recipient | Content |
 |---|---|---|
 | Interview created | Candidate | Interview link + login instructions |
+| Interview cancelled | Candidate | Beautiful HTML email with cancellation details, interview ID, position, reason |
 | Candidate abandons | Admin | Interview ID + review link + reason |
 | Time expired | Admin | Interview ID + review link + reason |
 | Client created | Bench Admin (if benchB2bCandidatesNeeded > 0) | Client details + action required |
