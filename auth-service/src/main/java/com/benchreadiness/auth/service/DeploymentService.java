@@ -23,13 +23,16 @@ public class DeploymentService {
     private final UserRepository userRepository;
     private final DeploymentHistoryRepository deploymentHistoryRepository;
     private final PasswordEncoder passwordEncoder;
+    private final com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient;
 
     public DeploymentService(UserRepository userRepository, 
                            DeploymentHistoryRepository deploymentHistoryRepository,
-                           PasswordEncoder passwordEncoder) {
+                           PasswordEncoder passwordEncoder,
+                           com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient) {
         this.userRepository = userRepository;
         this.deploymentHistoryRepository = deploymentHistoryRepository;
         this.passwordEncoder = passwordEncoder;
+        this.complianceServiceClient = complianceServiceClient;
     }
 
     @Transactional
@@ -48,49 +51,101 @@ public class DeploymentService {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
                 
+                // Skip completely empty rows
+                boolean isEmptyRow = true;
+                for (int cellNum = 0; cellNum < 11; cellNum++) {
+                    Cell cell = row.getCell(cellNum);
+                    if (cell != null && cell.getCellType() != CellType.BLANK) {
+                        String value = getCellValueAsString(cell);
+                        if (value != null && !value.trim().isEmpty()) {
+                            isEmptyRow = false;
+                            break;
+                        }
+                    }
+                }
+                if (isEmptyRow) continue;
+                
                 totalRows++;
                 Map<String, Object> rowResult = new HashMap<>();
                 rowResult.put("row", i);
 
                 try {
-                    // Parse row data - matching actual Excel format:
-                    // No. | Emp ID | Name | Contact Number | E Mail ID | Personal Mail ID | YOE | Technology | Client Name | Deployed Date | Mentor
-                    String empId = getCellValueAsString(row.getCell(1));  // Column B: Emp ID
-                    String name = getCellValueAsString(row.getCell(2));    // Column C: Name
-                    String contactNumber = getCellValueAsString(row.getCell(3)); // Column D: Contact Number
-                    String email = getCellValueAsString(row.getCell(4));   // Column E: E Mail ID
-                    String personalEmail = getCellValueAsString(row.getCell(5)); // Column F: Personal Mail ID
-                    String yoeStr = getCellValueAsString(row.getCell(6));  // Column G: YOE
-                    String technology = getCellValueAsString(row.getCell(7)); // Column H: Technology
-                    String clientName = getCellValueAsString(row.getCell(8)); // Column I: Client Name
-                    LocalDate deployedDate = getCellValueAsDate(row.getCell(9)); // Column J: Deployed Date
-                    String mentor = getCellValueAsString(row.getCell(10)); // Column K: Mentor
+                    // Detect format by checking first non-empty cell
+                    // Format 1: No. | Emp ID | Name | Contact | Official Email | Personal Email | YOE | Technology | Client | Date | Mentor (11 columns)
+                    // Format 2: Name | Contact | Official Email | Personal Email | YOE | Technology | Client | Date | Mentor (9 columns)
+                    
+                    int columnOffset = 0;
+                    String firstCell = getCellValueAsString(row.getCell(0));
+                    
+                    // If first cell is a number (row number), we have Format 1 with No. and Emp ID
+                    if (firstCell != null && firstCell.matches("\\d+")) {
+                        columnOffset = 2; // Skip No. and Emp ID columns
+                    }
+                    
+                    // Parse row data based on detected format
+                    String empId = columnOffset == 2 ? getCellValueAsString(row.getCell(1)) : null;  // Column B: Emp ID (if exists)
+                    String name = getCellValueAsString(row.getCell(columnOffset));    // Name
+                    String contactNumber = getCellValueAsString(row.getCell(columnOffset + 1)); // Contact Number
+                    String officialEmail = getCellValueAsString(row.getCell(columnOffset + 2));   // Official Mail ID
+                    String personalEmail = getCellValueAsString(row.getCell(columnOffset + 3)); // Personal Mail ID
+                    String yoeStr = getCellValueAsString(row.getCell(columnOffset + 4));  // YOE
+                    String technology = getCellValueAsString(row.getCell(columnOffset + 5)); // Technology
+                    String clientName = getCellValueAsString(row.getCell(columnOffset + 6)); // Client Name
+                    LocalDate deployedDate = getCellValueAsDate(row.getCell(columnOffset + 7)); // Deployed Date
+                    String mentor = getCellValueAsString(row.getCell(columnOffset + 8)); // Mentor
+                    
+                    // Treat "NA" as empty/null
+                    if (officialEmail != null && (officialEmail.trim().isEmpty() || officialEmail.trim().equalsIgnoreCase("NA"))) {
+                        officialEmail = null;
+                    }
+                    if (personalEmail != null && (personalEmail.trim().isEmpty() || personalEmail.trim().equalsIgnoreCase("NA"))) {
+                        personalEmail = null;
+                    }
+                    
+                    // Use official email as primary, fallback to personal email
+                    String email = (officialEmail != null) ? officialEmail.trim() : (personalEmail != null ? personalEmail.trim() : null);
 
                     // Validate required fields
                     if (email == null || email.trim().isEmpty()) {
                         rowResult.put("status", "FAILURE");
-                        rowResult.put("message", "Missing required field: Email");
+                        rowResult.put("message", "Missing required field: Official Mail ID or Personal Mail ID (Row " + (i + 1) + ")");
+                        rowResult.put("rowNumber", i + 1);
+                        if (name != null) rowResult.put("name", name);
+                        if (empId != null) rowResult.put("empId", empId);
+                        if (contactNumber != null) rowResult.put("contactNumber", contactNumber);
                         failureCount++;
                         details.add(rowResult);
                         continue;
                     }
                     if (name == null || name.trim().isEmpty()) {
                         rowResult.put("status", "FAILURE");
-                        rowResult.put("message", "Missing required field: Name");
+                        rowResult.put("message", "Missing required field: Name (Row " + (i + 1) + ")");
+                        rowResult.put("email", email);
+                        rowResult.put("rowNumber", i + 1);
+                        if (empId != null) rowResult.put("empId", empId);
                         failureCount++;
                         details.add(rowResult);
                         continue;
                     }
                     if (clientName == null || clientName.trim().isEmpty()) {
                         rowResult.put("status", "FAILURE");
-                        rowResult.put("message", "Missing required field: Client Name");
+                        rowResult.put("message", "Missing required field: Client Name (Row " + (i + 1) + ")");
+                        rowResult.put("email", email);
+                        rowResult.put("name", name);
+                        rowResult.put("rowNumber", i + 1);
+                        if (empId != null) rowResult.put("empId", empId);
                         failureCount++;
                         details.add(rowResult);
                         continue;
                     }
                     if (deployedDate == null) {
                         rowResult.put("status", "FAILURE");
-                        rowResult.put("message", "Missing required field: Deployed Date");
+                        rowResult.put("message", "Missing required field: Deployed Date (format: DD-MMM-YY or YYYY-MM-DD) (Row " + (i + 1) + ")");
+                        rowResult.put("email", email);
+                        rowResult.put("name", name);
+                        rowResult.put("clientName", clientName);
+                        rowResult.put("rowNumber", i + 1);
+                        if (empId != null) rowResult.put("empId", empId);
                         failureCount++;
                         details.add(rowResult);
                         continue;
@@ -100,27 +155,36 @@ public class DeploymentService {
                     Optional<User> candidateOpt = userRepository.findByOfficialEmailOrPersonalEmail(email, email);
                     User candidate;
                     boolean isNewCandidate = false;
+                    boolean hadPreviousDeployment = false;
+                    boolean isHistoricalDeployment = false;
                     
                     if (candidateOpt.isEmpty()) {
                         // Create new candidate
                         candidate = new User();
                         candidate.setName(name.trim());
                         candidate.setEmail(email.trim());
-                        candidate.setOfficialEmail(email.trim());
-                        if (personalEmail != null && !personalEmail.trim().isEmpty()) {
+                        
+                        // Set official and personal emails (only if not "NA")
+                        if (officialEmail != null) {
+                            candidate.setOfficialEmail(officialEmail.trim());
+                        }
+                        if (personalEmail != null) {
                             candidate.setPersonalEmail(personalEmail.trim());
                         }
+                        
                         if (contactNumber != null && !contactNumber.trim().isEmpty()) {
                             candidate.setContactNumber(contactNumber.trim());
                         }
                         
-                        // Parse YOE
+                        // Parse YOE (handles formats like "2.11 Yrs" meaning 2 years 11 months)
                         if (yoeStr != null && !yoeStr.trim().isEmpty()) {
                             try {
-                                BigDecimal yoe = new BigDecimal(yoeStr.trim());
-                                candidate.setYoeActual(yoe);
-                                candidate.setYoePortrayed(yoe);
-                            } catch (NumberFormatException e) {
+                                BigDecimal yoe = parseYearsOfExperience(yoeStr.trim());
+                                if (yoe != null) {
+                                    candidate.setYoeActual(yoe);
+                                    candidate.setYoePortrayed(yoe);
+                                }
+                            } catch (Exception e) {
                                 // Ignore invalid YOE
                             }
                         }
@@ -141,14 +205,24 @@ public class DeploymentService {
                         candidate.setNoOfInterviews(0);
                         candidate.setSystemInterviewCount(0);
                         
+                        // Set empId only if provided
+                        if (empId != null && !empId.trim().isEmpty()) {
+                            candidate.setEmpId(empId.trim());
+                        }
+                        
                         candidate = userRepository.save(candidate);
                         isNewCandidate = true;
                     } else {
                         candidate = candidateOpt.get();
+                        hadPreviousDeployment = candidate.getCandidateStatus() == CandidateStatus.DEPLOYED;
+                        
+                        // Check if this is historical data (candidate is RFD/WFD/DOB but we're importing deployment history)
+                        if (candidate.getCandidateStatus() == CandidateStatus.RFD || 
+                            candidate.getCandidateStatus() == CandidateStatus.WFD || 
+                            candidate.getCandidateStatus() == CandidateStatus.DOB) {
+                            isHistoricalDeployment = true;
+                        }
                     }
-                    
-                    // Check if already deployed
-                    boolean alreadyDeployed = candidate.getCandidateStatus() == CandidateStatus.DEPLOYED;
                     
                     // End previous active deployment if exists
                     Optional<DeploymentHistory> activeDeployment = deploymentHistoryRepository.findActiveDeploymentByCandidateId(candidate.getId());
@@ -159,13 +233,35 @@ public class DeploymentService {
                         deploymentHistoryRepository.save(prevDeployment);
                     }
                     
-                    // Update candidate deployment fields
-                    candidate.setEmpId(empId != null && !empId.trim().isEmpty() ? empId.trim() : null);
-                    candidate.setDeployedClientName(clientName.trim());
-                    candidate.setDeployedDate(deployedDate);
-                    candidate.setMentor(mentor != null && !mentor.trim().isEmpty() ? mentor.trim() : null);
-                    candidate.setCandidateStatus(CandidateStatus.DEPLOYED);
-                    userRepository.save(candidate);
+                    // Update candidate deployment fields ONLY if not historical
+                    if (!isHistoricalDeployment) {
+                        // Only update empId if provided and different from current value
+                        if (empId != null && !empId.trim().isEmpty()) {
+                            String newEmpId = empId.trim();
+                            // Only update if different from current empId
+                            if (!newEmpId.equals(candidate.getEmpId())) {
+                                // Check if empId is already used by another candidate
+                                Optional<User> existingEmpId = userRepository.findByEmpId(newEmpId);
+                                if (existingEmpId.isPresent() && !existingEmpId.get().getId().equals(candidate.getId())) {
+                                    rowResult.put("status", "FAILURE");
+                                    rowResult.put("message", "Emp ID " + newEmpId + " is already assigned to another candidate: " + existingEmpId.get().getName() + " (" + existingEmpId.get().getEmail() + ")");
+                                    rowResult.put("email", email);
+                                    rowResult.put("name", name);
+                                    rowResult.put("empId", empId);
+                                    rowResult.put("rowNumber", i + 1);
+                                    failureCount++;
+                                    details.add(rowResult);
+                                    continue;
+                                }
+                                candidate.setEmpId(newEmpId);
+                            }
+                        }
+                        candidate.setDeployedClientName(clientName.trim());
+                        candidate.setDeployedDate(deployedDate);
+                        candidate.setMentor(mentor != null && !mentor.trim().isEmpty() ? mentor.trim() : null);
+                        candidate.setCandidateStatus(CandidateStatus.DEPLOYED);
+                        userRepository.save(candidate);
+                    }
                     
                     // Create deployment history record
                     DeploymentHistory history = new DeploymentHistory();
@@ -173,23 +269,39 @@ public class DeploymentService {
                     history.setEmpId(empId != null && !empId.trim().isEmpty() ? empId.trim() : null);
                     history.setClientName(clientName.trim());
                     history.setDeployedDate(deployedDate);
-                    history.setEndDate(null); // Currently active
+                    
+                    // If historical deployment, mark as COMPLETED with end date as today
+                    if (isHistoricalDeployment) {
+                        history.setEndDate(LocalDate.now());
+                        history.setStatus("COMPLETED");
+                    } else {
+                        history.setEndDate(null); // Currently active
+                        history.setStatus("ACTIVE");
+                    }
+                    
                     history.setMentor(mentor != null && !mentor.trim().isEmpty() ? mentor.trim() : null);
-                    history.setStatus("ACTIVE");
                     deploymentHistoryRepository.save(history);
 
                     rowResult.put("empId", empId);
                     rowResult.put("email", email);
                     rowResult.put("name", candidate.getName());
+                    rowResult.put("clientName", clientName);
+                    rowResult.put("deployedDate", deployedDate.toString());
+                    rowResult.put("mentor", mentor);
+                    rowResult.put("rowNumber", i + 1);
                     
                     if (isNewCandidate) {
                         rowResult.put("status", "SUCCESS");
-                        rowResult.put("message", "New candidate created and deployed");
+                        rowResult.put("message", "New candidate created and deployed successfully");
                         successCount++;
-                    } else if (alreadyDeployed) {
-                        rowResult.put("status", "WARNING");
-                        rowResult.put("message", "Candidate already deployed, data updated");
-                        warningCount++;
+                    } else if (isHistoricalDeployment) {
+                        rowResult.put("status", "SUCCESS");
+                        rowResult.put("message", "Deployment history added (candidate status unchanged)");
+                        successCount++;
+                    } else if (hadPreviousDeployment) {
+                        rowResult.put("status", "SUCCESS");
+                        rowResult.put("message", "Deployment history updated - moved to new client");
+                        successCount++;
                     } else {
                         rowResult.put("status", "SUCCESS");
                         rowResult.put("message", "Candidate deployed successfully");
@@ -238,6 +350,9 @@ public class DeploymentService {
         User candidate = userRepository.findById(candidateId)
                 .orElseThrow(() -> new RuntimeException("Candidate not found"));
         
+        String oldStatus = candidate.getCandidateStatus() != null ? candidate.getCandidateStatus().name() : "N/A";
+        String oldClient = candidate.getDeployedClientName();
+        
         // End active deployment in history
         Optional<DeploymentHistory> activeDeployment = deploymentHistoryRepository.findActiveDeploymentByCandidateId(candidateId);
         if (activeDeployment.isPresent()) {
@@ -254,7 +369,14 @@ public class DeploymentService {
         candidate.setMentor(null);
         candidate.setCandidateStatus(CandidateStatus.RFD);
         
-        return userRepository.save(candidate);
+        User saved = userRepository.save(candidate);
+        
+        // Log audit trail
+        logAudit("system", "System", "ADMIN", "DEPLOYMENT_ENDED", candidateId,
+            String.format("%s - %s → RFD", candidate.getName(), oldClient),
+            oldStatus, "RFD");
+        
+        return saved;
     }
 
     @Transactional
@@ -309,6 +431,47 @@ public class DeploymentService {
         return SkillSet.JAVA_SB; // Default
     }
 
+    /**
+     * Parse YOE in format "2.11 Yrs" (2 years 11 months) or "3.5 Yrs" (3.5 years)
+     * Converts to decimal years: 2.11 → 2.92 years (2 + 11/12)
+     */
+    private BigDecimal parseYearsOfExperience(String yoeStr) {
+        if (yoeStr == null || yoeStr.trim().isEmpty()) {
+            return null;
+        }
+        
+        // Remove "Yrs", "Year", "years" etc.
+        String cleaned = yoeStr.replaceAll("(?i)(yrs?|years?)\\s*$", "").trim();
+        
+        if (cleaned.isEmpty()) {
+            return null;
+        }
+        
+        try {
+            // Check if format is "X.Y" where Y > 12 (indicates months, not decimal)
+            if (cleaned.contains(".")) {
+                String[] parts = cleaned.split("\\.");
+                if (parts.length == 2) {
+                    int years = Integer.parseInt(parts[0]);
+                    int months = Integer.parseInt(parts[1]);
+                    
+                    // If months > 12, it's likely a typo, treat as decimal
+                    if (months <= 12) {
+                        // Convert to decimal: years + (months / 12)
+                        double totalYears = years + (months / 12.0);
+                        return BigDecimal.valueOf(totalYears).setScale(2, BigDecimal.ROUND_HALF_UP);
+                    }
+                }
+            }
+            
+            // Fallback: parse as decimal number
+            return new BigDecimal(cleaned).setScale(2, BigDecimal.ROUND_HALF_UP);
+            
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private String getCellValueAsString(Cell cell) {
         if (cell == null) return null;
         
@@ -346,5 +509,25 @@ public class DeploymentService {
         }
         
         return null;
+    }
+
+    private void logAudit(String actorId, String actorName, String actorRole, String action, 
+                         String resourceId, String detail, String oldValue, String newValue) {
+        try {
+            Map<String, Object> auditLog = new HashMap<>();
+            auditLog.put("actorId", actorId);
+            if (actorName != null) auditLog.put("actorName", actorName);
+            auditLog.put("actorRole", actorRole);
+            auditLog.put("action", action);
+            auditLog.put("resource", "DEPLOYMENT");
+            auditLog.put("resourceId", resourceId);
+            if (detail != null) auditLog.put("detail", detail);
+            if (oldValue != null) auditLog.put("oldValue", oldValue);
+            if (newValue != null) auditLog.put("newValue", newValue);
+            auditLog.put("ipAddress", "system");
+            complianceServiceClient.recordAuditLog(auditLog);
+        } catch (Exception e) {
+            // Silent fail - don't break deployment operations
+        }
     }
 }

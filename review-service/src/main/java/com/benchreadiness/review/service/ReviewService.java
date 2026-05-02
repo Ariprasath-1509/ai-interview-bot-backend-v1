@@ -1,5 +1,6 @@
 package com.benchreadiness.review.service;
 
+import com.benchreadiness.review.client.ComplianceServiceClient;
 import com.benchreadiness.review.client.InterviewServiceClient;
 import com.benchreadiness.review.dto.SaveScoresRequest;
 import com.benchreadiness.review.dto.SignOffRequest;
@@ -7,6 +8,7 @@ import com.benchreadiness.review.entity.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -18,11 +20,15 @@ public class ReviewService {
     private final ScoreRepository scoreRepository;
     private final SignOffRepository signOffRepository;
     private final InterviewServiceClient interviewServiceClient;
+    private final ComplianceServiceClient complianceServiceClient;
 
-    public ReviewService(ScoreRepository scoreRepository, SignOffRepository signOffRepository, InterviewServiceClient interviewServiceClient) {
+    public ReviewService(ScoreRepository scoreRepository, SignOffRepository signOffRepository, 
+                        InterviewServiceClient interviewServiceClient,
+                        ComplianceServiceClient complianceServiceClient) {
         this.scoreRepository = scoreRepository;
         this.signOffRepository = signOffRepository;
         this.interviewServiceClient = interviewServiceClient;
+        this.complianceServiceClient = complianceServiceClient;
     }
 
     public List<Score> getScores(String interviewId) {
@@ -45,7 +51,13 @@ public class ReviewService {
             s.setConfidence(item.confidence());
             return s;
         }).toList();
-        return scoreRepository.saveAll(scores);
+        List<Score> saved = scoreRepository.saveAll(scores);
+        
+        // Log audit trail
+        logAudit("system", "System", "SYSTEM", "SCORES_SAVED", req.getInterviewId(),
+            String.format("Saved %d category scores", scores.size()), null, null);
+        
+        return saved;
     }
 
     @Transactional
@@ -56,6 +68,8 @@ public class ReviewService {
         SignOff signOff = signOffRepository.findByInterviewId(req.getInterviewId())
                 .orElseGet(SignOff::new);
 
+        String oldVerdict = signOff.getFinalVerdict() != null ? signOff.getFinalVerdict().name() : null;
+        
         signOff.setInterviewId(req.getInterviewId());
         signOff.setReviewerUserId(reviewerUserId);
         signOff.setFinalVerdict(req.getVerdict());
@@ -78,10 +92,36 @@ public class ReviewService {
                 req.getInterviewId(), e.getMessage(), e);
         }
 
+        // Log audit trail
+        String action = oldVerdict == null ? "INTERVIEW_SIGNED_OFF" : "SIGN_OFF_UPDATED";
+        logAudit(reviewerUserId, null, "ADMIN", action, req.getInterviewId(),
+            String.format("Verdict: %s, Note: %s", req.getVerdict(), req.getNote() != null ? req.getNote() : "N/A"),
+            oldVerdict, req.getVerdict().name());
+
         return saved;
     }
 
     public SignOff getSignOff(String interviewId) {
         return signOffRepository.findByInterviewId(interviewId).orElse(null);
+    }
+
+    private void logAudit(String actorId, String actorName, String actorRole, String action, 
+                         String resourceId, String detail, String oldValue, String newValue) {
+        try {
+            Map<String, Object> auditLog = new HashMap<>();
+            auditLog.put("actorId", actorId);
+            if (actorName != null) auditLog.put("actorName", actorName);
+            auditLog.put("actorRole", actorRole);
+            auditLog.put("action", action);
+            auditLog.put("resource", "REVIEW");
+            auditLog.put("resourceId", resourceId);
+            if (detail != null) auditLog.put("detail", detail);
+            if (oldValue != null) auditLog.put("oldValue", oldValue);
+            if (newValue != null) auditLog.put("newValue", newValue);
+            auditLog.put("ipAddress", "system");
+            complianceServiceClient.recordAuditLog(auditLog);
+        } catch (Exception e) {
+            log.error("Failed to record audit log: {}", e.getMessage());
+        }
     }
 }

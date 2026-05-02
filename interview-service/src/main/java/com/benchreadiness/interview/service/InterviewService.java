@@ -140,6 +140,12 @@ public class InterviewService {
             log.warn("Failed to send interview invite email for {}: {}", saved.getId(), e.getMessage());
         }
 
+        // Log audit trail
+        logAudit(createdByUserId, null, "ADMIN", "INTERVIEW_CREATED", saved.getId(),
+            String.format("Created %s interview for %s - %s", 
+                req.getInterviewMode(), req.getEngineerName(), req.getJdTitle()),
+            null, null);
+
         return saved;
     }
 
@@ -169,6 +175,13 @@ public class InterviewService {
         } catch (Exception e) {
             log.warn("Failed to notify abandon for {}: {}", saved.getId(), e.getMessage());
         }
+
+        // Log audit trail
+        Engineer engineer = engineerRepository.findById(saved.getEngineerId()).orElse(null);
+        String engineerName = engineer != null ? engineer.getName() : "Unknown";
+        logAudit(saved.getEngineerId(), engineerName, "CANDIDATE", "INTERVIEW_ABANDONED", saved.getId(),
+            String.format("Reason: %s", req.getReason() != null ? req.getReason() : "not_prepared"),
+            null, null);
 
         return saved;
     }
@@ -305,6 +318,14 @@ public class InterviewService {
             }
         }
         
+        // Log audit trail
+        Engineer engineer = engineerRepository.findById(saved.getEngineerId()).orElse(null);
+        String engineerName = engineer != null ? engineer.getName() : "Unknown";
+        logAudit(saved.getEngineerId(), engineerName, "CANDIDATE", "INTERVIEW_COMPLETED", saved.getId(),
+            String.format("Status: %s, Verdict: %s", saved.getStatus(), 
+                saved.getProposedVerdict() != null ? saved.getProposedVerdict() : "N/A"),
+            null, null);
+        
         return saved;
     }
 
@@ -342,6 +363,21 @@ public class InterviewService {
         Interview saved = interviewRepository.save(interview);
         log.info("Interview {} updated successfully. New status: {}, finalVerdict: {}", 
             id, saved.getStatus(), saved.getFinalVerdict());
+        
+        // Log audit trail for status changes
+        if (updates.containsKey("status") || updates.containsKey("finalVerdict")) {
+            String detail = "";
+            if (updates.containsKey("status")) {
+                detail += "Status: " + updates.get("status");
+            }
+            if (updates.containsKey("finalVerdict")) {
+                if (!detail.isEmpty()) detail += ", ";
+                detail += "Final Verdict: " + updates.get("finalVerdict");
+            }
+            logAudit("system", "System", "SYSTEM", "INTERVIEW_STATUS_CHANGED", saved.getId(),
+                detail, null, null);
+        }
+        
         return saved;
     }
 
@@ -417,6 +453,26 @@ public class InterviewService {
             log.warn("Failed to check token limit for user {}: {}", userId, e.getMessage());
             // Allow creation if compliance service is down
             return true;
+        }
+    }
+
+    private void logAudit(String actorId, String actorName, String actorRole, String action, 
+                         String resourceId, String detail, String oldValue, String newValue) {
+        try {
+            Map<String, Object> auditLog = new HashMap<>();
+            auditLog.put("actorId", actorId);
+            if (actorName != null) auditLog.put("actorName", actorName);
+            auditLog.put("actorRole", actorRole);
+            auditLog.put("action", action);
+            auditLog.put("resource", "INTERVIEW");
+            auditLog.put("resourceId", resourceId);
+            if (detail != null) auditLog.put("detail", detail);
+            if (oldValue != null) auditLog.put("oldValue", oldValue);
+            if (newValue != null) auditLog.put("newValue", newValue);
+            auditLog.put("ipAddress", "system");
+            complianceServiceClient.recordAuditLog(auditLog);
+        } catch (Exception e) {
+            log.error("Failed to record audit log: {}", e.getMessage());
         }
     }
 }

@@ -24,9 +24,9 @@ public class MatchingController {
     public ResponseEntity<?> findMatchingCandidates(@Valid @RequestBody MatchingRequest req,
                                                    @RequestHeader("X-User-Role") String userRole,
                                                    @RequestHeader("X-User-Id") String userId) {
-        // Only ADMIN and SUPER_ADMIN can trigger matching
-        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole)) {
-            return ResponseEntity.status(403).body(Map.of("error", "Only admins can trigger candidate matching"));
+        // ADMIN, SUPER_ADMIN, and RECRUITER can trigger matching
+        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole) && !"RECRUITER".equals(userRole)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Only admins and recruiters can trigger candidate matching"));
         }
         
         try {
@@ -54,7 +54,7 @@ public class MatchingController {
                                                 @RequestParam(defaultValue = "10") Integer maxCandidates,
                                                 @RequestHeader("X-User-Role") String userRole,
                                                 @RequestHeader("X-User-Id") String userId) {
-        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole)) {
+        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole) && !"RECRUITER".equals(userRole)) {
             return ResponseEntity.status(403).body(Map.of("error", "Access denied"));
         }
         
@@ -78,7 +78,7 @@ public class MatchingController {
                                                  @RequestParam(defaultValue = "10") Integer maxCandidates,
                                                  @RequestHeader("X-User-Role") String userRole,
                                                  @RequestHeader("X-User-Id") String userId) {
-        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole)) {
+        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole) && !"RECRUITER".equals(userRole)) {
             return ResponseEntity.status(403).body(Map.of("error", "Access denied"));
         }
         

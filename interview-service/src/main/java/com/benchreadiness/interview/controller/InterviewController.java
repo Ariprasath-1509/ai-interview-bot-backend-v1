@@ -32,9 +32,9 @@ public class InterviewController {
     public ResponseEntity<?> previewAutoFill(@RequestParam(required = false) String candidateId,
                                             @RequestParam(required = false) String clientId,
                                             @RequestHeader("X-User-Role") String userRole) {
-        // Only ADMIN and SUPER_ADMIN can use auto-fill
-        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole)) {
-            return ResponseEntity.status(403).body(Map.of("error", "Only admins can use auto-fill functionality"));
+        // ADMIN, SUPER_ADMIN, and RECRUITER can use auto-fill
+        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole) && !"RECRUITER".equals(userRole)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Only admins and recruiters can use auto-fill functionality"));
         }
         
         try {
@@ -67,9 +67,9 @@ public class InterviewController {
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable String id,
                                    @RequestHeader("X-User-Role") String userRole) {
-        // Only ADMIN can delete interviews
-        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole)) {
-            return ResponseEntity.status(403).body(Map.of("error", "Only admins can delete interviews"));
+        // ADMIN, SUPER_ADMIN, and RECRUITER can delete interviews
+        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole) && !"RECRUITER".equals(userRole)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Only admins and recruiters can delete interviews"));
         }
         
         try {

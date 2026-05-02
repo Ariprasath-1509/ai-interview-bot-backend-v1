@@ -883,9 +883,9 @@ Detected patterns include: score manipulation requests, topic restriction comman
 | Role | Who they are | Can do |
 |---|---|---|
 | `CANDIDATE` | Job candidate | Take interview, view own dashboard, view own feedback |
-| `ADMIN` (BENCH) | Bench hiring manager | Create interviews, sign off, observe live, inject questions, flag answers, update candidates — only for B2B and BENCH source candidates |
+| `RECRUITER` | Technical recruiter | Create/view/update clients, create/schedule interviews, view all RFD/WFD/DOB candidates, view candidate matches, view interview scores, observe live interviews, inject questions, delete interviews |
+| `ADMIN` (BENCH) | Bench hiring manager | Everything RECRUITER can do + sign off interviews, update candidates, manage deployments — only for B2B and BENCH source candidates |
 | `ADMIN` (RECRUITMENT) | Recruitment hiring manager | Same as Bench Admin — only for MARKET source candidates |
-| `RECRUITER` | Technical reviewer | View interviews, view scores, view transcripts, observe live, inject questions |
 | `SUPER_ADMIN` | Platform owner | Everything ADMIN can do + create/delete staff accounts (ADMIN, RECRUITER), manage retention policies, platform monitoring, sees all candidates regardless of source |
 
 ### Admin Source Segregation

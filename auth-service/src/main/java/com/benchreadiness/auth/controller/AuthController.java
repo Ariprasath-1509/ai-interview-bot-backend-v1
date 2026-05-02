@@ -40,15 +40,18 @@ public class AuthController {
     private final ExcelParserService excelParserService;
     private final BulkImportService bulkImportService;
     private final DeploymentService deploymentService;
+    private final com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient;
 
     public AuthController(UserRepository userRepository, JwtService jwtService,
                          ExcelParserService excelParserService, BulkImportService bulkImportService,
-                         DeploymentService deploymentService) {
+                         DeploymentService deploymentService,
+                         com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient) {
         this.userRepository = userRepository;
         this.jwtService = jwtService;
         this.excelParserService = excelParserService;
         this.bulkImportService = bulkImportService;
         this.deploymentService = deploymentService;
+        this.complianceServiceClient = complianceServiceClient;
     }
 
     /** POST /auth/register — candidate self-registration */
@@ -72,6 +75,13 @@ public class AuthController {
         user.setYoePortrayed(req.getYoePortrayed());
         user.setYop(req.getYop());
         userRepository.save(user);
+        
+        // Log audit trail
+        logAudit(user.getId(), user.getName(), "CANDIDATE", "CANDIDATE_REGISTERED", user.getId(),
+            String.format("Registered: %s (%s) - %s", user.getName(), user.getEmail(), 
+                user.getSource() != null ? user.getSource() : "N/A"),
+            null, null);
+        
         return ResponseEntity.ok(Map.of("ok", true, "message", "Registration successful. You can now log in."));
     }
 
@@ -97,6 +107,17 @@ public class AuthController {
         if (req.getCandidateStatus() != null) user.setCandidateStatus(req.getCandidateStatus());
         if (req.getNoOfInterviews() != null) user.setNoOfInterviews(req.getNoOfInterviews());
         userRepository.save(user);
+        
+        // Log audit trail
+        StringBuilder changes = new StringBuilder();
+        if (req.getRating() != null) changes.append("Rating: ").append(req.getRating()).append(", ");
+        if (req.getCandidateStatus() != null) changes.append("Status: ").append(req.getCandidateStatus()).append(", ");
+        if (req.getNoOfInterviews() != null) changes.append("Interviews: ").append(req.getNoOfInterviews());
+        
+        logAudit(callerId, null, callerRole, "CANDIDATE_UPDATED", user.getId(),
+            String.format("Updated %s: %s", user.getName(), changes.toString()),
+            null, null);
+        
         return ResponseEntity.ok(Map.of("ok", true, "message", "Candidate updated"));
     }
 
@@ -129,6 +150,12 @@ public class AuthController {
             user.setAdminSource(req.getAdminSource());
         }
         userRepository.save(user);
+        
+        // Log audit trail
+        logAudit("system", "System", "SUPER_ADMIN", "STAFF_CREATED", user.getId(),
+            String.format("Created %s account: %s (%s)", req.getRole(), user.getName(), user.getEmail()),
+            null, null);
+        
         return ResponseEntity.ok(Map.of("ok", true, "message", "Staff account created successfully"));
     }
 
@@ -178,6 +205,11 @@ public class AuthController {
     public ResponseEntity<?> getCandidates(@RequestParam(required = false, defaultValue = "") String search,
                                             @RequestHeader("X-User-Id") String callerId,
                                             @RequestHeader("X-User-Role") String callerRole) {
+        // Check authorization
+        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN") && !callerRole.equals("RECRUITER")) {
+            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
+        }
+        
         List<CandidateSource> allowedSources = getAllowedSources(callerId, callerRole);
         List<?> candidates;
         if (allowedSources == null) {
@@ -253,6 +285,12 @@ public class AuthController {
         if (target.getRole() == UserRole.CANDIDATE) {
             return ResponseEntity.badRequest().body(Map.of("error", "Cannot delete candidate accounts via this endpoint"));
         }
+        
+        // Log audit trail before deletion
+        logAudit(callerId, null, callerRole, "STAFF_DELETED", target.getId(),
+            String.format("Deleted %s account: %s (%s)", target.getRole(), target.getName(), target.getEmail()),
+            null, null);
+        
         userRepository.delete(target);
         return ResponseEntity.ok(Map.of("ok", true));
     }
@@ -679,7 +717,10 @@ public class AuthController {
             return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
         }
 
+        logger.info("Fetching deployment history for candidate ID: {}", id);
         List<DeploymentHistory> history = deploymentService.getDeploymentHistory(id);
+        logger.info("Found {} deployment history records for candidate ID: {}", history.size(), id);
+        
         return ResponseEntity.ok(history.stream()
             .map(this::buildDeploymentHistoryMap)
             .toList());
@@ -754,5 +795,25 @@ public class AuthController {
         });
         
         return map;
+    }
+
+    private void logAudit(String actorId, String actorName, String actorRole, String action, 
+                         String resourceId, String detail, String oldValue, String newValue) {
+        try {
+            Map<String, Object> auditLog = new HashMap<>();
+            auditLog.put("actorId", actorId);
+            if (actorName != null) auditLog.put("actorName", actorName);
+            auditLog.put("actorRole", actorRole);
+            auditLog.put("action", action);
+            auditLog.put("resource", "CANDIDATE");
+            auditLog.put("resourceId", resourceId);
+            if (detail != null) auditLog.put("detail", detail);
+            if (oldValue != null) auditLog.put("oldValue", oldValue);
+            if (newValue != null) auditLog.put("newValue", newValue);
+            auditLog.put("ipAddress", "system");
+            complianceServiceClient.recordAuditLog(auditLog);
+        } catch (Exception e) {
+            logger.error("Failed to record audit log: {}", e.getMessage());
+        }
     }
 }

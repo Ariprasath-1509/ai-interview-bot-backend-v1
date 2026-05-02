@@ -26,4 +26,7 @@ public interface ComplianceServiceClient {
     @PostMapping("/tokens/finalize-interview")
     void finalizeInterviewTokens(@RequestBody Map<String, String> request,
                                @RequestHeader("X-User-Id") String userId);
+
+    @PostMapping("/compliance/audit-logs")
+    void recordAuditLog(@RequestBody Map<String, Object> auditLog);
 }

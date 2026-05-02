@@ -33,6 +33,7 @@ public interface UserRepository extends JpaRepository<User, String> {
 
     // Deployment-related queries
     Optional<User> findByOfficialEmailOrPersonalEmail(String officialEmail, String personalEmail);
+    Optional<User> findByEmpId(String empId);
     
     @Query("SELECT u FROM User u WHERE u.role = 'CANDIDATE' AND u.candidateStatus = 'DEPLOYED'")
     List<User> findDeployedCandidates();

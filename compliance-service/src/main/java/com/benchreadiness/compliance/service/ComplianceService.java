@@ -25,11 +25,14 @@ public class ComplianceService {
     public AuditLog record(AuditLogRequest req) {
         AuditLog log = new AuditLog();
         log.setActorId(req.getActorId());
+        log.setActorName(req.getActorName());
         log.setActorRole(req.getActorRole());
         log.setAction(req.getAction());
         log.setResource(req.getResource());
         log.setResourceId(req.getResourceId());
         log.setDetail(req.getDetail());
+        log.setOldValue(req.getOldValue());
+        log.setNewValue(req.getNewValue());
         log.setIpAddress(req.getIpAddress());
         return auditLogRepository.save(log);
     }

@@ -14,6 +14,9 @@ public class AuditLog {
     @Column(name = "actor_id", nullable = false)
     private String actorId;
 
+    @Column(name = "actor_name", length = 255)
+    private String actorName;
+
     @Column(name = "actor_role", nullable = false, length = 50)
     private String actorRole;
 
@@ -28,6 +31,12 @@ public class AuditLog {
 
     @Column(columnDefinition = "TEXT")
     private String detail;
+
+    @Column(name = "old_value", columnDefinition = "TEXT")
+    private String oldValue;
+
+    @Column(name = "new_value", columnDefinition = "TEXT")
+    private String newValue;
 
     @Column(name = "ip_address", length = 45)
     private String ipAddress;
@@ -44,6 +53,8 @@ public class AuditLog {
     public String getId() { return id; }
     public String getActorId() { return actorId; }
     public void setActorId(String actorId) { this.actorId = actorId; }
+    public String getActorName() { return actorName; }
+    public void setActorName(String actorName) { this.actorName = actorName; }
     public String getActorRole() { return actorRole; }
     public void setActorRole(String actorRole) { this.actorRole = actorRole; }
     public String getAction() { return action; }
@@ -54,6 +65,10 @@ public class AuditLog {
     public void setResourceId(String resourceId) { this.resourceId = resourceId; }
     public String getDetail() { return detail; }
     public void setDetail(String detail) { this.detail = detail; }
+    public String getOldValue() { return oldValue; }
+    public void setOldValue(String oldValue) { this.oldValue = oldValue; }
+    public String getNewValue() { return newValue; }
+    public void setNewValue(String newValue) { this.newValue = newValue; }
     public String getIpAddress() { return ipAddress; }
     public void setIpAddress(String ipAddress) { this.ipAddress = ipAddress; }
     public Instant getCreatedAt() { return createdAt; }
