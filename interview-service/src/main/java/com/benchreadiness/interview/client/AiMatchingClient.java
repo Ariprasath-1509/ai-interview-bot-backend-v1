@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 
 import java.util.Map;
 
-@FeignClient(name = "ai-service", contextId = "aiMatchingClient")
+@FeignClient(name = "ai-service", contextId = "aiMatchingClient", configuration = com.benchreadiness.interview.config.FeignConfig.class)
 public interface AiMatchingClient {
     
     @PostMapping("/ai/match-candidates")
