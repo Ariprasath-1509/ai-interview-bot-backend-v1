@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-@FeignClient(name = "observer-service-client", url = "http://localhost:6002")
+@FeignClient(name = "observer-service")
 public interface ObserverServiceClient {
 
     @PostMapping("/observer/notify/interview-created")

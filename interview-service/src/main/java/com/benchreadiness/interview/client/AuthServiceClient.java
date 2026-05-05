@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
-@FeignClient(name = "api-gateway-auth", url = "http://localhost:6002", configuration = FeignConfig.class)
+@FeignClient(name = "auth-service", configuration = FeignConfig.class)
 public interface AuthServiceClient {
 
     @GetMapping("/auth/users/{userId}")

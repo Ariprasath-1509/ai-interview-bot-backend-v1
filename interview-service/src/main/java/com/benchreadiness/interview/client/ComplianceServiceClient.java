@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-@FeignClient(name = "compliance-service-client", url = "http://localhost:6002")
+@FeignClient(name = "compliance-service")
 public interface ComplianceServiceClient {
 
     @GetMapping("/tokens/check-limit")

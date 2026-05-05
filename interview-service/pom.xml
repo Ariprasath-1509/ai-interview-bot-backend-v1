@@ -90,10 +90,6 @@
       <version>2.9.1</version>
     </dependency>
     <!-- Feign HTTP Client for PATCH support -->
-    <dependency>
-      <groupId>io.github.openfeign</groupId>
-      <artifactId>feign-httpclient</artifactId>
-    </dependency>
     <!-- Caffeine Cache for in-memory caching -->
     <dependency>
       <groupId>com.github.ben-manes.caffeine</groupId>

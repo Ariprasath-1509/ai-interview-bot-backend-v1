@@ -65,5 +65,4 @@ app:
       feedback: 0.20
       question-relevance: 0.20
 
-ai-service:
-  url: http://localhost:6003
+

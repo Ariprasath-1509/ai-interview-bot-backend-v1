@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.Map;
 
-@FeignClient(name = "compliance-service-review-client", url = "http://localhost:6002")
+@FeignClient(name = "compliance-service")
 public interface ComplianceServiceClient {
 
     @PostMapping("/compliance/audit-logs")

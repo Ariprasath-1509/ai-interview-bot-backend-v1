@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-@FeignClient(name = "api-gateway-ai", url = "http://localhost:6002", configuration = com.benchreadiness.interview.config.FeignConfig.class)
+@FeignClient(name = "ai-service", contextId = "aiServiceClient", configuration = com.benchreadiness.interview.config.FeignConfig.class)
 public interface AiServiceClient {
 
     @PostMapping("/ai/generate-rubric")
