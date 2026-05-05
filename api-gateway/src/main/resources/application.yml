@@ -90,3 +90,12 @@ eureka:
 app:
   jwt:
     secret: dev-jwt-secret-change-in-production-min-32-chars
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

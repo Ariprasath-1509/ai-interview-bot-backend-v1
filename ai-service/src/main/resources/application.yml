@@ -30,3 +30,12 @@ app:
     assessment-max-tokens: 4000
     rubric-max-tokens: 1000
     matching-max-tokens: 6000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

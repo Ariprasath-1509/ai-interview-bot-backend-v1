@@ -52,3 +52,12 @@ app:
   demo:
     username: Demo
     password: Demo123
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

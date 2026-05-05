@@ -65,4 +65,11 @@ app:
       feedback: 0.20
       question-relevance: 0.20
 
-
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

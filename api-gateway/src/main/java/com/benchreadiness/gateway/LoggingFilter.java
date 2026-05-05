@@ -18,15 +18,13 @@ public class LoggingFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String method = exchange.getRequest().getMethod().toString();
         String path = exchange.getRequest().getURI().getPath();
-        String targetUri = exchange.getAttribute("org.springframework.cloud.gateway.support.ServerWebExchangeUtils.gatewayRequestUrl");
-        
+
         log.info(">>> INCOMING REQUEST: {} {} from {}", method, path, exchange.getRequest().getRemoteAddress());
-        log.info(">>> TARGET URI: {}", targetUri);
-        log.info(">>> HEADERS: {}", exchange.getRequest().getHeaders());
-        
+
         return chain.filter(exchange).then(Mono.fromRunnable(() -> {
-            log.info("<<< RESPONSE STATUS: {} for {} {}", 
-                exchange.getResponse().getStatusCode(), method, path);
+            String targetUri = exchange.getAttribute("org.springframework.cloud.gateway.support.ServerWebExchangeUtils.gatewayRequestUrl");
+            log.info("<<< RESPONSE STATUS: {} for {} {} -> target: {}",
+                exchange.getResponse().getStatusCode(), method, path, targetUri);
         }));
     }
 

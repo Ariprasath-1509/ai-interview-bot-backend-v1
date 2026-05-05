@@ -1,5 +1,9 @@
 version: "3.8"
 
+networks:
+  bench-net:
+    driver: bridge
+
 services:
 
   eureka-server:
@@ -10,11 +14,14 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: docker
     restart: always
+    networks:
+      - bench-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6009/actuator/health"]
       interval: 10s
+      timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 30s
 
   compliance-service:
     image: registry.gitlab.com/ty_optimize/optimize/compliance_service:latest
@@ -27,6 +34,14 @@ services:
       eureka-server:
         condition: service_healthy
     restart: always
+    networks:
+      - bench-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6005/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   auth-service:
     image: registry.gitlab.com/ty_optimize/optimize/ai_auth:latest
@@ -39,6 +54,14 @@ services:
       eureka-server:
         condition: service_healthy
     restart: always
+    networks:
+      - bench-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6004/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   interview-service:
     image: registry.gitlab.com/ty_optimize/optimize/interview_service:latest
@@ -51,10 +74,18 @@ services:
       eureka-server:
         condition: service_healthy
       compliance-service:
-        condition: service_started
+        condition: service_healthy
       auth-service:
-        condition: service_started
+        condition: service_healthy
     restart: always
+    networks:
+      - bench-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6006/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   ai-service:
     image: registry.gitlab.com/ty_optimize/optimize/ai_service:latest
@@ -67,8 +98,16 @@ services:
       eureka-server:
         condition: service_healthy
       compliance-service:
-        condition: service_started
+        condition: service_healthy
     restart: always
+    networks:
+      - bench-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6003/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   observer-service:
     image: registry.gitlab.com/ty_optimize/optimize/observer_service:latest
@@ -81,10 +120,18 @@ services:
       eureka-server:
         condition: service_healthy
       auth-service:
-        condition: service_started
+        condition: service_healthy
       interview-service:
-        condition: service_started
+        condition: service_healthy
     restart: always
+    networks:
+      - bench-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6007/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   review-service:
     image: registry.gitlab.com/ty_optimize/optimize/review_service:latest
@@ -97,8 +144,16 @@ services:
       eureka-server:
         condition: service_healthy
       interview-service:
-        condition: service_started
+        condition: service_healthy
     restart: always
+    networks:
+      - bench-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6008/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   api-gateway:
     image: registry.gitlab.com/ty_optimize/optimize/api_gateway:latest
@@ -110,4 +165,34 @@ services:
     depends_on:
       eureka-server:
         condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      interview-service:
+        condition: service_healthy
+      compliance-service:
+        condition: service_healthy
     restart: always
+    networks:
+      - bench-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6002/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  frontend:
+    image: registry.gitlab.com/ty_optimize/optimize/frontend:latest
+    container_name: frontend
+    ports:
+      - "6001:6001"
+    environment:
+      API_URL: http://api-gateway:6002
+      AUTH_SECRET: "dev-secret-change-me"
+      NODE_ENV: production
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    restart: always
+    networks:
+      - bench-net
