@@ -61,7 +61,7 @@ public class ResumeController {
         System.out.println("File: " + (file != null ? file.getOriginalFilename() : "null"));
         
         try {
-            if (!"CANDIDATE".equals(userRole)) {
+            if (!"CANDIDATE".equals(userRole) && !"SUPER_ADMIN".equals(userRole)) {
                 return ResponseEntity.status(403).body(Map.of("error", "Only candidates can upload resumes"));
             }
             
