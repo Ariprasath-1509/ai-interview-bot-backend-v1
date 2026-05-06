@@ -36,6 +36,7 @@ public class BulkImportRequest {
     public static class CandidateBulkData {
         private int rowNumber;
         private String batch;
+        private String batchMentor;
         private String source;
         private String status;
         private String rating;
@@ -47,6 +48,8 @@ public class BulkImportRequest {
         private Double yoePortrayed;
         private String skillSet;
         private Integer noOfInterviews;
+        private String interviewMentorName;
+        private String clientName;
         private Integer yop;
 
         public CandidateBulkData() {}
@@ -162,5 +165,12 @@ public class BulkImportRequest {
         public void setYop(Integer yop) {
             this.yop = yop;
         }
+
+        public String getBatchMentor() { return batchMentor; }
+        public void setBatchMentor(String batchMentor) { this.batchMentor = batchMentor; }
+        public String getInterviewMentorName() { return interviewMentorName; }
+        public void setInterviewMentorName(String interviewMentorName) { this.interviewMentorName = interviewMentorName; }
+        public String getClientName() { return clientName; }
+        public void setClientName(String clientName) { this.clientName = clientName; }
     }
 }

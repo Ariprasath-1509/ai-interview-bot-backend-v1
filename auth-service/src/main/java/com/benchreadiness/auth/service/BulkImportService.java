@@ -108,9 +108,10 @@ public class BulkImportService {
         
         // Set candidate-specific fields
         user.setBatch(candidateData.getBatch());
-        user.setSource(CandidateSource.valueOf(candidateData.getSource()));
-        user.setCandidateStatus(CandidateStatus.valueOf(candidateData.getStatus()));
-        user.setRating(CandidateRating.valueOf(candidateData.getRating()));
+        user.setBatchMentor(candidateData.getBatchMentor());
+        user.setSource(candidateData.getSource() != null ? CandidateSource.valueOf(candidateData.getSource()) : null);
+        user.setCandidateStatus(candidateData.getStatus() != null ? CandidateStatus.valueOf(candidateData.getStatus()) : CandidateStatus.TRAINING);
+        user.setRating(candidateData.getRating() != null ? CandidateRating.valueOf(candidateData.getRating()) : null);
         user.setContactNumber(candidateData.getContactNumber());
         user.setOfficialEmail(candidateData.getOfficialEmail());
         user.setPersonalEmail(candidateData.getPersonalEmail());
@@ -123,9 +124,13 @@ public class BulkImportService {
             user.setYoePortrayed(BigDecimal.valueOf(candidateData.getYoePortrayed()));
         }
         
-        user.setSkillSet(SkillSet.valueOf(candidateData.getSkillSet()));
+        if (candidateData.getSkillSet() != null) {
+            try { user.setSkillSet(SkillSet.valueOf(candidateData.getSkillSet())); } catch (IllegalArgumentException ignored) {}
+        }
         user.setNoOfInterviews(candidateData.getNoOfInterviews() != null ? candidateData.getNoOfInterviews() : 0);
         user.setYop(candidateData.getYop());
+        user.setInterviewMentorName(candidateData.getInterviewMentorName());
+        user.setClientName(candidateData.getClientName());
 
         // Save user (timestamps are set automatically via @PrePersist)
         User savedUser = userRepository.save(user);

@@ -21,19 +21,22 @@ public class ExcelParserService {
 
     // Column mapping based on Excel headers
     private static final Map<String, Integer> COLUMN_MAPPING = new HashMap<String, Integer>() {{
-        put("Batch", 0);
-        put("Source", 1);
-        put("Status", 2);
-        put("Rating", 3);
-        put("Name", 4);
-        put("Contact Number", 5);
-        put("Official Mail ID", 6);
-        put("Personal Mail ID", 7);
-        put("YOE - A", 8);
-        put("YOE - P", 9);
-        put("Skill Set", 10);
-        put("No of Interviews", 11);
-        put("YOP", 12);
+        put("Batch (DOH)", 1);
+        put("Batch Mentor", 2);
+        put("Source", 3);
+        put("Status", 4);
+        put("Rating", 5);
+        put("Name", 6);
+        put("Contact Number", 7);
+        put("Official Mail ID", 8);
+        put("Personal Mail ID", 9);
+        put("YOE - A", 10);
+        put("YOE - P", 11);
+        put("Skill Set", 12);
+        put("YOP", 13);
+        put("No of Interviews", 14);
+        put("Interview Mentor Name", 15);
+        put("Client Name", 16);
     }};
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
@@ -110,28 +113,12 @@ public class ExcelParserService {
 
     private boolean validateHeaders(Row headerRow, List<BulkImportResponse.ValidationError> errors) {
         if (headerRow == null) {
-            errors.add(new BulkImportResponse.ValidationError(1, "headers", 
+            errors.add(new BulkImportResponse.ValidationError(1, "headers",
                 "Header row is missing", "", "ERROR"));
             return false;
         }
-
-        Set<String> expectedHeaders = COLUMN_MAPPING.keySet();
-        Set<String> foundHeaders = new HashSet<>();
-
-        for (Cell cell : headerRow) {
-            if (cell != null && cell.getCellType() == CellType.STRING) {
-                foundHeaders.add(cell.getStringCellValue().trim());
-            }
-        }
-
-        for (String expectedHeader : expectedHeaders) {
-            if (!foundHeaders.contains(expectedHeader)) {
-                errors.add(new BulkImportResponse.ValidationError(1, "headers", 
-                    "Missing required header: " + expectedHeader, "", "ERROR"));
-            }
-        }
-
-        return errors.stream().noneMatch(e -> "ERROR".equals(e.getSeverity()));
+        // Header row exists — parsing uses fixed column indices so no strict header check needed
+        return true;
     }
 
     private BulkImportRequest.CandidateBulkData parseRow(Row row, int rowNumber, 
@@ -141,7 +128,8 @@ public class ExcelParserService {
 
         try {
             // Parse each field with validation and normalization
-            candidate.setBatch(getCellValueAsString(row, COLUMN_MAPPING.get("Batch")));
+            candidate.setBatch(getCellValueAsString(row, COLUMN_MAPPING.get("Batch (DOH)")));
+            candidate.setBatchMentor(nullIfBlankOrNA(getCellValueAsString(row, COLUMN_MAPPING.get("Batch Mentor"))));
             candidate.setSource(normalizeSource(getCellValueAsString(row, COLUMN_MAPPING.get("Source"))));
             candidate.setStatus(normalizeStatus(getCellValueAsString(row, COLUMN_MAPPING.get("Status"))));
             candidate.setRating(normalizeRating(getCellValueAsString(row, COLUMN_MAPPING.get("Rating"))));
@@ -152,8 +140,10 @@ public class ExcelParserService {
             candidate.setYoeActual(getCellValueAsDouble(row, COLUMN_MAPPING.get("YOE - A")));
             candidate.setYoePortrayed(getCellValueAsDouble(row, COLUMN_MAPPING.get("YOE - P")));
             candidate.setSkillSet(normalizeSkillSet(getCellValueAsString(row, COLUMN_MAPPING.get("Skill Set"))));
-            candidate.setNoOfInterviews(getCellValueAsInteger(row, COLUMN_MAPPING.get("No of Interviews")));
             candidate.setYop(getCellValueAsInteger(row, COLUMN_MAPPING.get("YOP")));
+            candidate.setNoOfInterviews(getCellValueAsInteger(row, COLUMN_MAPPING.get("No of Interviews")));
+            candidate.setInterviewMentorName(nullIfBlankOrNA(getCellValueAsString(row, COLUMN_MAPPING.get("Interview Mentor Name"))));
+            candidate.setClientName(nullIfBlankOrNA(getCellValueAsString(row, COLUMN_MAPPING.get("Client Name"))));
 
             // Validate individual fields
             validateCandidate(candidate, errors);
@@ -178,21 +168,21 @@ public class ExcelParserService {
 
         // Note: Batch is optional, can be null
 
-        // Source validation
-        if (!Arrays.asList("B2B", "BENCH", "MARKET").contains(candidate.getSource())) {
-            errors.add(new BulkImportResponse.ValidationError(row, "source", 
+        // Source validation — optional for TRAINING status
+        if (!isBlank(candidate.getSource()) && !Arrays.asList("B2B", "BENCH", "MARKET").contains(candidate.getSource())) {
+            errors.add(new BulkImportResponse.ValidationError(row, "source",
                 "Source must be B2B, BENCH, or MARKET", candidate.getSource(), "ERROR"));
         }
 
-        // Status validation
-        if (!Arrays.asList("RFD", "NOT_RFD").contains(candidate.getStatus())) {
-            errors.add(new BulkImportResponse.ValidationError(row, "status", 
-                "Status must be RFD or NOT_RFD", candidate.getStatus(), "ERROR"));
+        // Status validation — null treated as TRAINING
+        if (candidate.getStatus() != null && !Arrays.asList("RFD", "WFD", "DOB", "TRAINING", "DEPLOYED").contains(candidate.getStatus())) {
+            errors.add(new BulkImportResponse.ValidationError(row, "status",
+                "Status must be RFD, WFD, DOB, TRAINING, or DEPLOYED", candidate.getStatus(), "ERROR"));
         }
 
-        // Rating validation
-        if (!Arrays.asList("ASSET", "MEDIUM", "LIABILITY").contains(candidate.getRating())) {
-            errors.add(new BulkImportResponse.ValidationError(row, "rating", 
+        // Rating validation — optional
+        if (!isBlank(candidate.getRating()) && !Arrays.asList("ASSET", "MEDIUM", "LIABILITY").contains(candidate.getRating())) {
+            errors.add(new BulkImportResponse.ValidationError(row, "rating",
                 "Rating must be ASSET, MEDIUM, or LIABILITY", candidate.getRating(), "ERROR"));
         }
 
@@ -218,10 +208,10 @@ public class ExcelParserService {
                 "Contact number must be 10 digits", candidate.getContactNumber(), "ERROR"));
         }
 
-        // Skill set validation
-        if (!Arrays.asList("JAVA_SB", "JFSR", "REACT_JS").contains(candidate.getSkillSet())) {
-            errors.add(new BulkImportResponse.ValidationError(row, "skillSet", 
-                "Skill set must be JAVA_SB, JFSR, or REACT_JS", candidate.getSkillSet(), "ERROR"));
+        // Skill set validation — optional, warn on unknown values
+        if (!isBlank(candidate.getSkillSet()) && !Arrays.asList("JAVA_SB", "JFSR", "REACT_JS").contains(candidate.getSkillSet())) {
+            errors.add(new BulkImportResponse.ValidationError(row, "skillSet",
+                "Unrecognized skill set, will be skipped: " + candidate.getSkillSet(), candidate.getSkillSet(), "WARNING"));
         }
 
         // YOE validation
@@ -407,16 +397,12 @@ public class ExcelParserService {
         if (isBlank(status)) return null;
         String normalized = status.trim().toUpperCase();
         switch (normalized) {
-            case "RFD":
-                return "RFD";
-            case "NOT_RFD":
-                return "NOT_RFD";
-            case "WFD": // Common typo
-                return "RFD";
-            case "DOB": // Invalid value, return as-is for error
-            case "NA":
-            default:
-                return status; // Return original for validation error
+            case "RFD": return "RFD";
+            case "WFD": return "WFD";
+            case "DOB": return "DOB";
+            case "TRAINING": return "TRAINING";
+            case "DEPLOYED": return "DEPLOYED";
+            default: return status;
         }
     }
 
@@ -453,6 +439,11 @@ public class ExcelParserService {
             default:
                 return skillSet; // Return original for validation error
         }
+    }
+
+    private String nullIfBlankOrNA(String value) {
+        if (isBlank(value) || "NA".equalsIgnoreCase(value.trim())) return null;
+        return value;
     }
 
     private String normalizeEmail(String email) {

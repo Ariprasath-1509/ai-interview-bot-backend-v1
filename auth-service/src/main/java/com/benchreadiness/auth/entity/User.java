@@ -104,6 +104,15 @@ public class User {
     @Column(name = "resume_updated_at")
     private Instant resumeUpdatedAt;
 
+    @Column(name = "batch_mentor")
+    private String batchMentor;
+
+    @Column(name = "interview_mentor_name")
+    private String interviewMentorName;
+
+    @Column(name = "client_name")
+    private String clientName;
+
     // Deployment fields
     @Column(name = "emp_id", length = 50, unique = true)
     private String empId;
@@ -191,4 +200,10 @@ public class User {
     public void setDeployedDate(java.time.LocalDate deployedDate) { this.deployedDate = deployedDate; }
     public String getMentor() { return mentor; }
     public void setMentor(String mentor) { this.mentor = mentor; }
+    public String getBatchMentor() { return batchMentor; }
+    public void setBatchMentor(String batchMentor) { this.batchMentor = batchMentor; }
+    public String getInterviewMentorName() { return interviewMentorName; }
+    public void setInterviewMentorName(String interviewMentorName) { this.interviewMentorName = interviewMentorName; }
+    public String getClientName() { return clientName; }
+    public void setClientName(String clientName) { this.clientName = clientName; }
 }

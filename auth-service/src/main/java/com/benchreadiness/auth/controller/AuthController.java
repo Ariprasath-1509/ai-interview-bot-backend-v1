@@ -670,6 +670,11 @@ public class AuthController {
         map.put("deployedDate", u.getDeployedDate() != null ? u.getDeployedDate().toString() : null);
         map.put("mentor", u.getMentor());
         
+        // Bulk import extended fields
+        map.put("batchMentor", u.getBatchMentor());
+        map.put("interviewMentorName", u.getInterviewMentorName());
+        map.put("clientName", u.getClientName());
+        
         return map;
     }
 
