@@ -7,3 +7,10 @@ eureka:
 
 logstash:
   host: logstash
+
+app:
+  llm:
+    provider: ${APP_LLM_PROVIDER:claude}
+  ollama:
+    base-url: ${APP_OLLAMA_BASE_URL:http://103.182.211.219:11434}
+    model: ${APP_OLLAMA_MODEL:qwen2.5:7b}

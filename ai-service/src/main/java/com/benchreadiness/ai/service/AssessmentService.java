@@ -14,13 +14,13 @@ public class AssessmentService {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AssessmentService.class);
 
-    private final ClaudeAiClient claudeAiClient;
+    private final LlmClient llmClient;
     private final RubricService rubricService;
     private final ComplianceServiceClient complianceServiceClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public AssessmentService(ClaudeAiClient claudeAiClient, RubricService rubricService, ComplianceServiceClient complianceServiceClient) {
-        this.claudeAiClient = claudeAiClient;
+    public AssessmentService(LlmClient llmClient, RubricService rubricService, ComplianceServiceClient complianceServiceClient) {
+        this.llmClient = llmClient;
         this.rubricService = rubricService;
         this.complianceServiceClient = complianceServiceClient;
     }
@@ -43,12 +43,12 @@ public class AssessmentService {
             return thinTranscriptResult("Insufficient responses — candidate answered fewer than 3 questions or provided less than 50 words total.");
         }
         
-        if (!claudeAiClient.isConfigured()) {
-            log.warn("Claude API not configured - falling back to heuristic assessment");
+        if (!llmClient.isConfigured()) {
+            log.warn("LLM provider not configured - falling back to heuristic assessment");
             return heuristicAssessment(utterances);
         }
         try {
-            log.info("Starting two-pass Claude assessment for interview: {}", req.getInterviewId());
+            log.info("Starting two-pass LLM assessment for interview: {}", req.getInterviewId());
             return twoPassAssessment(req, utterances, userId);
         } catch (Exception e) {
             log.error("LLM assessment failed for interview {}: {}", req.getInterviewId(), e.getMessage(), e);
@@ -72,7 +72,7 @@ public class AssessmentService {
             "Categories:\n" + categoryList;
 
         String transcript = buildEfficientTranscript(utterances);
-        String raw = claudeAiClient.chatAssessmentWithTracking(system, "Transcript:\n" + transcript, interviewId, userId);
+        String raw = llmClient.chatAssessmentWithTracking(system, "Transcript:\n" + transcript, interviewId, userId);
         JsonNode json = objectMapper.readTree(raw);
 
         Map<String, List<String>> evidence = new LinkedHashMap<>();
@@ -240,7 +240,7 @@ public class AssessmentService {
         
         String raw;
         try {
-            raw = claudeAiClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
+            raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
             log.info("Final assessment completed, response length: {}", raw.length());
         } catch (Exception e) {
             log.error("Final assessment API call failed: {}", e.getMessage(), e);
@@ -263,7 +263,7 @@ public class AssessmentService {
                     String shorterUser = "Role: " + req.getJdTitle() + "\n" +
                         "Evidence:\n" + evidenceSummary.substring(0, Math.min(800, evidenceSummary.length()));
                     
-                    String retryRaw = claudeAiClient.chatAssessmentWithTracking(shorterSystem, shorterUser, req.getInterviewId(), userId);
+                    String retryRaw = llmClient.chatAssessmentWithTracking(shorterSystem, shorterUser, req.getInterviewId(), userId);
                     json = objectMapper.readTree(retryRaw);
                     log.info("Recovery assessment successful");
                 } catch (Exception retryE) {
@@ -647,8 +647,8 @@ public class AssessmentService {
     }
 
     private int calculateTotalTokensUsed(String interviewId) {
-        // This is an estimate - the actual tracking happens in ClaudeAiClient
-        // We'll return 0 here since the real tracking is done per API call
+        // Token tracking is handled by the active LLM client implementation (Claude/Ollama).
+        // We return 0 here because the compliance service tracks per-operation totals independently.
         return 0;
     }
 }

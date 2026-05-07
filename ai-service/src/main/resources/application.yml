@@ -18,6 +18,9 @@ eureka:
     lease-expiration-duration-in-seconds: 30
 
 app:
+  llm:
+    # Switch LLM provider: 'claude' (default) or 'ollama'
+    provider: claude
   jwt:
     secret: dev-jwt-secret-change-in-production-min-32-chars
   claude:
@@ -26,6 +29,11 @@ app:
     assessment-model: claude-sonnet-4-5
     question-temperature: 0.55
     assessment-temperature: 0.25
+  ollama:
+    base-url: http://103.182.211.219:11434
+    model: qwen2.5:7b
+    temperature: 0.55
+    timeout-seconds: 600
 
 management:
   endpoints:

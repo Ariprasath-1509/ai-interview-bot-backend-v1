@@ -85,11 +85,11 @@ public class QuestionService {
         )
     );
 
-    private final ClaudeAiClient claudeAiClient;
+    private final LlmClient llmClient;
     private final QuestionCacheService cacheService;
 
-    public QuestionService(ClaudeAiClient claudeAiClient, QuestionCacheService cacheService) {
-        this.claudeAiClient = claudeAiClient;
+    public QuestionService(LlmClient llmClient, QuestionCacheService cacheService) {
+        this.llmClient = llmClient;
         this.cacheService = cacheService;
     }
 
@@ -112,10 +112,12 @@ public class QuestionService {
         }
 
         // Normal flow
-        if (claudeAiClient.isConfigured()) {
+        if (llmClient.isConfigured()) {
             try {
                 // Check for vague/short answers first
-                if (isVagueAnswer(req.getLastAnswer())) {
+                // IMPORTANT: don't get stuck in probe loops. If we already asked a probe/fallback,
+                // do not probe again; continue to the next real question.
+                if (isVagueAnswer(req.getLastAnswer()) && !lastQuestionWasProbe(req.getUtterances())) {
                     return new QuestionResult(getVagueAnswerProbe(), false, false);
                 }
                 
@@ -141,9 +143,34 @@ public class QuestionService {
                 log.warn("Claude failed, falling back to heuristic: {}", e.getMessage());
             }
         } else {
-            log.warn("Claude not configured — api-key is blank");
+            log.warn("LLM provider not configured — falling back to heuristic");
         }
         return new QuestionResult(fallbackQuestion(req), false, false);
+    }
+
+    private boolean lastQuestionWasProbe(List<NextQuestionRequest.Utterance> utterances) {
+        if (utterances == null || utterances.isEmpty()) return false;
+        for (int i = utterances.size() - 1; i >= 0; i--) {
+            NextQuestionRequest.Utterance u = utterances.get(i);
+            if (!"BOT".equals(u.speaker())) continue;
+            String lastQ = u.text() == null ? "" : u.text().toLowerCase();
+            if (lastQ.isBlank()) return false;
+
+            // If the previous BOT message looks like a generic probe/fallback, avoid repeating it.
+            return lastQ.contains("elaborate")
+                || lastQ.contains("tell me more")
+                || lastQ.contains("give me more details")
+                || lastQ.contains("more details")
+                || lastQ.contains("specific example")
+                || lastQ.contains("concrete example")
+                || lastQ.contains("concrete situation")
+                || lastQ.contains("walk me through")
+                || lastQ.contains("didn't quite catch")
+                || lastQ.contains("didnt quite catch")
+                || lastQ.contains("can you repeat")
+                || lastQ.contains("what do you mean");
+        }
+        return false;
     }
 
     private record ManipulationCheck(boolean detected, boolean warn, boolean terminate) {}
@@ -222,7 +249,7 @@ public class QuestionService {
             ? "Ask your opening technical question now. One or two sentences, no career narrative."
             : "Ask your next question now. Must follow from their last answer.");
 
-        String result = claudeAiClient.chatQuestionWithSlotAndTracking(system, user.toString(), req.getSlot(), req.getInterviewId(), userId);
+        String result = llmClient.chatQuestionWithSlotAndTracking(system, user.toString(), req.getSlot(), req.getInterviewId(), userId);
         return result.replaceAll("^[\"'\\s]+|[\"'\\s]+$", "");
     }
 
@@ -278,9 +305,10 @@ public class QuestionService {
             }
         }
         
-        // Check word count (under 100 words)
+        // Check word count (under 15 words)
+        // Voice-to-text answers can be rambling but still short; we only want to probe when it's truly minimal.
         int wordCount = trimmed.split("\\s+").length;
-        if (wordCount < 100) {
+        if (wordCount < 15) {
             log.debug("Answer too short ({} words): '{}'", wordCount, trimmed);
             return true;
         }

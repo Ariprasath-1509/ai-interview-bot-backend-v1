@@ -6,7 +6,7 @@ import com.benchreadiness.ai.dto.NextQuestionRequest;
 import com.benchreadiness.ai.dto.RubricRequest;
 import com.benchreadiness.ai.service.AiMatchingService;
 import com.benchreadiness.ai.service.AssessmentService;
-import com.benchreadiness.ai.service.ClaudeAiClient;
+import com.benchreadiness.ai.service.LlmClient;
 import com.benchreadiness.ai.service.QuestionService;
 import com.benchreadiness.ai.service.RubricService;
 import org.springframework.http.ResponseEntity;
@@ -22,36 +22,36 @@ public class AiController {
     private final AssessmentService assessmentService;
     private final RubricService rubricService;
     private final AiMatchingService aiMatchingService;
-    private final ClaudeAiClient claudeAiClient;
+    private final LlmClient llmClient;
 
     public AiController(QuestionService questionService, AssessmentService assessmentService, 
-                       RubricService rubricService, AiMatchingService aiMatchingService, ClaudeAiClient claudeAiClient) {
+                       RubricService rubricService, AiMatchingService aiMatchingService, LlmClient llmClient) {
         this.questionService = questionService;
         this.assessmentService = assessmentService;
         this.rubricService = rubricService;
         this.aiMatchingService = aiMatchingService;
-        this.claudeAiClient = claudeAiClient;
+        this.llmClient = llmClient;
     }
 
     @GetMapping("/health")
     public ResponseEntity<?> health() {
         return ResponseEntity.ok(Map.of(
             "status", "ok",
-            "claudeConfigured", claudeAiClient.isConfigured()
+            "llmConfigured", llmClient.isConfigured()
         ));
     }
 
-    @GetMapping("/test-claude")
-    public ResponseEntity<?> testClaude() {
+    @GetMapping("/test-llm")
+    public ResponseEntity<?> testLlm() {
         try {
-            if (!claudeAiClient.isConfigured()) {
+            if (!llmClient.isConfigured()) {
                 return ResponseEntity.ok(Map.of(
                     "configured", false,
-                    "message", "Claude API key not configured"
+                    "message", "LLM provider not configured"
                 ));
             }
             
-            String response = claudeAiClient.chatQuestion(
+            String response = llmClient.chatQuestion(
                 "You are a test assistant. Respond with exactly: {\"test\": \"success\"}",
                 "Test message"
             );
@@ -179,7 +179,7 @@ public class AiController {
                 "Candidate Name: " + candidateName + "\n" +
                 "Resume Content:\n" + resumeText;
             
-            String response = claudeAiClient.chatQuestion(prompt, "Generate a professional resume summary");
+            String response = llmClient.chatQuestion(prompt, "Generate a professional resume summary");
             
             // Clean up the response
             if (response != null) {

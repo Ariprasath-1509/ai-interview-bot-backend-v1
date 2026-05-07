@@ -13,15 +13,15 @@ public class RubricService {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(RubricService.class);
 
-    private final ClaudeAiClient claudeAiClient;
+    private final LlmClient llmClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public RubricService(ClaudeAiClient claudeAiClient) {
-        this.claudeAiClient = claudeAiClient;
+    public RubricService(LlmClient llmClient) {
+        this.llmClient = llmClient;
     }
 
     public Map<String, Object> generateRubric(RubricRequest req, String userId) {
-        if (!claudeAiClient.isConfigured()) return fallbackRubric(req);
+        if (!llmClient.isConfigured()) return fallbackRubric(req);
         try {
             return llmRubric(req, userId);
         } catch (Exception e) {
@@ -61,7 +61,7 @@ public class RubricService {
             (req.getFocusAreas() != null && !req.getFocusAreas().isBlank()
                 ? "\nFocus areas: " + req.getFocusAreas() : "");
 
-        String raw = claudeAiClient.chatRubricWithTracking(system, user, req.getInterviewId(), userId);
+        String raw = llmClient.chatRubricWithTracking(system, user, req.getInterviewId(), userId);
         JsonNode json = objectMapper.readTree(raw);
 
         Map<String, Object> result = new LinkedHashMap<>();

@@ -11,26 +11,26 @@ import java.util.*;
 @Service
 public class AiMatchingService {
 
-    private final ClaudeAiClient claudeAiClient;
+    private final LlmClient llmClient;
     private final ComplianceServiceClient complianceServiceClient;
     private final ObjectMapper objectMapper;
 
-    public AiMatchingService(ClaudeAiClient claudeAiClient, ComplianceServiceClient complianceServiceClient) {
-        this.claudeAiClient = claudeAiClient;
+    public AiMatchingService(LlmClient llmClient, ComplianceServiceClient complianceServiceClient) {
+        this.llmClient = llmClient;
         this.complianceServiceClient = complianceServiceClient;
         this.objectMapper = new ObjectMapper();
     }
 
     public Map<String, Object> matchCandidates(MatchingRequest request, String userId) {
         try {
-            if (!claudeAiClient.isConfigured()) {
+            if (!llmClient.isConfigured()) {
                 return fallbackMatching(request);
             }
 
             String prompt = buildMatchingPrompt(request);
             String candidatesJson = objectMapper.writeValueAsString(request.getCandidates());
             
-            String response = claudeAiClient.chatMatching(prompt, candidatesJson);
+            String response = llmClient.chatMatching(prompt, candidatesJson);
             
             // Track tokens - skip for matching since we don't have interviewId
             // Token tracking is optional for matching operations

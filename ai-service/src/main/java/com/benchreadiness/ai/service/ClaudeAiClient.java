@@ -4,6 +4,7 @@ import com.benchreadiness.ai.client.ComplianceServiceClient;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Component;
@@ -17,7 +18,8 @@ import java.util.Map;
 import java.util.LinkedHashMap;
 
 @Component
-public class ClaudeAiClient {
+@ConditionalOnProperty(name = "app.llm.provider", havingValue = "claude", matchIfMissing = true)
+public class ClaudeAiClient implements LlmClient {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ClaudeAiClient.class);
 
@@ -48,6 +50,7 @@ public class ClaudeAiClient {
         this.complianceServiceClient = complianceServiceClient;
     }
 
+    @Override
     public boolean isConfigured() {
         boolean configured = apiKey != null && !apiKey.isBlank();
         log.info("Claude API configured: {}, API key present: {}, API key starts with: {}", 
@@ -55,37 +58,45 @@ public class ClaudeAiClient {
         return configured;
     }
 
-    private int getMaxTokensForModel(String model) {
-        if (model != null && (model.contains("sonnet") || model.contains("opus"))) {
-            return 16384;
-        }
-        return 8192;
+    /**
+     * Keep max_tokens bounded per operation to reduce cost and avoid late-interview failures.
+     * These values target concise questions and richer assessment summaries.
+     */
+    private int getMaxTokensForOperation(String operationType) {
+        if (operationType == null) return 1000;
+        return switch (operationType) {
+            case "question" -> 300;
+            case "rubric" -> 1000;
+            case "assessment" -> 4000;
+            case "matching" -> 6000;
+            default -> 1000;
+        };
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatRubric(String systemPrompt, String userPrompt) throws Exception {
-        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForModel(questionModel));
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForOperation("rubric"));
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatQuestion(String systemPrompt, String userPrompt) throws Exception {
-        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForModel(questionModel));
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForOperation("question"));
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatQuestionWithSlot(String systemPrompt, String userPrompt, int slot) throws Exception {
         String model = slot <= 5 ? questionModel : assessmentModel;
-        return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForModel(model));
+        return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForOperation("question"));
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatAssessment(String systemPrompt, String userPrompt) throws Exception {
-        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForModel(assessmentModel));
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForOperation("assessment"));
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatMatching(String systemPrompt, String userPrompt) throws Exception {
-        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForModel(assessmentModel));
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForOperation("matching"));
     }
 
     private String chat(String systemPrompt, String userPrompt, String model,
@@ -167,19 +178,22 @@ public class ClaudeAiClient {
     }
 
     public String chatQuestionWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForModel(questionModel), interviewId, "question", userId);
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForOperation("question"), interviewId, "question", userId);
     }
 
+    @Override
     public String chatQuestionWithSlotAndTracking(String systemPrompt, String userPrompt, int slot, String interviewId, String userId) throws Exception {
         String model = slot <= 5 ? questionModel : assessmentModel;
-        return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForModel(model), interviewId, "question", userId);
+        return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForOperation("question"), interviewId, "question", userId);
     }
 
+    @Override
     public String chatAssessmentWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForModel(assessmentModel), interviewId, "assessment", userId);
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForOperation("assessment"), interviewId, "assessment", userId);
     }
 
+    @Override
     public String chatRubricWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForModel(questionModel), interviewId, "rubric", userId);
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForOperation("rubric"), interviewId, "rubric", userId);
     }
 }
