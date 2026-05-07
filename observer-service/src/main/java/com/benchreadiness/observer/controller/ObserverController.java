@@ -11,6 +11,7 @@ import com.benchreadiness.observer.service.ObserverService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -96,12 +97,10 @@ public class ObserverController {
 
     /** POST /observer/inject — ADMIN or RECRUITER queues a follow-up question */
     @PostMapping("/inject")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
     public ResponseEntity<?> inject(@Valid @RequestBody InjectRequest req,
                                      @RequestHeader("X-User-Id") String userId,
                                      @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("ADMIN") && !role.equals("SUPER_ADMIN") && !role.equals("RECRUITER")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
-        }
         try {
             ObserverEvent event = observerService.inject(req, userId);
             // Push to WebSocket subscribers watching this interview
@@ -117,12 +116,10 @@ public class ObserverController {
 
     /** POST /observer/flag — ADMIN flags a candidate answer */
     @PostMapping("/flag")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<?> flag(@Valid @RequestBody FlagRequest req,
                                    @RequestHeader("X-User-Id") String userId,
                                    @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("ADMIN") && !role.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
-        }
         try {
             ObserverEvent event = observerService.flag(req, userId);
             messagingTemplate.convertAndSend(

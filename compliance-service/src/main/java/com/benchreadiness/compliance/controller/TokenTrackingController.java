@@ -5,6 +5,7 @@ import com.benchreadiness.compliance.service.TokenTrackingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -81,6 +82,7 @@ public class TokenTrackingController {
     }
 
     @PostMapping("/limits")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<Map<String, Object>> updateLimits(@RequestBody Map<String, Integer> request) {
         log.info(">>> COMPLIANCE: Received /tokens/limits POST request");
         log.info(">>> COMPLIANCE: Request body: {}", request);

@@ -46,6 +46,16 @@ public class Client {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
     
+    @Column(name = "doc_id")
+    private String docId;
+    
+    @Lob
+    @Column(name = "jd_file")
+    private byte[] jdFile;
+    
+    @Column(name = "jd_file_name")
+    private String jdFileName;
+    
     // Constructors
     public Client() {}
     
@@ -112,6 +122,18 @@ public class Client {
         return updatedAt;
     }
     
+    public String getDocId() {
+        return docId;
+    }
+    
+    public byte[] getJdFile() {
+        return jdFile;
+    }
+    
+    public String getJdFileName() {
+        return jdFileName;
+    }
+    
     // Setters
     public void setId(UUID id) {
         this.id = id;
@@ -159,6 +181,18 @@ public class Client {
     
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+    
+    public void setDocId(String docId) {
+        this.docId = docId;
+    }
+    
+    public void setJdFile(byte[] jdFile) {
+        this.jdFile = jdFile;
+    }
+    
+    public void setJdFileName(String jdFileName) {
+        this.jdFileName = jdFileName;
     }
     
     @PrePersist

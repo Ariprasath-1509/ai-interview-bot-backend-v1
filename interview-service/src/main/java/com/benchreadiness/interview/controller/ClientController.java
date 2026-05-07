@@ -1,76 +1,84 @@
 package com.benchreadiness.interview.controller;
 
 import com.benchreadiness.interview.dto.ClientDTO;
-import com.benchreadiness.interview.entity.Client;
 import com.benchreadiness.interview.service.ClientService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/recruiter/clients")
 public class ClientController {
-    
+
     private final ClientService clientService;
-    
-    public ClientController(ClientService clientService) {
+    private final ObjectMapper objectMapper;
+
+    public ClientController(ClientService clientService, ObjectMapper objectMapper) {
         this.clientService = clientService;
+        this.objectMapper = objectMapper;
     }
-    
+
     @GetMapping
-    public ResponseEntity<List<ClientDTO>> getAllClients(@RequestHeader("X-User-Role") String userRole) {
-        // ADMIN, SUPER_ADMIN, and RECRUITER can view clients
-        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole) && !"RECRUITER".equals(userRole)) {
-            return ResponseEntity.status(403).build();
-        }
-        List<ClientDTO> clients = clientService.getAllClients();
-        return ResponseEntity.ok(clients);
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<List<ClientDTO>> getAllClients() {
+        return ResponseEntity.ok(clientService.getAllClients());
     }
-    
+
     @GetMapping("/{id}")
-    public ResponseEntity<ClientDTO> getClientById(@PathVariable UUID id,
-                                                   @RequestHeader("X-User-Role") String userRole) {
-        // ADMIN, SUPER_ADMIN, and RECRUITER can view client details
-        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole) && !"RECRUITER".equals(userRole)) {
-            return ResponseEntity.status(403).build();
-        }
-        ClientDTO client = clientService.getClientById(id);
-        return ResponseEntity.ok(client);
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<ClientDTO> getClientById(@PathVariable UUID id) {
+        return ResponseEntity.ok(clientService.getClientById(id));
     }
-    
-    @PostMapping
-    public ResponseEntity<ClientDTO> createClient(@RequestBody ClientDTO clientDTO,
-                                                  @RequestHeader("X-User-Role") String userRole) {
-        // ADMIN, SUPER_ADMIN, and RECRUITER can create clients
-        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole) && !"RECRUITER".equals(userRole)) {
-            return ResponseEntity.status(403).build();
+
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<ClientDTO> createClient(
+            @RequestPart("client") String clientJson,
+            @RequestPart(value = "jdFile", required = false) MultipartFile jdFile) {
+        try {
+            ClientDTO clientDTO = objectMapper.readValue(clientJson, ClientDTO.class);
+            ClientDTO created = clientService.createClient(clientDTO, jdFile);
+            return ResponseEntity.ok(created);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
         }
-        ClientDTO createdClient = clientService.createClient(clientDTO);
-        return ResponseEntity.ok(createdClient);
     }
-    
+
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<ClientDTO> createClientJson(@RequestBody ClientDTO clientDTO) {
+        ClientDTO created = clientService.createClient(clientDTO, null);
+        return ResponseEntity.ok(created);
+    }
+
     @PutMapping("/{id}")
-    public ResponseEntity<ClientDTO> updateClient(@PathVariable UUID id, 
-                                                  @RequestBody ClientDTO clientDTO,
-                                                  @RequestHeader("X-User-Role") String userRole) {
-        // ADMIN, SUPER_ADMIN, and RECRUITER can update clients
-        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole) && !"RECRUITER".equals(userRole)) {
-            return ResponseEntity.status(403).build();
-        }
-        ClientDTO updatedClient = clientService.updateClient(id, clientDTO);
-        return ResponseEntity.ok(updatedClient);
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<ClientDTO> updateClient(@PathVariable UUID id,
+                                                  @RequestBody ClientDTO clientDTO) {
+        return ResponseEntity.ok(clientService.updateClient(id, clientDTO));
     }
-    
+
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteClient(@PathVariable UUID id,
-                                            @RequestHeader("X-User-Role") String userRole) {
-        // Only ADMIN and SUPER_ADMIN can delete clients
-        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole)) {
-            return ResponseEntity.status(403).build();
-        }
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<Void> deleteClient(@PathVariable UUID id) {
         clientService.deleteClient(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{id}/doc-id")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<Map<String, String>> getDocId(@PathVariable UUID id) {
+        String docId = clientService.getDocId(id);
+        if (docId == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(Map.of("docId", docId));
     }
 }

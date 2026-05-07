@@ -7,6 +7,7 @@ import com.benchreadiness.compliance.service.ComplianceService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -22,15 +23,13 @@ public class ComplianceController {
         this.complianceService = complianceService;
     }
 
-    /** GET /compliance/audit-logs — paginated audit log, COMPLIANCE role only */
+    /** GET /compliance/audit-logs — paginated audit log */
     @GetMapping("/audit-logs")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<?> getAuditLogs(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
             @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("SUPER_ADMIN") && !role.equals("ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
-        }
         Page<AuditLog> logs = complianceService.getAuditLogs(page, size);
         return ResponseEntity.ok(Map.of(
             "content", logs.getContent(),
@@ -42,21 +41,17 @@ public class ComplianceController {
 
     /** GET /compliance/audit-logs/actor/{actorId} — logs by actor */
     @GetMapping("/audit-logs/actor/{actorId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<?> getLogsByActor(@PathVariable String actorId,
                                              @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("SUPER_ADMIN") && !role.equals("ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
-        }
         return ResponseEntity.ok(complianceService.getLogsByActor(actorId));
     }
 
     /** GET /compliance/audit-logs/resource/{resourceId} — logs by resource (e.g. interview id) */
     @GetMapping("/audit-logs/resource/{resourceId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<?> getLogsByResource(@PathVariable String resourceId,
                                                 @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("SUPER_ADMIN") && !role.equals("ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
-        }
         return ResponseEntity.ok(complianceService.getLogsByResource(resourceId));
     }
 
@@ -75,13 +70,11 @@ public class ComplianceController {
 
     /** PUT /compliance/retention-policies/{region} — update retention policy for a region */
     @PutMapping("/retention-policies/{region}")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<?> upsertRetentionPolicy(
             @PathVariable String region,
             @RequestBody Map<String, Integer> body,
             @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Only SUPER_ADMIN role can update retention policies"));
-        }
         int transcriptDays = body.getOrDefault("transcriptDays", 365);
         int audioDays = body.getOrDefault("audioDays", 90);
         return ResponseEntity.ok(complianceService.upsertRetentionPolicy(region, transcriptDays, audioDays));
