@@ -7,6 +7,7 @@ import com.benchreadiness.review.entity.SignOff;
 import com.benchreadiness.review.service.ReviewService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -49,13 +50,11 @@ public class ReviewController {
 
     /** POST /reviews/{interviewId}/sign-off — ADMIN signs off an interview */
     @PostMapping("/reviews/{interviewId}/sign-off")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<?> signOff(@PathVariable String interviewId,
                                       @Valid @RequestBody SignOffRequest req,
                                       @RequestHeader("X-User-Id") String userId,
                                       @RequestHeader("X-User-Role") String role) {
-        if (!role.equals("ADMIN") && !role.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Only ADMIN can sign off"));
-        }
         req.setInterviewId(interviewId);
         try {
             SignOff signOff = reviewService.signOff(req, userId);

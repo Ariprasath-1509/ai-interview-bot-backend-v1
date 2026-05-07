@@ -42,3 +42,12 @@ feign:
 app:
   jwt:
     secret: dev-jwt-secret-change-in-production-min-32-chars
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,env,loggers
+  endpoint:
+    health:
+      show-details: always

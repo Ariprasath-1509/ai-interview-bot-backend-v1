@@ -6,7 +6,7 @@ import com.benchreadiness.ai.dto.NextQuestionRequest;
 import com.benchreadiness.ai.dto.RubricRequest;
 import com.benchreadiness.ai.service.AiMatchingService;
 import com.benchreadiness.ai.service.AssessmentService;
-import com.benchreadiness.ai.service.OpenAiClient;
+import com.benchreadiness.ai.service.ClaudeAiClient;
 import com.benchreadiness.ai.service.QuestionService;
 import com.benchreadiness.ai.service.RubricService;
 import org.springframework.http.ResponseEntity;
@@ -22,36 +22,36 @@ public class AiController {
     private final AssessmentService assessmentService;
     private final RubricService rubricService;
     private final AiMatchingService aiMatchingService;
-    private final OpenAiClient openAiClient;
+    private final ClaudeAiClient claudeAiClient;
 
     public AiController(QuestionService questionService, AssessmentService assessmentService, 
-                       RubricService rubricService, AiMatchingService aiMatchingService, OpenAiClient openAiClient) {
+                       RubricService rubricService, AiMatchingService aiMatchingService, ClaudeAiClient claudeAiClient) {
         this.questionService = questionService;
         this.assessmentService = assessmentService;
         this.rubricService = rubricService;
         this.aiMatchingService = aiMatchingService;
-        this.openAiClient = openAiClient;
+        this.claudeAiClient = claudeAiClient;
     }
 
     @GetMapping("/health")
     public ResponseEntity<?> health() {
         return ResponseEntity.ok(Map.of(
             "status", "ok",
-            "claudeConfigured", openAiClient.isConfigured()
+            "claudeConfigured", claudeAiClient.isConfigured()
         ));
     }
 
     @GetMapping("/test-claude")
     public ResponseEntity<?> testClaude() {
         try {
-            if (!openAiClient.isConfigured()) {
+            if (!claudeAiClient.isConfigured()) {
                 return ResponseEntity.ok(Map.of(
                     "configured", false,
                     "message", "Claude API key not configured"
                 ));
             }
             
-            String response = openAiClient.chatQuestion(
+            String response = claudeAiClient.chatQuestion(
                 "You are a test assistant. Respond with exactly: {\"test\": \"success\"}",
                 "Test message"
             );
@@ -179,7 +179,7 @@ public class AiController {
                 "Candidate Name: " + candidateName + "\n" +
                 "Resume Content:\n" + resumeText;
             
-            String response = openAiClient.chatQuestion(prompt, "Generate a professional resume summary");
+            String response = claudeAiClient.chatQuestion(prompt, "Generate a professional resume summary");
             
             // Clean up the response
             if (response != null) {

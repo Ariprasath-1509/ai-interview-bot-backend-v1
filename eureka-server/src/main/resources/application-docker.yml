@@ -1,3 +1,6 @@
 eureka:
   instance:
     hostname: eureka-server
+
+logstash:
+  host: logstash

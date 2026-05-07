@@ -49,3 +49,12 @@ app:
   frontend-url: http://103.182.211.219:6001
   digest:
     cron: 0 0 19 * * *
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,env,loggers
+  endpoint:
+    health:
+      show-details: always
