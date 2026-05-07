@@ -36,18 +36,6 @@ public class ClaudeAiClient {
     @Value("${app.claude.assessment-temperature:0.25}")
     private double assessmentTemperature;
 
-    @Value("${app.claude.question-max-tokens:8192}")
-    private int questionMaxTokens;
-
-    @Value("${app.claude.assessment-max-tokens:8192}")
-    private int assessmentMaxTokens;
-
-    @Value("${app.claude.rubric-max-tokens:8192}")
-    private int rubricMaxTokens;
-
-    @Value("${app.claude.matching-max-tokens:8192}")
-    private int matchingMaxTokens;
-
     private final ComplianceServiceClient complianceServiceClient;
 
     private static final String CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
@@ -67,33 +55,37 @@ public class ClaudeAiClient {
         return configured;
     }
 
+    private int getMaxTokensForModel(String model) {
+        if (model != null && (model.contains("sonnet") || model.contains("opus"))) {
+            return 16384;
+        }
+        return 8192;
+    }
+
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatRubric(String systemPrompt, String userPrompt) throws Exception {
-        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, rubricMaxTokens);
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForModel(questionModel));
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatQuestion(String systemPrompt, String userPrompt) throws Exception {
-        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, questionMaxTokens);
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForModel(questionModel));
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatQuestionWithSlot(String systemPrompt, String userPrompt, int slot) throws Exception {
-        // Slots 1-5: use haiku (fast, cheap), Slots 6-10: use sonnet (higher quality)
         String model = slot <= 5 ? questionModel : assessmentModel;
-        return chat(systemPrompt, userPrompt, model, questionTemperature, questionMaxTokens);
+        return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForModel(model));
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatAssessment(String systemPrompt, String userPrompt) throws Exception {
-        // Use the system prompt as-is - it already contains the proper JSON structure
-        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, assessmentMaxTokens);
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForModel(assessmentModel));
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatMatching(String systemPrompt, String userPrompt) throws Exception {
-        // Use sonnet model for matching with higher token limit
-        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, matchingMaxTokens);
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForModel(assessmentModel));
     }
 
     private String chat(String systemPrompt, String userPrompt, String model,
@@ -174,22 +166,20 @@ public class ClaudeAiClient {
         }
     }
 
-    // Public methods for tracking with interview context
     public String chatQuestionWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, questionMaxTokens, interviewId, "question", userId);
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForModel(questionModel), interviewId, "question", userId);
     }
 
     public String chatQuestionWithSlotAndTracking(String systemPrompt, String userPrompt, int slot, String interviewId, String userId) throws Exception {
         String model = slot <= 5 ? questionModel : assessmentModel;
-        return chat(systemPrompt, userPrompt, model, questionTemperature, questionMaxTokens, interviewId, "question", userId);
+        return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForModel(model), interviewId, "question", userId);
     }
 
     public String chatAssessmentWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        // Use the system prompt as-is from AssessmentService - it already contains the proper JSON structure
-        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, assessmentMaxTokens, interviewId, "assessment", userId);
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForModel(assessmentModel), interviewId, "assessment", userId);
     }
 
     public String chatRubricWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, rubricMaxTokens, interviewId, "rubric", userId);
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForModel(questionModel), interviewId, "rubric", userId);
     }
 }
