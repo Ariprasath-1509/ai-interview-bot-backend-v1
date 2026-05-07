@@ -6,9 +6,11 @@ import com.benchreadiness.ai.dto.NextQuestionRequest;
 import com.benchreadiness.ai.dto.RubricRequest;
 import com.benchreadiness.ai.service.AiMatchingService;
 import com.benchreadiness.ai.service.AssessmentService;
+import com.benchreadiness.ai.service.AsyncAssessmentService;
 import com.benchreadiness.ai.service.LlmClient;
 import com.benchreadiness.ai.service.QuestionService;
 import com.benchreadiness.ai.service.RubricService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,14 +22,18 @@ public class AiController {
 
     private final QuestionService questionService;
     private final AssessmentService assessmentService;
+    private final AsyncAssessmentService asyncAssessmentService;
     private final RubricService rubricService;
     private final AiMatchingService aiMatchingService;
     private final LlmClient llmClient;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public AiController(QuestionService questionService, AssessmentService assessmentService, 
-                       RubricService rubricService, AiMatchingService aiMatchingService, LlmClient llmClient) {
+    public AiController(QuestionService questionService, AssessmentService assessmentService,
+                       AsyncAssessmentService asyncAssessmentService, RubricService rubricService, 
+                       AiMatchingService aiMatchingService, LlmClient llmClient) {
         this.questionService = questionService;
         this.assessmentService = assessmentService;
+        this.asyncAssessmentService = asyncAssessmentService;
         this.rubricService = rubricService;
         this.aiMatchingService = aiMatchingService;
         this.llmClient = llmClient;
@@ -85,6 +91,53 @@ public class AiController {
     public ResponseEntity<?> assess(@RequestBody AssessmentRequest req,
                                    @RequestHeader("X-User-Id") String userId) {
         return ResponseEntity.ok(assessmentService.assess(req, userId));
+    }
+    
+    @PostMapping("/assess-async")
+    public ResponseEntity<?> assessAsync(@RequestBody AssessmentRequest req,
+                                        @RequestHeader("X-User-Id") String userId) {
+        asyncAssessmentService.processAssessmentAsync(req, userId);
+        return ResponseEntity.ok(Map.of(
+            "status", "ASSESSMENT_PENDING",
+            "message", "Assessment queued for processing",
+            "interviewId", req.getInterviewId()
+        ));
+    }
+    
+    @GetMapping("/assess-status/{interviewId}")
+    public ResponseEntity<?> getAssessmentStatus(@PathVariable String interviewId) {
+        AsyncAssessmentService.AssessmentStatus status = asyncAssessmentService.getAssessmentStatus(interviewId);
+        
+        if ("COMPLETED".equals(status.getStatus())) {
+            try {
+                Map<String, Object> result = objectMapper.readValue(status.getResult(), 
+                    new com.fasterxml.jackson.core.type.TypeReference<>() {});
+                return ResponseEntity.ok(Map.of(
+                    "status", "COMPLETED",
+                    "result", result
+                ));
+            } catch (Exception e) {
+                return ResponseEntity.ok(Map.of(
+                    "status", "FAILED",
+                    "error", "Failed to parse assessment result"
+                ));
+            }
+        } else if ("FAILED".equals(status.getStatus())) {
+            return ResponseEntity.ok(Map.of(
+                "status", "FAILED",
+                "error", status.getError()
+            ));
+        } else if ("PROCESSING".equals(status.getStatus())) {
+            return ResponseEntity.ok(Map.of(
+                "status", "PROCESSING",
+                "message", "Assessment in progress"
+            ));
+        } else {
+            return ResponseEntity.ok(Map.of(
+                "status", "NOT_FOUND",
+                "message", "No assessment found for this interview"
+            ));
+        }
     }
 
     @PostMapping("/debug-assess")

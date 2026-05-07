@@ -34,6 +34,10 @@ app:
     model: qwen2.5:1.5b
     temperature: 0.55
     timeout-seconds: 600
+  assessment:
+    async-enabled: true
+    thread-pool-size: 10
+    queue-capacity: 50
 
 management:
   endpoints:

@@ -94,7 +94,7 @@ public class AssessmentService {
         
         List<Map<String, Object>> categories;
         if (req.getRubricJson() == null || req.getRubricJson().isBlank()) {
-            log.info("rubricJson not provided — generating from JD");
+            log.warn("rubricJson not provided for interview {} — this should have been generated at creation time", req.getInterviewId());
             try {
                 com.benchreadiness.ai.dto.RubricRequest rubricReq = new com.benchreadiness.ai.dto.RubricRequest();
                 rubricReq.setJdTitle(req.getJdTitle());
@@ -103,14 +103,14 @@ public class AssessmentService {
                 rubricReq.setInterviewId(req.getInterviewId());
                 Map<String, Object> generated = rubricService.generateRubric(rubricReq, userId);
                 categories = parseCategories(objectMapper.writeValueAsString(generated.get("rubric")));
-                log.info("Generated {} categories from JD", categories.size());
+                log.info("Generated {} categories from JD (fallback)", categories.size());
             } catch (Exception e) {
                 log.warn("On-the-fly rubric generation failed: {}", e.getMessage());
                 categories = defaultCategories();
             }
         } else {
             categories = parseCategories(req.getRubricJson());
-            log.info("Using provided rubric with {} categories", categories.size());
+            log.info("Using stored rubric with {} categories (no Claude call needed)", categories.size());
         }
 
         Map<String, Object> candidateProfile = parseCandidateProfile(req.getCandidateProfileJson());
@@ -150,87 +150,31 @@ public class AssessmentService {
 
         String system =
             "You are an expert technical hiring assessor. Produce a thorough, evidence-based evaluation.\n" +
-            "Candidate: " + level + " level, " + yoe + " years experience. Hold to that standard.\n\n" +
-            "SCORING RULES:\n" +
-            "- 5: Expert depth, concrete examples, handles edge cases\n" +
-            "- 4: Solid knowledge, minor gaps\n" +
-            "- 3: Familiar but surface-level, limited concrete evidence\n" +
-            "- 2: Partial knowledge, significant gaps\n" +
-            "- 1: Little to no relevant evidence\n" +
-            "- null: Topic not discussed at all\n" +
-            "- confidence: low=1 evidence item, medium=2-3, high=4+\n\n" +
-            "VERDICT RULES:\n" +
-            getVerdictRulesForMode(req.getInterviewMode()) + "\n\n" +
-            "ROADMAP RULES:\n" +
-            "- Include days for categories where score < 5\n" +
-            "- If all scores are 4+, still provide 2-3 days of advanced topics to push from 4 to 5\n" +
-            "- Order by severity: lowest score = Day 1\n" +
-            "- Each day must reference the specific weakness found\n" +
-            "- whyItMatters: explain why this gap matters for the role\n" +
-            "- resourceUrl: real, working URL to free resource (official docs preferred)\n" +
-            "- exercise: hands-on task, not just reading\n\n" +
-            "PROS AND CONS (MANDATORY - DO NOT SKIP):\n" +
-            "- prosAndCons: MUST have one entry per category that was assessed (never empty)\n" +
-            "- pros: specific things they demonstrated well (quote from transcript)\n" +
-            "- cons: specific things they got wrong or missed (quote from transcript)\n" +
-            "- If candidate scored 5, cons can be 'minor: could explore X deeper'\n\n" +
-            "RESUME CONSISTENCY (MANDATORY - DO NOT SKIP):\n" +
-            "- resumeConsistencyForCandidate: cover ALL claimed skills from resume\n" +
-            "- demonstrated: true/false based on interview evidence\n" +
-            "- note: brief explanation\n" +
-            "- If no resume provided, use skills evident from transcript\n\n" +
-            "IMPORTANT: The candidateFeedback section MUST be fully populated. Never return empty arrays for prosAndCons or roadmap.\n\n" +
-            "Return ONLY valid JSON:\n" +
+            "Candidate: " + level + " level, " + yoe + " years experience.\n\n" +
+            "SCORING: 5=expert, 4=solid, 3=surface-level, 2=partial, 1=none, null=not discussed. confidence: low/medium/high.\n" +
+            "VERDICT: " + getVerdictRulesForMode(req.getInterviewMode()) + "\n\n" +
+            "Return ONLY valid JSON with ALL sections populated (no empty arrays):\n" +
             "{\n" +
             "  \"categoryScores\": {\n" + categoryScoreSchema + "\n  },\n" +
-            "  \"communication\": {\"score\": 1-5, \"rationale\": \"\", \"strengths\": [], \"weaknesses\": []},\n" +
-            "  \"proposedVerdict\": \"\",\n" +
+            "  \"communication\": {\"score\": 1-5, \"rationale\": \"\"},\n" +
+            "  \"proposedVerdict\": \"READY|NEEDS_1_WEEK_PREP|NEEDS_RESKILLING|MISMATCH_WITH_JD\",\n" +
             "  \"summary\": \"2-3 sentences for manager\",\n" +
-            "  \"resumeConsistency\": {\n" +
-            "    \"claimed\": [], \"demonstrated\": [], \"notDemonstrated\": [],\n" +
-            "    \"consistencyScore\": 1-5, \"flags\": []\n" +
-            "  },\n" +
-            "  \"behavioralSignals\": {\n" +
-            "    \"ownershipLevel\": \"low|medium|high\",\n" +
-            "    \"learningAgility\": \"low|medium|high\",\n" +
-            "    \"communicationStructure\": \"low|medium|high\",\n" +
-            "    \"confidenceCalibration\": \"low|medium|high\",\n" +
-            "    \"summary\": \"\"\n" +
-            "  },\n" +
-            "  \"interviewQuality\": {\n" +
-            "    \"coverageScore\": 1-5,\n" +
-            "    \"categoriesCovered\": [],\n" +
-            "    \"categoriesMissed\": [],\n" +
-            "    \"note\": \"\"\n" +
-            "  },\n" +
+            "  \"resumeConsistency\": {\"claimed\": [], \"demonstrated\": [], \"notDemonstrated\": [], \"consistencyScore\": 1-5, \"flags\": []},\n" +
+            "  \"behavioralSignals\": {\"ownershipLevel\": \"low|medium|high\", \"learningAgility\": \"low|medium|high\", \"communicationStructure\": \"low|medium|high\", \"confidenceCalibration\": \"low|medium|high\", \"summary\": \"\"},\n" +
+            "  \"interviewQuality\": {\"coverageScore\": 1-5, \"categoriesCovered\": [], \"categoriesMissed\": [], \"note\": \"\"},\n" +
             "  \"candidateFeedback\": {\n" +
-            "    \"overallSummary\": \"plain English 2-3 sentences for candidate\",\n" +
-            "    \"prosAndCons\": [\n" +
-            "      {\n" +
-            "        \"category\": \"category label\",\n" +
-            "        \"pros\": [\"specific thing you did well\"],\n" +
-            "        \"cons\": [\"specific thing to improve\"]\n" +
-            "      }\n" +
-            "    ],\n" +
-            "    \"resumeConsistencyForCandidate\": [\n" +
-            "      {\"claim\": \"skill from resume\", \"demonstrated\": true/false, \"note\": \"brief explanation\"}\n" +
-            "    ],\n" +
-            "    \"roadmap\": [\n" +
-            "      {\n" +
-            "        \"day\": \"Day 1\",\n" +
-            "        \"category\": \"category label\",\n" +
-            "        \"gap\": \"specific gap\",\n" +
-            "        \"focus\": \"exact topic to study\",\n" +
-            "        \"whyItMatters\": \"why this gap matters for the role\",\n" +
-            "        \"resource\": \"resource name\",\n" +
-            "        \"resourceUrl\": \"https://actual-url.com\",\n" +
-            "        \"exercise\": \"hands-on task\",\n" +
-            "        \"estimatedHours\": 2\n" +
-            "      }\n" +
-            "    ],\n" +
+            "    \"overallSummary\": \"2-3 sentences for candidate\",\n" +
+            "    \"prosAndCons\": [{\"category\": \"name\", \"pros\": [\"...\"], \"cons\": [\"...\"]}],\n" +
+            "    \"resumeConsistencyForCandidate\": [{\"claim\": \"skill\", \"demonstrated\": true, \"note\": \"...\"}],\n" +
+            "    \"roadmap\": [{\"day\": \"Day 1\", \"category\": \"name\", \"gap\": \"gap\", \"focus\": \"topic\", \"whyItMatters\": \"reason\", \"resource\": \"name\", \"resourceUrl\": \"https://url\", \"exercise\": \"task\", \"estimatedHours\": 2}],\n" +
             "    \"estimatedReadinessTimeline\": \"\"\n" +
             "  }\n" +
-            "}";
+            "}\n\n" +
+            "CRITICAL RULES:\n" +
+            "- prosAndCons: ONE entry per scored category (NEVER empty)\n" +
+            "- roadmap: 3-7 days for any category with score < 5. If all 5, provide advanced topics\n" +
+            "- resumeConsistencyForCandidate: 3-5 key JD skills, mark demonstrated true/false\n" +
+            "- Use real resource URLs (official docs preferred)\n";
 
         String user = "Role: " + req.getJdTitle() + "\n" +
             "JD:\n" + req.getJdText().substring(0, Math.min(500, req.getJdText().length())) + "\n" +

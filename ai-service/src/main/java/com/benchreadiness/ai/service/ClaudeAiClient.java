@@ -124,6 +124,22 @@ public class ClaudeAiClient implements LlmClient {
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        
+        // Handle 429 rate limit with exponential backoff
+        if (response.statusCode() == 429) {
+            log.warn("Claude API rate limit hit (429) for operation: {}", operationType);
+            int retryAfter = extractRetryAfter(response);
+            int waitTime = retryAfter > 0 ? retryAfter : 30000; // Default 30s
+            log.info("Waiting {} ms before retry...", waitTime);
+            Thread.sleep(waitTime);
+            
+            // Retry once after waiting
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 429) {
+                throw new RuntimeException("Claude API rate limit exceeded after retry (429)");
+            }
+        }
+        
         if (response.statusCode() != 200) {
             throw new RuntimeException("Claude returned " + response.statusCode() + ": " + response.body());
         }
@@ -142,6 +158,24 @@ public class ClaudeAiClient implements LlmClient {
         
         String text = root.path("content").get(0).path("text").asText().trim();
         return stripMarkdownFences(text);
+    }
+    
+    private int extractRetryAfter(HttpResponse<String> response) {
+        try {
+            String retryAfterHeader = response.headers().firstValue("retry-after").orElse(null);
+            if (retryAfterHeader != null) {
+                return Integer.parseInt(retryAfterHeader) * 1000; // Convert seconds to ms
+            }
+            // Try to parse from response body
+            JsonNode root = objectMapper.readTree(response.body());
+            JsonNode error = root.path("error");
+            if (error.has("retry_after")) {
+                return (int) (error.path("retry_after").asDouble() * 1000);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to extract retry-after value: {}", e.getMessage());
+        }
+        return 0;
     }
 
     private String stripMarkdownFences(String text) {
