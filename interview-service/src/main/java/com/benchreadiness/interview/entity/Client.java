@@ -1,6 +1,8 @@
 package com.benchreadiness.interview.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -49,8 +51,8 @@ public class Client {
     @Column(name = "doc_id")
     private String docId;
     
-    @Lob
     @Column(name = "jd_file")
+    @JdbcTypeCode(SqlTypes.BINARY)
     private byte[] jdFile;
     
     @Column(name = "jd_file_name")
