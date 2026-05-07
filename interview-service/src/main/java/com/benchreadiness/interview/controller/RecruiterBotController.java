@@ -32,7 +32,13 @@ public class RecruiterBotController {
             return ResponseEntity.badRequest().body(Map.of("error", "clientId and query are required"));
         }
 
-        String docId = clientService.getDocId(UUID.fromString(clientId));
+        String docId;
+        try {
+            docId = clientService.getDocId(UUID.fromString(clientId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid client ID: " + e.getMessage()));
+        }
+
         if (docId == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "No JD document uploaded for this client"));
         }
@@ -42,7 +48,7 @@ public class RecruiterBotController {
             return ResponseEntity.ok(Map.of("response", response));
         } catch (Exception e) {
             return ResponseEntity.internalServerError()
-                    .body(Map.of("error", "Document service unavailable: " + e.getMessage()));
+                    .body(Map.of("error", "Document service error: " + e.getMessage()));
         }
     }
 }

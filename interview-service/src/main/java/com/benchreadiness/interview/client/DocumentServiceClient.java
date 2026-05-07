@@ -61,16 +61,12 @@ public class DocumentServiceClient {
 
         HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
+        ResponseEntity<String> response = restTemplate.postForEntity(
                 documentServiceUrl + "/documents/query",
                 request,
-                Map.class
+                String.class
         );
 
-        Map responseBody = response.getBody();
-        if (responseBody != null && responseBody.containsKey("response")) {
-            return responseBody.get("response").toString();
-        }
-        return responseBody != null ? responseBody.toString() : "";
+        return response.getBody() != null ? response.getBody() : "";
     }
 }

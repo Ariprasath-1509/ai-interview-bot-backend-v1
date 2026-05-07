@@ -162,20 +162,24 @@ public class AssessmentService {
             "VERDICT RULES:\n" +
             getVerdictRulesForMode(req.getInterviewMode()) + "\n\n" +
             "ROADMAP RULES:\n" +
-            "- Only include days for categories where score < 4\n" +
+            "- Include days for categories where score < 5\n" +
+            "- If all scores are 4+, still provide 2-3 days of advanced topics to push from 4 to 5\n" +
             "- Order by severity: lowest score = Day 1\n" +
             "- Each day must reference the specific weakness found\n" +
             "- whyItMatters: explain why this gap matters for the role\n" +
             "- resourceUrl: real, working URL to free resource (official docs preferred)\n" +
             "- exercise: hands-on task, not just reading\n\n" +
-            "PROS AND CONS:\n" +
-            "- prosAndCons: one entry per category that was assessed\n" +
+            "PROS AND CONS (MANDATORY - DO NOT SKIP):\n" +
+            "- prosAndCons: MUST have one entry per category that was assessed (never empty)\n" +
             "- pros: specific things they demonstrated well (quote from transcript)\n" +
-            "- cons: specific things they got wrong or missed (quote from transcript)\n\n" +
-            "RESUME CONSISTENCY:\n" +
+            "- cons: specific things they got wrong or missed (quote from transcript)\n" +
+            "- If candidate scored 5, cons can be 'minor: could explore X deeper'\n\n" +
+            "RESUME CONSISTENCY (MANDATORY - DO NOT SKIP):\n" +
             "- resumeConsistencyForCandidate: cover ALL claimed skills from resume\n" +
             "- demonstrated: true/false based on interview evidence\n" +
-            "- note: brief explanation\n\n" +
+            "- note: brief explanation\n" +
+            "- If no resume provided, use skills evident from transcript\n\n" +
+            "IMPORTANT: The candidateFeedback section MUST be fully populated. Never return empty arrays for prosAndCons or roadmap.\n\n" +
             "Return ONLY valid JSON:\n" +
             "{\n" +
             "  \"categoryScores\": {\n" + categoryScoreSchema + "\n  },\n" +
@@ -283,7 +287,7 @@ public class AssessmentService {
             throw e;
         }
         
-        Map<String, Object> result = buildResult(json, categories, evidence);
+        Map<String, Object> result = buildResult(json, categories, evidence, req, userId);
         
         // Store assessment response and finalize token summary
         try {
@@ -299,7 +303,7 @@ public class AssessmentService {
     }
 
     private Map<String, Object> buildResult(JsonNode json, List<Map<String, Object>> categories,
-                                             Map<String, List<String>> evidence) {
+                                             Map<String, List<String>> evidence, AssessmentRequest req, String userId) {
         Map<String, Object> result = new LinkedHashMap<>();
 
         List<Map<String, Object>> scoreRows = new ArrayList<>();
@@ -362,15 +366,19 @@ public class AssessmentService {
         
         JsonNode candidateFeedback = json.path("candidateFeedback");
         if (!candidateFeedback.isMissingNode()) {
-            result.put("candidateFeedback", parseCandidateFeedback(candidateFeedback));
+            Map<String, Object> feedback = parseCandidateFeedback(candidateFeedback);
+            // Check if feedback is actually populated
+            List<?> roadmap = (List<?>) feedback.get("roadmap");
+            List<?> prosAndCons = (List<?>) feedback.get("prosAndCons");
+            if ((roadmap == null || roadmap.isEmpty()) && (prosAndCons == null || prosAndCons.isEmpty())) {
+                log.warn("candidateFeedback returned empty from Claude - generating in separate call");
+                feedback = generateCandidateFeedbackSeparately(scoreRows, categories, evidence, result.get("summary").toString(), req, userId);
+            }
+            result.put("candidateFeedback", feedback);
         } else {
-            result.put("candidateFeedback", Map.of(
-                "overallSummary", "Assessment completed with abbreviated feedback due to response length limits.",
-                "prosAndCons", List.of(),
-                "resumeConsistencyForCandidate", List.of(),
-                "roadmap", List.of(),
-                "estimatedReadinessTimeline", "Contact interviewer for detailed feedback"
-            ));
+            log.warn("candidateFeedback missing from Claude response - generating separately");
+            Map<String, Object> feedback = generateCandidateFeedbackSeparately(scoreRows, categories, evidence, result.get("summary").toString(), req, userId);
+            result.put("candidateFeedback", feedback);
         }
         
         result.put("source", "claude-two-pass");
@@ -435,6 +443,58 @@ public class AssessmentService {
             "roadmap", roadmap,
             "estimatedReadinessTimeline", node.path("estimatedReadinessTimeline").asText("")
         );
+    }
+
+    private Map<String, Object> generateCandidateFeedbackSeparately(
+            List<Map<String, Object>> scoreRows, List<Map<String, Object>> categories,
+            Map<String, List<String>> evidence, String summary, AssessmentRequest req, String userId) {
+        try {
+            StringBuilder scoresInfo = new StringBuilder();
+            for (Map<String, Object> row : scoreRows) {
+                scoresInfo.append(row.get("dimension")).append(": ").append(row.get("value")).append("/5")
+                    .append(" gap: ").append(row.getOrDefault("gap", "none")).append("\n");
+            }
+
+            String system = "You are generating candidate feedback for a completed technical interview.\n" +
+                "Return ONLY valid JSON with this exact structure:\n" +
+                "{\n" +
+                "  \"overallSummary\": \"2-3 sentences plain English feedback for the candidate\",\n" +
+                "  \"prosAndCons\": [\n" +
+                "    {\"category\": \"category name\", \"pros\": [\"what they did well\"], \"cons\": [\"what to improve\"]}\n" +
+                "  ],\n" +
+                "  \"resumeConsistencyForCandidate\": [\n" +
+                "    {\"claim\": \"skill from JD/resume\", \"demonstrated\": true/false, \"note\": \"brief explanation\"}\n" +
+                "  ],\n" +
+                "  \"roadmap\": [\n" +
+                "    {\"day\": \"Day 1\", \"category\": \"name\", \"gap\": \"specific gap\", \"focus\": \"topic\", \"whyItMatters\": \"reason\", \"resource\": \"name\", \"resourceUrl\": \"url\", \"exercise\": \"task\", \"estimatedHours\": 2}\n" +
+                "  ],\n" +
+                "  \"estimatedReadinessTimeline\": \"timeline estimate\"\n" +
+                "}\n\n" +
+                "RULES:\n" +
+                "- prosAndCons MUST have one entry per scored category (never empty)\n" +
+                "- roadmap MUST have 3-7 days covering gaps and areas to improve from score < 5\n" +
+                "- If all scores are 5, provide advanced topics to master\n" +
+                "- resumeConsistencyForCandidate: list 3-5 key skills from JD and whether demonstrated\n" +
+                "- Use real resource URLs (official docs, tutorials)\n";
+
+            String user = "Role: " + req.getJdTitle() + "\n" +
+                "Summary: " + summary + "\n" +
+                "Scores:\n" + scoresInfo + "\n" +
+                "JD (first 300 chars): " + (req.getJdText() != null ? req.getJdText().substring(0, Math.min(300, req.getJdText().length())) : "") + "\n";
+
+            String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
+            JsonNode feedbackJson = objectMapper.readTree(raw);
+            return parseCandidateFeedback(feedbackJson);
+        } catch (Exception e) {
+            log.error("Failed to generate candidate feedback separately: {}", e.getMessage());
+            return Map.of(
+                "overallSummary", summary,
+                "prosAndCons", List.of(),
+                "resumeConsistencyForCandidate", List.of(),
+                "roadmap", List.of(),
+                "estimatedReadinessTimeline", "Unable to generate detailed feedback"
+            );
+        }
     }
 
     @SuppressWarnings("unchecked")
