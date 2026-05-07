@@ -4,12 +4,11 @@ import com.benchreadiness.interview.dto.AutoFillPreview;
 import com.benchreadiness.interview.dto.CompleteInterviewRequest;
 import com.benchreadiness.interview.dto.CreateInterviewRequest;
 import com.benchreadiness.interview.entity.Interview;
-import com.benchreadiness.interview.entity.InterviewPlan;
-import com.benchreadiness.interview.entity.JobDescription;
 import com.benchreadiness.interview.service.InterviewService;
 import com.benchreadiness.interview.service.EnhancedInterviewService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -22,21 +21,16 @@ public class InterviewController {
     private final InterviewService interviewService;
     private final EnhancedInterviewService enhancedInterviewService;
 
-    public InterviewController(InterviewService interviewService, 
+    public InterviewController(InterviewService interviewService,
                               EnhancedInterviewService enhancedInterviewService) {
         this.interviewService = interviewService;
         this.enhancedInterviewService = enhancedInterviewService;
     }
 
     @GetMapping("/auto-fill/preview")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
     public ResponseEntity<?> previewAutoFill(@RequestParam(required = false) String candidateId,
-                                            @RequestParam(required = false) String clientId,
-                                            @RequestHeader("X-User-Role") String userRole) {
-        // ADMIN, SUPER_ADMIN, and RECRUITER can use auto-fill
-        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole) && !"RECRUITER".equals(userRole)) {
-            return ResponseEntity.status(403).body(Map.of("error", "Only admins and recruiters can use auto-fill functionality"));
-        }
-        
+                                            @RequestParam(required = false) String clientId) {
         try {
             AutoFillPreview preview = enhancedInterviewService.previewAutoFill(candidateId, clientId);
             return ResponseEntity.ok(preview);
@@ -46,18 +40,16 @@ public class InterviewController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
     public ResponseEntity<?> create(@Valid @RequestBody CreateInterviewRequest req,
                                      @RequestHeader("X-User-Id") String userId) {
         try {
             Interview interview;
-            
-            // Use enhanced service if candidateId is provided for AI matching
             if (req.getCandidateId() != null) {
                 interview = enhancedInterviewService.createInterviewWithAutoFill(req, userId);
             } else {
                 interview = interviewService.createInterview(req, userId);
             }
-            
             return ResponseEntity.ok(Map.of("id", interview.getId(), "status", interview.getStatus()));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
@@ -65,20 +57,14 @@ public class InterviewController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> delete(@PathVariable String id,
-                                   @RequestHeader("X-User-Role") String userRole) {
-        // ADMIN, SUPER_ADMIN, and RECRUITER can delete interviews
-        if (!"ADMIN".equals(userRole) && !"SUPER_ADMIN".equals(userRole) && !"RECRUITER".equals(userRole)) {
-            return ResponseEntity.status(403).body(Map.of("error", "Only admins and recruiters can delete interviews"));
-        }
-        
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<?> delete(@PathVariable String id) {
         try {
             boolean deleted = interviewService.deleteInterview(id);
             if (deleted) {
                 return ResponseEntity.ok(Map.of("message", "Interview deleted successfully"));
-            } else {
-                return ResponseEntity.notFound().build();
             }
+            return ResponseEntity.notFound().build();
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
@@ -97,16 +83,19 @@ public class InterviewController {
     }
 
     @GetMapping("/today")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
     public ResponseEntity<?> getToday() {
         return ResponseEntity.ok(interviewService.getTodaysSummaries());
     }
 
     @GetMapping("/summary")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
     public ResponseEntity<List<com.benchreadiness.interview.dto.InterviewSummaryDto>> getSummary() {
         return ResponseEntity.ok(interviewService.getSummaries());
     }
 
     @GetMapping("/mine")
+    @PreAuthorize("hasRole('CANDIDATE')")
     public ResponseEntity<List<Interview>> getMine(@RequestHeader("X-User-Email") String email) {
         return ResponseEntity.ok(interviewService.findByEmail(email));
     }

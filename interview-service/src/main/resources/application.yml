@@ -58,11 +58,21 @@ app:
     storage:
       path: uploads/resumes
   matching:
-    # Scoring weights for candidate matching
     weights:
       skill: 0.40
       experience: 0.20
       feedback: 0.20
       question-relevance: 0.20
+  document-service:
+    url: http://localhost:8000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,env,loggers
+  endpoint:
+    health:
+      show-details: always
 
 

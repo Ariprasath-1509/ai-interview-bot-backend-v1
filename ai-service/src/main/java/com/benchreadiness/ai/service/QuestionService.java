@@ -85,11 +85,11 @@ public class QuestionService {
         )
     );
 
-    private final OpenAiClient openAiClient;
+    private final ClaudeAiClient claudeAiClient;
     private final QuestionCacheService cacheService;
 
-    public QuestionService(OpenAiClient openAiClient, QuestionCacheService cacheService) {
-        this.openAiClient = openAiClient;
+    public QuestionService(ClaudeAiClient claudeAiClient, QuestionCacheService cacheService) {
+        this.claudeAiClient = claudeAiClient;
         this.cacheService = cacheService;
     }
 
@@ -112,7 +112,7 @@ public class QuestionService {
         }
 
         // Normal flow
-        if (openAiClient.isConfigured()) {
+        if (claudeAiClient.isConfigured()) {
             try {
                 // Check for vague/short answers first
                 if (isVagueAnswer(req.getLastAnswer())) {
@@ -222,7 +222,7 @@ public class QuestionService {
             ? "Ask your opening technical question now. One or two sentences, no career narrative."
             : "Ask your next question now. Must follow from their last answer.");
 
-        String result = openAiClient.chatQuestionWithSlotAndTracking(system, user.toString(), req.getSlot(), req.getInterviewId(), userId);
+        String result = claudeAiClient.chatQuestionWithSlotAndTracking(system, user.toString(), req.getSlot(), req.getInterviewId(), userId);
         return result.replaceAll("^[\"'\\s]+|[\"'\\s]+$", "");
     }
 

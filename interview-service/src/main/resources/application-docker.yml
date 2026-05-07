@@ -4,3 +4,6 @@ eureka:
       defaultZone: http://eureka-server:6009/eureka/
   instance:
     prefer-ip-address: true
+
+logstash:
+  host: logstash

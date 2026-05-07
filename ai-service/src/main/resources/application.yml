@@ -26,7 +26,12 @@ app:
     assessment-model: claude-sonnet-4-5
     question-temperature: 0.55
     assessment-temperature: 0.25
-    question-max-tokens: 300
-    assessment-max-tokens: 4000
-    rubric-max-tokens: 1000
-    matching-max-tokens: 6000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,env,loggers
+  endpoint:
+    health:
+      show-details: always

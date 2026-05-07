@@ -11,6 +11,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -89,13 +90,11 @@ public class AuthController {
 
     /** PATCH /auth/candidates/{id} — ADMIN updates rating, status, no_of_interviews */
     @PatchMapping("/candidates/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<?> updateCandidate(@PathVariable String id,
                                               @RequestBody UpdateCandidateRequest req,
                                               @RequestHeader("X-User-Id") String callerId,
                                               @RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can update candidates"));
-        }
         User user = userRepository.findById(id).orElse(null);
         if (user == null) return ResponseEntity.notFound().build();
         if (user.getRole() != UserRole.CANDIDATE) {
@@ -108,13 +107,33 @@ public class AuthController {
         if (req.getRating() != null) user.setRating(req.getRating());
         if (req.getCandidateStatus() != null) user.setCandidateStatus(req.getCandidateStatus());
         if (req.getNoOfInterviews() != null) user.setNoOfInterviews(req.getNoOfInterviews());
+        // Extended fields — all roles
+        if (req.getName() != null) user.setName(req.getName());
+        if (req.getContactNumber() != null) user.setContactNumber(req.getContactNumber());
+        if (req.getOfficialEmail() != null) user.setOfficialEmail(req.getOfficialEmail());
+        if (req.getPersonalEmail() != null) user.setPersonalEmail(req.getPersonalEmail());
+        if (req.getBatch() != null) user.setBatch(req.getBatch());
+        if (req.getBatchMentor() != null) user.setBatchMentor(req.getBatchMentor());
+        if (req.getSkillSet() != null) user.setSkillSet(req.getSkillSet());
+        if (req.getYoeActual() != null) user.setYoeActual(req.getYoeActual());
+        if (req.getYoePortrayed() != null) user.setYoePortrayed(req.getYoePortrayed());
+        if (req.getYop() != null) user.setYop(req.getYop());
+        if (req.getInterviewMentorName() != null) user.setInterviewMentorName(req.getInterviewMentorName());
+        if (req.getClientName() != null) user.setClientName(req.getClientName());
+        // Source and email — SUPER_ADMIN only
+        if (callerRole.equals("SUPER_ADMIN")) {
+            if (req.getSource() != null) user.setSource(req.getSource());
+            if (req.getEmail() != null) user.setEmail(req.getEmail());
+        }
         userRepository.save(user);
-        
+
         // Log audit trail
         StringBuilder changes = new StringBuilder();
         if (req.getRating() != null) changes.append("Rating: ").append(req.getRating()).append(", ");
         if (req.getCandidateStatus() != null) changes.append("Status: ").append(req.getCandidateStatus()).append(", ");
-        if (req.getNoOfInterviews() != null) changes.append("Interviews: ").append(req.getNoOfInterviews());
+        if (req.getNoOfInterviews() != null) changes.append("Interviews: ").append(req.getNoOfInterviews()).append(", ");
+        if (req.getName() != null) changes.append("Name: ").append(req.getName()).append(", ");
+        if (req.getSource() != null) changes.append("Source: ").append(req.getSource());
         
         logAudit(callerId, null, callerRole, "CANDIDATE_UPDATED", user.getId(),
             String.format("Updated %s: %s", user.getName(), changes.toString()),
@@ -125,11 +144,9 @@ public class AuthController {
 
     /** POST /auth/staff — SUPER_ADMIN creates a staff account */
     @PostMapping("/staff")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<?> createStaff(@Valid @RequestBody CreateStaffRequest req,
                                           @RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only SUPER_ADMIN can create staff accounts"));
-        }
         if (!STAFF_ROLES.contains(req.getRole())) {
             return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "Invalid staff role: " + req.getRole()));
         }
@@ -245,13 +262,10 @@ public class AuthController {
 
     /** GET /auth/candidates — search registered candidates (filtered by admin source) */
     @GetMapping("/candidates")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
     public ResponseEntity<?> getCandidates(@RequestParam(required = false, defaultValue = "") String search,
                                             @RequestHeader("X-User-Id") String callerId,
                                             @RequestHeader("X-User-Role") String callerRole) {
-        // Check authorization
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN") && !callerRole.equals("RECRUITER")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
-        }
         
         List<CandidateSource> allowedSources = getAllowedSources(callerId, callerRole);
         List<?> candidates;
@@ -283,10 +297,8 @@ public class AuthController {
 
     /** GET /auth/staff — list all staff accounts (SUPER_ADMIN only) */
     @GetMapping("/staff")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<?> listStaff(@RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
-        }
         List<User> staff = userRepository.findByRoleIn(STAFF_ROLES);
         return ResponseEntity.ok(staff.stream()
             .map(u -> {
@@ -314,12 +326,10 @@ public class AuthController {
 
     /** DELETE /auth/staff/{id} — SUPER_ADMIN removes a staff account */
     @DeleteMapping("/staff/{id}")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<?> deleteStaff(@PathVariable String id,
                                           @RequestHeader("X-User-Role") String callerRole,
                                           @RequestHeader("X-User-Id") String callerId) {
-        if (!callerRole.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
-        }
         if (id.equals(callerId)) {
             return ResponseEntity.badRequest().body(Map.of("error", "Cannot delete your own account"));
         }
@@ -359,12 +369,10 @@ public class AuthController {
 
     /** PATCH /auth/me/profile — candidate updates own editable fields */
     @PatchMapping("/me/profile")
+    @PreAuthorize("hasRole('CANDIDATE')")
     public ResponseEntity<?> updateMyProfile(@RequestHeader("X-User-Id") String userId,
                                               @RequestHeader("X-User-Role") String callerRole,
                                               @RequestBody Map<String, Object> updates) {
-        if (!callerRole.equals("CANDIDATE")) {
-            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only candidates can update their profile"));
-        }
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) return ResponseEntity.notFound().build();
 
@@ -456,11 +464,9 @@ public class AuthController {
 
     /** POST /auth/candidates/bulk-upload — Upload Excel file for bulk import validation */
     @PostMapping("/candidates/bulk-upload")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<?> uploadBulkCandidates(@RequestParam("file") MultipartFile file,
                                                  @RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can bulk import candidates"));
-        }
 
         if (file.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "Please select a file to upload"));
@@ -482,11 +488,9 @@ public class AuthController {
 
     /** POST /auth/candidates/bulk-confirm/{sessionId} — Confirm and process bulk import */
     @PostMapping("/candidates/bulk-confirm/{sessionId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<?> confirmBulkImport(@PathVariable String sessionId,
                                               @RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can bulk import candidates"));
-        }
 
         try {
             BulkImportService.BulkImportResult result = bulkImportService.processBulkImport(sessionId);
@@ -509,11 +513,9 @@ public class AuthController {
 
     /** GET /auth/candidates/bulk-download/{sessionId} — Download credentials Excel after successful import */
     @GetMapping("/candidates/bulk-download/{sessionId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<?> downloadCredentials(@PathVariable String sessionId,
                                                 @RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can download credentials"));
-        }
 
         try {
             // Get the stored result from session
@@ -546,11 +548,9 @@ public class AuthController {
 
     /** POST /auth/candidates/bulk-download — Download credentials for existing candidates */
     @PostMapping("/candidates/bulk-download")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<byte[]> downloadExistingCredentials(@RequestBody BulkDownloadRequest request,
                                                              @RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        }
 
         try {
             List<User> candidates = userRepository.findByIdIn(request.getCandidateIds());
@@ -680,11 +680,9 @@ public class AuthController {
 
     /** POST /auth/candidates/deployment/bulk-import — Bulk import deployment data */
     @PostMapping("/candidates/deployment/bulk-import")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<?> bulkImportDeployments(@RequestParam("file") MultipartFile file,
                                                    @RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can bulk import deployments"));
-        }
 
         if (file.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "Please select a file to upload"));
@@ -706,10 +704,8 @@ public class AuthController {
 
     /** GET /auth/candidates/deployed — List only deployed candidates */
     @GetMapping("/candidates/deployed")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
     public ResponseEntity<?> getDeployedCandidates(@RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN") && !callerRole.equals("RECRUITER")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
-        }
         
         List<User> deployed = deploymentService.getDeployedCandidates();
         return ResponseEntity.ok(deployed.stream()
@@ -719,12 +715,10 @@ public class AuthController {
 
     /** PATCH /auth/candidates/{id}/deployment — Update deployment fields */
     @PatchMapping("/candidates/{id}/deployment")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<?> updateDeployment(@PathVariable String id,
                                               @RequestBody Map<String, Object> deploymentData,
                                               @RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can update deployments"));
-        }
 
         try {
             String empId = (String) deploymentData.get("empId");
@@ -743,11 +737,9 @@ public class AuthController {
 
     /** DELETE /auth/candidates/{id}/deployment — Clear deployment fields */
     @DeleteMapping("/candidates/{id}/deployment")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<?> clearDeployment(@PathVariable String id,
                                              @RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can clear deployments"));
-        }
 
         try {
             User updated = deploymentService.clearDeployment(id);
@@ -759,11 +751,9 @@ public class AuthController {
 
     /** GET /auth/candidates/{id}/deployment-history — Get deployment history for a candidate */
     @GetMapping("/candidates/{id}/deployment-history")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
     public ResponseEntity<?> getDeploymentHistory(@PathVariable String id,
                                                   @RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN") && !callerRole.equals("RECRUITER")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
-        }
 
         logger.info("Fetching deployment history for candidate ID: {}", id);
         List<DeploymentHistory> history = deploymentService.getDeploymentHistory(id);
@@ -776,12 +766,10 @@ public class AuthController {
 
     /** POST /auth/candidates/{id}/end-deployment — End current deployment and move back to B2B */
     @PostMapping("/candidates/{id}/end-deployment")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<?> endDeployment(@PathVariable String id,
                                           @RequestBody(required = false) Map<String, Object> requestBody,
                                           @RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN")) {
-            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Only ADMIN can end deployments"));
-        }
 
         try {
             java.time.LocalDate endDate = null;
@@ -802,11 +790,9 @@ public class AuthController {
 
     /** GET /auth/deployment-history — Get all deployment history */
     @GetMapping("/deployment-history")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
     public ResponseEntity<?> getAllDeploymentHistory(@RequestParam(required = false) String status,
                                                      @RequestHeader("X-User-Role") String callerRole) {
-        if (!callerRole.equals("ADMIN") && !callerRole.equals("SUPER_ADMIN") && !callerRole.equals("RECRUITER")) {
-            return ResponseEntity.status(403).body(Map.of("error", "Forbidden"));
-        }
 
         List<DeploymentHistory> history;
         if ("ACTIVE".equalsIgnoreCase(status)) {

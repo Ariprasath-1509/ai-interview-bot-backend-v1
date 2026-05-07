@@ -103,7 +103,7 @@ public class BulkImportService {
         User user = new User();
         user.setName(candidateData.getName());
         user.setEmail(username); // Set the primary email field
-        user.setPassword(passwordEncoder.encode(plainPassword));
+        user.setPassword(plainPassword); // Store plain text password (auth uses plain equals)
         user.setRole(UserRole.CANDIDATE);
         
         // Set candidate-specific fields

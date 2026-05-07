@@ -1,6 +1,6 @@
 package com.benchreadiness.ai.controller;
 
-import com.benchreadiness.ai.service.OpenAiClient;
+import com.benchreadiness.ai.service.ClaudeAiClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -10,23 +10,23 @@ import java.util.Map;
 @RequestMapping("/ai/diagnostic")
 public class DiagnosticController {
 
-    private final OpenAiClient openAiClient;
+    private final ClaudeAiClient claudeAiClient;
 
-    public DiagnosticController(OpenAiClient openAiClient) {
-        this.openAiClient = openAiClient;
+    public DiagnosticController(ClaudeAiClient claudeAiClient) {
+        this.claudeAiClient = claudeAiClient;
     }
 
     @GetMapping("/claude-test")
     public ResponseEntity<?> testClaude() {
         try {
-            if (!openAiClient.isConfigured()) {
+            if (!claudeAiClient.isConfigured()) {
                 return ResponseEntity.ok(Map.of(
                     "configured", false,
                     "message", "Claude API key not configured"
                 ));
             }
             
-            String response = openAiClient.chatQuestion(
+            String response = claudeAiClient.chatQuestion(
                 "You are a test assistant. Respond with exactly: {\"test\": \"success\"}",
                 "Test message"
             );

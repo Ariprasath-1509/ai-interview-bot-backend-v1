@@ -17,6 +17,8 @@ public class ClientDTO {
     private Boolean recruitmentReviewed;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private String docId;
+    private String jdFileName;
     
     // Constructors
     public ClientDTO() {}
@@ -25,7 +27,8 @@ public class ClientDTO {
                     Integer positionsVacant, Integer marketCandidatesNeeded, 
                     Integer benchB2bCandidatesNeeded, String status, 
                     Boolean benchReviewed, Boolean recruitmentReviewed,
-                    LocalDateTime createdAt, LocalDateTime updatedAt) {
+                    LocalDateTime createdAt, LocalDateTime updatedAt,
+                    String docId, String jdFileName) {
         this.id = id;
         this.clientName = clientName;
         this.jdRole = jdRole;
@@ -38,6 +41,8 @@ public class ClientDTO {
         this.recruitmentReviewed = recruitmentReviewed;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+        this.docId = docId;
+        this.jdFileName = jdFileName;
     }
     
     // Getters
@@ -136,5 +141,21 @@ public class ClientDTO {
     
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+    
+    public String getDocId() {
+        return docId;
+    }
+    
+    public void setDocId(String docId) {
+        this.docId = docId;
+    }
+    
+    public String getJdFileName() {
+        return jdFileName;
+    }
+    
+    public void setJdFileName(String jdFileName) {
+        this.jdFileName = jdFileName;
     }
 }
