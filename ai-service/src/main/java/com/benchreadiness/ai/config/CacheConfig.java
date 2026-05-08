@@ -18,7 +18,8 @@ public class CacheConfig {
         CaffeineCacheManager cacheManager = new CaffeineCacheManager("rubrics");
         cacheManager.setCaffeine(Caffeine.newBuilder()
             .expireAfterWrite(24, TimeUnit.HOURS)
-            .maximumSize(500));
+            .maximumSize(500)
+            .recordStats());
         return cacheManager;
     }
 }

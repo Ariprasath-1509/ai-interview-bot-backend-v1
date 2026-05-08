@@ -50,12 +50,15 @@ public class ClaudeAiClient implements LlmClient {
         this.complianceServiceClient = complianceServiceClient;
     }
 
+    private volatile Boolean configuredCache = null;
+    
     @Override
     public boolean isConfigured() {
-        boolean configured = apiKey != null && !apiKey.isBlank();
-        log.info("Claude API configured: {}, API key present: {}, API key starts with: {}", 
-                configured, apiKey != null, apiKey != null ? apiKey.substring(0, Math.min(10, apiKey.length())) + "..." : "null");
-        return configured;
+        if (configuredCache == null) {
+            configuredCache = apiKey != null && !apiKey.isBlank();
+            log.info("Claude API configured: {}", configuredCache);
+        }
+        return configuredCache;
     }
 
     /**
