@@ -71,7 +71,38 @@ public class AiController {
             return ResponseEntity.ok(Map.of(
                 "configured", true,
                 "testSuccessful", false,
-                "error", e.getMessage()
+                "error", e.getMessage(),
+                "errorType", e.getClass().getSimpleName()
+            ));
+        }
+    }
+
+    @GetMapping("/debug-question")
+    public ResponseEntity<?> debugQuestion() {
+        try {
+            NextQuestionRequest req = new NextQuestionRequest();
+            req.setSlot(1);
+            req.setJdTitle("Senior Java Developer");
+            req.setJdText("5+ years Java, Spring Boot experience required");
+            req.setLastAnswer("");
+            req.setInterviewMode("L2");
+            req.setInterviewId("debug-test");
+            
+            QuestionService.QuestionResult result = questionService.getNextQuestion(req, "debug-user");
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "question", result.question(),
+                "manipulationDetected", result.manipulationDetected(),
+                "terminateInterview", result.terminateInterview(),
+                "llmConfigured", llmClient.isConfigured()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.ok(Map.of(
+                "success", false,
+                "error", e.getMessage(),
+                "errorType", e.getClass().getSimpleName(),
+                "llmConfigured", llmClient.isConfigured()
             ));
         }
     }

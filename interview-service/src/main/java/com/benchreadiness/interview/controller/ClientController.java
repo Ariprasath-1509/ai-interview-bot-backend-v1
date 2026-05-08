@@ -2,13 +2,17 @@ package com.benchreadiness.interview.controller;
 
 import com.benchreadiness.interview.dto.ClientDTO;
 import com.benchreadiness.interview.service.ClientService;
+import com.benchreadiness.interview.service.MatchingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -17,12 +21,93 @@ import java.util.UUID;
 @RequestMapping("/recruiter/clients")
 public class ClientController {
 
+    private static final Logger log = LoggerFactory.getLogger(ClientController.class);
+
     private final ClientService clientService;
+    private final MatchingService matchingService;
     private final ObjectMapper objectMapper;
 
-    public ClientController(ClientService clientService, ObjectMapper objectMapper) {
+    public ClientController(ClientService clientService, MatchingService matchingService, ObjectMapper objectMapper) {
         this.clientService = clientService;
+        this.matchingService = matchingService;
         this.objectMapper = objectMapper;
+    }
+
+    @GetMapping("/for-interview")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<Map<String, Object>> getClientsForInterview(
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole) {
+        
+        List<ClientDTO> allClients = clientService.getAllClients();
+        
+        // Get clients with matching candidates using the matching service
+        List<ClientDTO> clientsWithMatches = new ArrayList<>();
+        List<ClientDTO> clientsWithoutMatches = new ArrayList<>();
+        
+        for (ClientDTO client : allClients) {
+            boolean hasMatches = false;
+            
+            // Check if client needs candidates and has matches
+            if ((client.getBenchB2bCandidatesNeeded() != null && client.getBenchB2bCandidatesNeeded() > 0) ||
+                (client.getMarketCandidatesNeeded() != null && client.getMarketCandidatesNeeded() > 0)) {
+                
+                try {
+                    // Try to get matching candidates for this client
+                    if (client.getBenchB2bCandidatesNeeded() != null && client.getBenchB2bCandidatesNeeded() > 0) {
+                        List<?> benchMatches = matchingService.findMatchingCandidates(
+                            client.getId().toString(), "BENCH_B2B", 1, userId, userRole
+                        );
+                        if (benchMatches != null && !benchMatches.isEmpty()) {
+                            hasMatches = true;
+                        }
+                    }
+                    
+                    if (!hasMatches && client.getMarketCandidatesNeeded() != null && client.getMarketCandidatesNeeded() > 0) {
+                        List<?> marketMatches = matchingService.findMatchingCandidates(
+                            client.getId().toString(), "MARKET", 1, userId, userRole
+                        );
+                        if (marketMatches != null && !marketMatches.isEmpty()) {
+                            hasMatches = true;
+                        }
+                    }
+                } catch (Exception e) {
+                    // If matching service fails, treat as no matches
+                    log.warn("Failed to check matches for client {}: {}", client.getClientName(), e.getMessage());
+                }
+            }
+            
+            if (hasMatches) {
+                clientsWithMatches.add(client);
+            } else {
+                clientsWithoutMatches.add(client);
+            }
+        }
+        
+        // If there are clients with matches, return only those
+        // Otherwise, return all clients with a message
+        List<ClientDTO> clientsToReturn;
+        String message;
+        boolean hasMatchingClients = !clientsWithMatches.isEmpty();
+        
+        if (hasMatchingClients) {
+            clientsToReturn = clientsWithMatches;
+            message = "";
+        } else {
+            clientsToReturn = allClients;
+            message = "No matching clients found. Showing all available clients.";
+        }
+        
+        Map<String, Object> response = Map.of(
+            "clients", clientsToReturn,
+            "hasMatchingClients", hasMatchingClients,
+            "message", message,
+            "totalClients", clientsToReturn.size(),
+            "totalClientsWithMatches", clientsWithMatches.size(),
+            "totalClientsWithoutMatches", clientsWithoutMatches.size()
+        );
+        
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping

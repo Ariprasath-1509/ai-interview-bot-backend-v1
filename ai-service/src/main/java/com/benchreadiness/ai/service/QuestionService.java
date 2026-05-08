@@ -168,7 +168,9 @@ public class QuestionService {
                 || lastQ.contains("didn't quite catch")
                 || lastQ.contains("didnt quite catch")
                 || lastQ.contains("can you repeat")
-                || lastQ.contains("what do you mean");
+                || lastQ.contains("what do you mean")
+                || lastQ.contains("next prompt from the server")
+                || lastQ.contains("staying on what you just said");
         }
         return false;
     }
@@ -291,7 +293,9 @@ public class QuestionService {
         // Check for explicit skip/next requests - these should NOT be treated as vague
         String[] skipPatterns = {
             "next question", "skip", "skip this", "move on", "pass", "next",
-            "i don't know this", "i dont know this", "not prepared", "can we skip"
+            "i don't know this", "i dont know this", "not prepared", "can we skip",
+            "different questions", "another questions", "can you please different questions",
+            "can you please ask different questions", "hello can you please ask different questions"
         };
         
         for (String pattern : skipPatterns) {
@@ -347,6 +351,14 @@ public class QuestionService {
         String jdTitle = req.getJdTitle() != null ? req.getJdTitle() : "Target role";
         String lastAnswer = req.getLastAnswer() != null ? req.getLastAnswer().trim() : "";
         boolean hasSubstance = lastAnswer.length() > 25;
+        
+        // If candidate is asking for next question, force progression
+        String lowerAnswer = lastAnswer.toLowerCase();
+        if (lowerAnswer.contains("next question") || lowerAnswer.contains("different question") || 
+            lowerAnswer.contains("another question") || lowerAnswer.contains("move on")) {
+            log.info("Candidate requested next question, forcing progression to slot {}", slot + 1);
+            slot = slot + 1; // Force move to next slot
+        }
 
         if (slot == 1 && !hasSubstance)
             return "We'll start technical right away for " + jdTitle + ". Pick one system you've built and walk me through its architecture, trade-offs, and failure handling.";
