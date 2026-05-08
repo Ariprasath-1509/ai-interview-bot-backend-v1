@@ -3,8 +3,10 @@ package com.benchreadiness.ai.service;
 import com.benchreadiness.ai.dto.RubricRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
+import java.security.MessageDigest;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -20,9 +22,12 @@ public class RubricService {
         this.llmClient = llmClient;
     }
 
+    @Cacheable(value = "rubrics", key = "#req.jdTitle + '_' + T(java.util.Objects).hash(#req.jdText, #req.resumeSummary)")
     public Map<String, Object> generateRubric(RubricRequest req, String userId) {
+        log.info("generateRubric called for JD: {} (will use cache if available)", req.getJdTitle());
         if (!llmClient.isConfigured()) return fallbackRubric(req);
         try {
+            log.info("Cache MISS - Generating new rubric via Claude for JD: {}", req.getJdTitle());
             return llmRubric(req, userId);
         } catch (Exception e) {
             log.warn("Rubric generation failed: {}", e.getMessage());
