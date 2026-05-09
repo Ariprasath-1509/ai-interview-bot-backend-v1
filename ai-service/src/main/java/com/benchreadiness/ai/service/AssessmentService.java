@@ -8,6 +8,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.Arrays;
+import java.util.concurrent.ConcurrentHashMap;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 @Service
 public class AssessmentService {
@@ -18,6 +21,10 @@ public class AssessmentService {
     private final RubricService rubricService;
     private final ComplianceServiceClient complianceServiceClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ConcurrentHashMap<String, CachedAssessmentResult> assessmentCache = new ConcurrentHashMap<>();
+    private static final long ASSESSMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+    private record CachedAssessmentResult(String payloadJson, long createdAtMs) {}
 
     public AssessmentService(LlmClient llmClient, RubricService rubricService, ComplianceServiceClient complianceServiceClient) {
         this.llmClient = llmClient;
@@ -26,6 +33,13 @@ public class AssessmentService {
     }
 
     public Map<String, Object> assess(AssessmentRequest req, String userId) {
+        String cacheKey = buildAssessmentCacheKey(req);
+        Map<String, Object> cached = getCachedAssessment(cacheKey);
+        if (cached != null) {
+            log.info("Returning cached assessment for interview {}", req.getInterviewId());
+            return cached;
+        }
+
         List<Map<String, String>> utterances = parseUtterances(req.getTranscriptJson());
         long candidateWords = utterances.stream()
             .filter(u -> "CANDIDATE".equals(u.get("speaker")))
@@ -40,20 +54,87 @@ public class AssessmentService {
         if (candidateWords < 50 || candidateTurns < 3) {
             log.warn("Insufficient responses for interview {}: {} words, {} turns", 
                     req.getInterviewId(), candidateWords, candidateTurns);
-            return thinTranscriptResult("Insufficient responses — candidate answered fewer than 3 questions or provided less than 50 words total.");
+            Map<String, Object> result = thinTranscriptResult("Insufficient responses — candidate answered fewer than 3 questions or provided less than 50 words total.");
+            cacheAssessment(cacheKey, result);
+            return result;
         }
         
         if (!llmClient.isConfigured()) {
             log.warn("LLM provider not configured - falling back to heuristic assessment");
-            return heuristicAssessment(utterances);
+            Map<String, Object> result = heuristicAssessment(utterances);
+            cacheAssessment(cacheKey, result);
+            return result;
         }
         try {
             log.info("Starting two-pass LLM assessment for interview: {}", req.getInterviewId());
-            return twoPassAssessment(req, utterances, userId);
+            Map<String, Object> result = twoPassAssessment(req, utterances, userId);
+            cacheAssessment(cacheKey, result);
+            return result;
         } catch (Exception e) {
             log.error("LLM assessment failed for interview {}: {}", req.getInterviewId(), e.getMessage(), e);
-            return heuristicAssessment(utterances);
+            Map<String, Object> result = heuristicAssessment(utterances);
+            cacheAssessment(cacheKey, result);
+            return result;
         }
+    }
+
+    private String buildAssessmentCacheKey(AssessmentRequest req) {
+        String interviewId = req.getInterviewId() != null ? req.getInterviewId() : "unknown";
+        String material = String.join("|",
+            req.getTranscriptJson() != null ? req.getTranscriptJson() : "",
+            req.getRubricJson() != null ? req.getRubricJson() : "",
+            req.getCandidateProfileJson() != null ? req.getCandidateProfileJson() : "",
+            req.getJdTitle() != null ? req.getJdTitle() : "",
+            req.getInterviewMode() != null ? req.getInterviewMode() : ""
+        );
+        return interviewId + "|" + sha256(material);
+    }
+
+    private String sha256(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return Integer.toHexString(value.hashCode());
+        }
+    }
+
+    private Map<String, Object> getCachedAssessment(String key) {
+        CachedAssessmentResult cached = assessmentCache.get(key);
+        if (cached == null) return null;
+        long age = System.currentTimeMillis() - cached.createdAtMs();
+        if (age > ASSESSMENT_CACHE_TTL_MS) {
+            assessmentCache.remove(key);
+            return null;
+        }
+        try {
+            return objectMapper.readValue(cached.payloadJson(), new com.fasterxml.jackson.core.type.TypeReference<>() {});
+        } catch (Exception e) {
+            assessmentCache.remove(key);
+            return null;
+        }
+    }
+
+    private void cacheAssessment(String key, Map<String, Object> result) {
+        try {
+            String payload = objectMapper.writeValueAsString(result);
+            assessmentCache.put(key, new CachedAssessmentResult(payload, System.currentTimeMillis()));
+            if (assessmentCache.size() > 2000) {
+                clearExpiredAssessmentCache();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to cache assessment result: {}", e.getMessage());
+        }
+    }
+
+    private void clearExpiredAssessmentCache() {
+        long now = System.currentTimeMillis();
+        assessmentCache.entrySet().removeIf(entry -> (now - entry.getValue().createdAtMs()) > ASSESSMENT_CACHE_TTL_MS);
     }
 
     // ── Pass 1: Evidence extraction ──────────────────────────────────────────
@@ -163,11 +244,11 @@ public class AssessmentService {
             "  \"behavioralSignals\": {\"ownershipLevel\": \"low|medium|high\", \"learningAgility\": \"low|medium|high\", \"communicationStructure\": \"low|medium|high\", \"confidenceCalibration\": \"low|medium|high\", \"summary\": \"\"},\n" +
             "  \"interviewQuality\": {\"coverageScore\": 1-5, \"categoriesCovered\": [], \"categoriesMissed\": [], \"note\": \"\"},\n" +
             "  \"candidateFeedback\": {\n" +
-            "    \"overallSummary\": \"2-3 sentences for candidate\",\n" +
+            "    \"summary\": \"2-3 sentences for candidate\",\n" +
             "    \"prosAndCons\": [{\"category\": \"name\", \"pros\": [\"...\"], \"cons\": [\"...\"]}],\n" +
             "    \"resumeConsistencyForCandidate\": [{\"claim\": \"skill\", \"demonstrated\": true, \"note\": \"...\"}],\n" +
-            "    \"roadmap\": [{\"day\": \"Day 1\", \"category\": \"name\", \"gap\": \"gap\", \"focus\": \"topic\", \"whyItMatters\": \"reason\", \"resource\": \"name\", \"resourceUrl\": \"https://url\", \"exercise\": \"task\", \"estimatedHours\": 2}],\n" +
-            "    \"estimatedReadinessTimeline\": \"\"\n" +
+            "    \"roadmap\": [{\"day\": 1, \"category\": \"name\", \"gap\": \"gap\", \"focus\": \"topic\", \"whyItMatters\": \"reason\", \"resource\": \"name\", \"resourceUrl\": \"https://url\", \"exercise\": \"task\", \"estimatedHours\": 2}],\n" +
+            "    \"estimatedReadiness\": \"\"\n" +
             "  }\n" +
             "}\n\n" +
             "CRITICAL RULES:\n" +
@@ -232,6 +313,7 @@ public class AssessmentService {
         }
         
         Map<String, Object> result = buildResult(json, categories, evidence, req, userId);
+        applyReadinessGates(result, categories, evidence, req.getInterviewMode());
         
         // Store assessment response and finalize token summary
         try {
@@ -244,6 +326,83 @@ public class AssessmentService {
         }
         
         return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void applyReadinessGates(
+            Map<String, Object> result,
+            List<Map<String, Object>> categories,
+            Map<String, List<String>> evidence,
+            String interviewMode
+    ) {
+        List<Map<String, Object>> scoreRows = (List<Map<String, Object>>) result.getOrDefault("categoryScores", List.of());
+        Map<String, Integer> scoreByDimension = new LinkedHashMap<>();
+        for (Map<String, Object> row : scoreRows) {
+            Object dim = row.get("dimension");
+            Object value = row.get("value");
+            if (dim == null || value == null) continue;
+            try {
+                scoreByDimension.put(String.valueOf(dim), Integer.parseInt(String.valueOf(value)));
+            } catch (Exception ignored) {
+                // ignore malformed score row
+            }
+        }
+
+        List<String> mustCover = categories.stream()
+            .map(c -> String.valueOf(c.getOrDefault("key", "")))
+            .filter(k -> !k.isBlank())
+            .toList();
+
+        List<String> uncovered = mustCover.stream()
+            .filter(key -> evidence.getOrDefault(key, List.of()).isEmpty())
+            .toList();
+
+        int minScoreFloor = minCoreScoreFloorForMode(interviewMode);
+        List<String> weakDimensions = new ArrayList<>();
+        for (String key : mustCover) {
+            Integer score = scoreByDimension.get(key);
+            if (score != null && score < minScoreFloor) {
+                weakDimensions.add(key);
+            }
+        }
+        Integer communication = scoreByDimension.get("communication");
+        boolean commWeak = communication != null && communication < Math.max(2, minScoreFloor - 1);
+
+        boolean gatePass = uncovered.isEmpty() && weakDimensions.isEmpty() && !commWeak;
+        String originalVerdict = String.valueOf(result.getOrDefault("proposedVerdict", "NEEDS_1_WEEK_PREP"));
+        String finalVerdict = originalVerdict;
+
+        if (!gatePass) {
+            finalVerdict = weakDimensions.isEmpty() ? "NEEDS_1_WEEK_PREP" : "NEEDS_RESKILLING";
+            result.put("proposedVerdict", finalVerdict);
+        }
+
+        Map<String, Object> gate = new LinkedHashMap<>();
+        gate.put("gatePassed", gatePass);
+        gate.put("mode", interviewMode != null ? interviewMode : "L3");
+        gate.put("minCoreScoreFloor", minScoreFloor);
+        gate.put("mustCoverCategories", mustCover);
+        gate.put("uncoveredCategories", uncovered);
+        gate.put("weakDimensions", weakDimensions);
+        gate.put("communicationWeak", commWeak);
+        gate.put("originalVerdict", originalVerdict);
+        gate.put("finalVerdict", finalVerdict);
+        gate.put("note", gatePass
+            ? "Candidate cleared deterministic readiness gates."
+            : "Readiness downgraded by deterministic gates due to missing coverage or weak core dimensions.");
+        result.put("readinessGate", gate);
+    }
+
+    private int minCoreScoreFloorForMode(String mode) {
+        String m = mode != null ? mode : "L3";
+        return switch (m) {
+            case "SCREENING" -> 2;
+            case "L1" -> 3;
+            case "L2" -> 3;
+            case "L3" -> 4;
+            case "L4" -> 4;
+            default -> 3;
+        };
     }
 
     private Map<String, Object> buildResult(JsonNode json, List<Map<String, Object>> categories,
@@ -350,7 +509,6 @@ public class AssessmentService {
     private Map<String, Object> parseCandidateFeedback(JsonNode node) {
         if (node.isMissingNode()) return Map.of();
 
-        // prosAndCons
         List<Map<String, Object>> prosAndCons = new ArrayList<>();
         node.path("prosAndCons").forEach(item -> prosAndCons.add(Map.of(
             "category", item.path("category").asText(""),
@@ -358,35 +516,71 @@ public class AssessmentService {
             "cons", toStringList(item.path("cons"))
         )));
 
-        // resumeConsistencyForCandidate
         List<Map<String, Object>> resumeConsistency = new ArrayList<>();
-        node.path("resumeConsistencyForCandidate").forEach(item -> resumeConsistency.add(Map.of(
-            "claim", item.path("claim").asText(""),
-            "demonstrated", item.path("demonstrated").asBoolean(false),
-            "note", item.path("note").asText("")
-        )));
+        node.path("resumeConsistencyForCandidate").forEach(item -> {
+            boolean demonstrated = item.path("demonstrated").asBoolean(item.path("consistent").asBoolean(false));
+            String note = item.path("note").asText(item.path("evidence").asText(""));
+            resumeConsistency.add(Map.of(
+                "claim", item.path("claim").asText(""),
+                "demonstrated", demonstrated,
+                "consistent", demonstrated,
+                "note", note,
+                "evidence", note
+            ));
+        });
 
-        // roadmap
         List<Map<String, Object>> roadmap = new ArrayList<>();
-        node.path("roadmap").forEach(day -> roadmap.add(Map.of(
-            "day", day.path("day").asText(""),
-            "category", day.path("category").asText(""),
-            "gap", day.path("gap").asText(""),
-            "focus", day.path("focus").asText(""),
-            "whyItMatters", day.path("whyItMatters").asText(""),
-            "resource", day.path("resource").asText(""),
-            "resourceUrl", day.path("resourceUrl").asText(""),
-            "exercise", day.path("exercise").asText(""),
-            "estimatedHours", day.path("estimatedHours").asInt(2)
-        )));
+        node.path("roadmap").forEach(day -> {
+            int dayNum = day.path("day").asInt(0);
+            if (dayNum <= 0) {
+                String rawDay = day.path("day").asText("");
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)").matcher(rawDay);
+                if (m.find()) {
+                    try {
+                        dayNum = Integer.parseInt(m.group(1));
+                    } catch (Exception ignored) {
+                        dayNum = 0;
+                    }
+                }
+            }
+            Map<String, Object> roadmapEntry = new LinkedHashMap<>();
+            roadmapEntry.put("day", dayNum > 0 ? dayNum : 1);
+            roadmapEntry.put("category", day.path("category").asText(""));
+            roadmapEntry.put("gap", day.path("gap").asText(""));
+            roadmapEntry.put("focus", day.path("focus").asText(""));
+            roadmapEntry.put("whyItMatters", day.path("whyItMatters").asText(""));
+            roadmapEntry.put("resource", day.path("resource").asText(""));
+            roadmapEntry.put("resourceUrl", day.path("resourceUrl").asText(""));
+            roadmapEntry.put("exercise", day.path("exercise").asText(""));
+            roadmapEntry.put("estimatedHours", day.path("estimatedHours").asInt(2));
+            roadmap.add(roadmapEntry);
+        });
 
-        return Map.of(
-            "overallSummary", node.path("overallSummary").asText(""),
-            "prosAndCons", prosAndCons,
-            "resumeConsistencyForCandidate", resumeConsistency,
-            "roadmap", roadmap,
-            "estimatedReadinessTimeline", node.path("estimatedReadinessTimeline").asText("")
+        String summary = node.path("summary").asText(node.path("overallSummary").asText(""));
+        String estimatedReadiness = node.path("estimatedReadiness").asText(
+            node.path("estimatedReadinessTimeline").asText("")
         );
+
+        List<String> strengths = new ArrayList<>();
+        List<String> areasToImprove = new ArrayList<>();
+        for (Map<String, Object> pc : prosAndCons) {
+            Object pros = pc.get("pros");
+            Object cons = pc.get("cons");
+            if (pros instanceof List<?> p) p.forEach(v -> strengths.add(String.valueOf(v)));
+            if (cons instanceof List<?> c) c.forEach(v -> areasToImprove.add(String.valueOf(v)));
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("summary", summary);
+        out.put("overallSummary", summary);
+        out.put("prosAndCons", prosAndCons);
+        out.put("strengths", strengths);
+        out.put("areasToImprove", areasToImprove);
+        out.put("resumeConsistencyForCandidate", resumeConsistency);
+        out.put("roadmap", roadmap);
+        out.put("estimatedReadiness", estimatedReadiness);
+        out.put("estimatedReadinessTimeline", estimatedReadiness);
+        return out;
     }
 
     private Map<String, Object> generateCandidateFeedbackSeparately(
@@ -402,7 +596,7 @@ public class AssessmentService {
             String system = "You are generating candidate feedback for a completed technical interview.\n" +
                 "Return ONLY valid JSON with this exact structure:\n" +
                 "{\n" +
-                "  \"overallSummary\": \"2-3 sentences plain English feedback for the candidate\",\n" +
+                "  \"summary\": \"2-3 sentences plain English feedback for the candidate\",\n" +
                 "  \"prosAndCons\": [\n" +
                 "    {\"category\": \"category name\", \"pros\": [\"what they did well\"], \"cons\": [\"what to improve\"]}\n" +
                 "  ],\n" +
@@ -410,9 +604,9 @@ public class AssessmentService {
                 "    {\"claim\": \"skill from JD/resume\", \"demonstrated\": true/false, \"note\": \"brief explanation\"}\n" +
                 "  ],\n" +
                 "  \"roadmap\": [\n" +
-                "    {\"day\": \"Day 1\", \"category\": \"name\", \"gap\": \"specific gap\", \"focus\": \"topic\", \"whyItMatters\": \"reason\", \"resource\": \"name\", \"resourceUrl\": \"url\", \"exercise\": \"task\", \"estimatedHours\": 2}\n" +
+                "    {\"day\": 1, \"category\": \"name\", \"gap\": \"specific gap\", \"focus\": \"topic\", \"whyItMatters\": \"reason\", \"resource\": \"name\", \"resourceUrl\": \"url\", \"exercise\": \"task\", \"estimatedHours\": 2}\n" +
                 "  ],\n" +
-                "  \"estimatedReadinessTimeline\": \"timeline estimate\"\n" +
+                "  \"estimatedReadiness\": \"timeline estimate\"\n" +
                 "}\n\n" +
                 "RULES:\n" +
                 "- prosAndCons MUST have one entry per scored category (never empty)\n" +
@@ -432,10 +626,14 @@ public class AssessmentService {
         } catch (Exception e) {
             log.error("Failed to generate candidate feedback separately: {}", e.getMessage());
             return Map.of(
+                "summary", summary,
                 "overallSummary", summary,
                 "prosAndCons", List.of(),
+                "strengths", List.of(),
+                "areasToImprove", List.of(),
                 "resumeConsistencyForCandidate", List.of(),
                 "roadmap", List.of(),
+                "estimatedReadiness", "Unable to generate detailed feedback",
                 "estimatedReadinessTimeline", "Unable to generate detailed feedback"
             );
         }
@@ -489,10 +687,14 @@ public class AssessmentService {
         result.put("proposedVerdict", "NEEDS_RESKILLING");
         result.put("summary", reason);
         result.put("candidateFeedback", Map.of(
+            "summary", "Not enough responses were recorded to generate feedback.",
             "overallSummary", "Not enough responses were recorded to generate feedback.",
             "prosAndCons", List.of(),
+            "strengths", List.of(),
+            "areasToImprove", List.of(),
             "resumeConsistencyForCandidate", List.of(),
             "roadmap", List.of(),
+            "estimatedReadiness", "Unable to assess",
             "estimatedReadinessTimeline", "Unable to assess"
         ));
         result.put("source", "thin-transcript");
@@ -519,10 +721,14 @@ public class AssessmentService {
         result.put("proposedVerdict", "NEEDS_1_WEEK_PREP");
         result.put("summary", "Heuristic assessment used - Claude API unavailable or failed. Candidate provided " + words + " words in " + turns + " responses.");
         result.put("candidateFeedback", Map.of(
+            "summary", "AI assessment not available - using basic word/turn count analysis.",
             "overallSummary", "AI assessment not available - using basic word/turn count analysis.",
             "prosAndCons", List.of(),
+            "strengths", List.of(),
+            "areasToImprove", List.of(),
             "resumeConsistencyForCandidate", List.of(),
             "roadmap", List.of(),
+            "estimatedReadiness", "Unable to assess without AI analysis",
             "estimatedReadinessTimeline", "Unable to assess without AI analysis"
         ));
         result.put("source", "heuristic");

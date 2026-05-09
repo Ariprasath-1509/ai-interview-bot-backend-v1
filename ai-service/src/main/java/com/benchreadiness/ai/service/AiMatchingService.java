@@ -23,12 +23,22 @@ public class AiMatchingService {
 
     public Map<String, Object> matchCandidates(MatchingRequest request, String userId) {
         try {
+            if (request.getCandidates() == null || request.getCandidates().isEmpty()) {
+                return Map.of(
+                    "matches", List.of(),
+                    "summary", Map.of("totalCandidatesAnalyzed", 0),
+                    "source", "empty-input",
+                    "clientId", request.getClientId()
+                );
+            }
+
             if (!llmClient.isConfigured()) {
                 return fallbackMatching(request);
             }
 
             String prompt = buildMatchingPrompt(request);
-            String candidatesJson = objectMapper.writeValueAsString(request.getCandidates());
+            List<Map<String, Object>> compactCandidates = compactCandidates(request.getCandidates());
+            String candidatesJson = objectMapper.writeValueAsString(compactCandidates);
             
             String response = llmClient.chatMatching(prompt, candidatesJson);
             
@@ -44,124 +54,25 @@ public class AiMatchingService {
     }
 
     private String buildMatchingPrompt(MatchingRequest request) {
+        String jdDigest = truncate(request.getJdDescription(), 1000);
         return """
-            You are an expert technical recruiter with deep knowledge of software engineering roles and candidate assessment. 
-            Your task is to match candidates to a client's job requirements using sophisticated analysis.
+            You are a technical recruiter ranking candidates against a JD.
+            Use only the candidate JSON provided in the user message.
 
-            ## CLIENT REQUIREMENTS
-            **Client:** %s
-            **Role:** %s
-            **Job Description:** %s
-            **Source:** %s
+            CLIENT:
+            - Name: %s
+            - Role: %s
+            - Source: %s
+            - JD digest: %s
 
-            ## CANDIDATE DATA STRUCTURE
-            
-            Each candidate object contains:
-            - **Basic Profile:** id, name, email, skillSet, rating, candidateStatus
-            - **Experience:** yoeForMatching (YOE Portrayed - use this for matching), yop (Year of Passing)
-            - **Resume:** resumeSummary (key for understanding background and projects)
-            - **Interview Evidence:** interviewEvidence object with:
-              - strengths: List of proven capabilities from recent interviews
-              - weaknesses: List of identified gaps from recent interviews  
-              - categoryScores: Average scores per technical category (e.g., {"java": 4.2, "spring": 3.8})
-              - recentInterviewCount: Number of recent interviews (1-3)
-              - averageScore: Overall interview performance average
-            
-            **CRITICAL: Always use yoeForMatching for experience comparisons, not yoeActual**
+            RULES:
+            - Use yoeForMatching for experience comparison.
+            - Use interviewEvidence as primary truth (resume can support context).
+            - Weights: skill 30%%, experience 25%%, role complexity 20%%, quality 15%%, interview performance 10%%.
+            - Penalize very high interview frequency (>= 7 progressively; >=20 severe).
+            - Return at most maxCandidates in best-first order.
 
-            ## MATCHING CRITERIA & WEIGHTS
-
-            ### 1. TECHNICAL SKILL ALIGNMENT (30%% weight)
-            - **Perfect Match (0.30):** Candidate's primary skillSet directly matches JD requirements
-              - JAVA_SB → Java/Spring Boot/Microservices roles
-              - JFSR → Full-stack development roles  
-              - REACT_JS → Frontend/React roles
-            - **Good Match (0.20-0.25):** Transferable skills with some overlap
-            - **Partial Match (0.10-0.15):** Some relevant skills but significant gaps
-            - **Poor Match (0.05):** Minimal skill alignment
-            - **USE interviewEvidence.categoryScores** to validate claimed skills with actual performance
-            - **USE resumeSummary** to understand project experience and technology depth
-            - **Cross-validate:** Resume claims vs Interview evidence vs JD requirements
-
-            ### 2. EXPERIENCE LEVEL ALIGNMENT (25%% weight)
-            - Extract required years from JD (look for "X+ years", "X years", role seniority indicators)
-            - **Use candidate's yoeForMatching field (YOE Portrayed) for experience comparison**
-            - **Perfect (0.25):** Candidate YOE within ±0.5 years of requirement
-            - **Close (0.20):** Within ±1 year
-            - **Acceptable (0.15):** Within ±2 years
-            - **Gap (0.10):** Within ±3 years
-            - **Mismatch (0.05):** >3 years difference
-            - **Under-qualification penalty:** -30%% if candidate significantly under-qualified
-
-            ### 3. ROLE COMPLEXITY MATCH (20%% weight)
-            - **Senior/Lead roles:** Require 4+ years, penalize if candidate <4 years
-            - **Principal/Staff roles:** Require 7+ years, penalize if candidate <7 years
-            - **Junior roles:** 0-3 years ideal
-            - **Mid-level roles:** 2-5 years ideal
-
-            ### 4. CANDIDATE QUALITY INDICATORS (15%% weight)
-            - **Rating Impact:**
-              - ASSET: +0.15 (high-performing candidate)
-              - MEDIUM: +0.08 (average performer)
-              - LIABILITY: -0.05 (performance concerns)
-            - **Readiness Status:**
-              - RFD (Ready for Deployment): +0.10 (all candidates are RFD)
-            - **USE interviewEvidence.strengths** to identify proven capabilities
-            - **USE interviewEvidence.weaknesses** to identify skill gaps
-
-            ### 5. INTERVIEW PERFORMANCE HISTORY (10%% weight)
-            - **Excellent (4.5+ avg):** +0.10
-            - **Good (4.0-4.4 avg):** +0.08
-            - **Average (3.5-3.9 avg):** +0.05
-            - **Below Average (3.0-3.4 avg):** +0.02
-            - **Poor (<3.0 avg):** -0.05
-            - **USE interviewEvidence.categoryScores** for detailed skill assessment
-
-            ### 6. INTERVIEW FREQUENCY CONCERNS (Penalty)
-            - **Excessive interviews indicate potential issues:**
-              - 20+ interviews: -0.25 (major red flag)
-              - 15-19 interviews: -0.20
-              - 10-14 interviews: -0.15
-              - 7-9 interviews: -0.10
-              - 5-6 interviews: -0.05
-              - 3-4 interviews: No penalty (healthy range)
-
-            ## INTERVIEW EVIDENCE USAGE (CRITICAL)
-
-            Each candidate has an `interviewEvidence` object containing:
-            - **strengths:** List of proven capabilities from recent interviews (use these as primary strengths)
-            - **weaknesses:** List of identified gaps from recent interviews (use these as primary concerns)
-            - **categoryScores:** Average scores per technical category (e.g., {"java": 4.2, "spring": 3.8, "microservices": 3.5})
-            - **recentInterviewCount:** Number of recent interviews analyzed (1-3 for eligible candidates)
-
-            **YOU MUST prioritize interview evidence over resume claims:**
-            - If interviewEvidence shows weakness in a skill, mention it as a concern even if resume claims expertise
-            - If interviewEvidence shows strength in a skill, highlight it prominently
-            - Use categoryScores to validate technical depth in JD-required skills
-
-            ## ANALYSIS REQUIREMENTS
-
-            For each candidate, provide:
-            1. **Overall Match Score (0.0-1.0):** Weighted sum of all criteria
-            2. **Skill Alignment Analysis:** How well their skillSet AND interviewEvidence.categoryScores match JD requirements
-            3. **Experience Assessment:** YOE gap analysis and suitability
-            4. **Strengths:** Top 2-3 compelling reasons from interviewEvidence.strengths and profile
-            5. **Concerns:** Top 2-3 potential risks from interviewEvidence.weaknesses and gaps
-            6. **Recommendation:** HIGHLY_RECOMMENDED / RECOMMENDED / CONSIDER / NOT_SUITABLE
-
-            ## SPECIAL CONSIDERATIONS
-
-            - **Evidence-Based Matching:** Prioritize actual interview performance over resume claims
-            - **Skill Evolution:** Consider if candidate's categoryScores show growth potential
-            - **Cultural Fit Indicators:** Look for learning agility, ownership in interviewEvidence.strengths
-            - **Red Flags:** High interview count without placements, rating vs performance misalignment, consistent weaknesses in JD-critical skills
-            - **Market Context:** %s candidates may have different expectations than BENCH/B2B
-
-            ## OUTPUT FORMAT
-
-            **CRITICAL: You MUST return ONLY valid JSON. Do not include any explanatory text, comments, or markdown formatting.**
-
-            Return a JSON object (not wrapped in markdown) with this exact structure:
+            Return ONLY valid JSON with this structure:
 
             {
               "matches": [
@@ -174,22 +85,19 @@ public class AiMatchingService {
                   "skillAlignment": {
                     "score": 0.25,
                     "candidateSkillSet": "JAVA_SB",
-                    "analysis": "Perfect Java/Spring Boot match. Interview evidence shows strong Java (4.2/5) and Spring (3.8/5) performance."
+                    "analysis": "Short explanation of skill fit using interviewEvidence and resume"
                   },
                   "experienceAlignment": {
                     "score": 0.20,
                     "requiredYoe": 5.0,
                     "candidateYoe": 5.5,
-                    "analysis": "Experience level perfectly matches requirements (using YOE Portrayed)"
+                    "analysis": "Short explanation of yoeForMatching fit"
                   },
                   "strengths": [
-                    "Strong Java fundamentals demonstrated in recent interviews (avg 4.2/5)",
-                    "Proven Spring Boot REST API development from interview evidence",
-                    "ASSET rating with only 3 interviews indicates high quality"
+                    "Top 2-3 strengths"
                   ],
                   "concerns": [
-                    "Interview evidence shows microservices score of 3.2/5 - below JD requirement",
-                    "Weakness noted in distributed systems from recent interviews"
+                    "Top 1-3 concerns"
                   ],
                   "qualityIndicators": {
                     "rating": "ASSET",
@@ -210,13 +118,12 @@ public class AiMatchingService {
               }
             }
 
-            Return ONLY the JSON object above. No explanations, no markdown, no additional text.
+            No markdown. No prose outside JSON.
             """.formatted(
                 request.getClientName(),
                 request.getJdTitle(), 
-                request.getJdDescription(),
                 request.getSource(),
-                request.getSource()
+                jdDigest
             );
     }
 
@@ -292,5 +199,59 @@ public class AiMatchingService {
     private int estimateTokens(String text) {
         // Rough estimation: 1 token ≈ 4 characters
         return text.length() / 4;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> compactCandidates(List<Map<String, Object>> candidates) {
+        List<Map<String, Object>> compact = new ArrayList<>();
+        for (Map<String, Object> candidate : candidates) {
+            Map<String, Object> c = new LinkedHashMap<>();
+            c.put("id", candidate.get("id"));
+            c.put("name", candidate.get("name"));
+            c.put("email", candidate.get("email"));
+            c.put("officialEmail", candidate.get("officialEmail"));
+            c.put("personalEmail", candidate.get("personalEmail"));
+            c.put("skillSet", candidate.get("skillSet"));
+            c.put("rating", candidate.get("rating"));
+            c.put("candidateStatus", candidate.get("candidateStatus"));
+            c.put("yoeForMatching", candidate.get("yoeForMatching"));
+            c.put("yoeActual", candidate.get("yoeActual"));
+            c.put("noOfInterviews", candidate.get("noOfInterviews"));
+            c.put("resumeSummary", truncate((String) candidate.get("resumeSummary"), 280));
+
+            Object evidenceObj = candidate.get("interviewEvidence");
+            if (evidenceObj instanceof Map<?, ?> evidenceRaw) {
+                Map<String, Object> evidence = new LinkedHashMap<>();
+                evidence.put("recentInterviewCount", evidenceRaw.get("recentInterviewCount"));
+                evidence.put("averageScore", evidenceRaw.get("averageScore"));
+                evidence.put("categoryScores", evidenceRaw.get("categoryScores"));
+                evidence.put("strengths", limitStringList((List<Object>) evidenceRaw.get("strengths"), 3, 120));
+                evidence.put("weaknesses", limitStringList((List<Object>) evidenceRaw.get("weaknesses"), 3, 120));
+                c.put("interviewEvidence", evidence);
+            }
+
+            compact.add(c);
+        }
+        return compact;
+    }
+
+    private List<String> limitStringList(List<Object> values, int limit, int maxLen) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (Object value : values) {
+            if (value == null) continue;
+            out.add(truncate(String.valueOf(value), maxLen));
+            if (out.size() >= limit) break;
+        }
+        return out;
+    }
+
+    private String truncate(String value, int maxLen) {
+        if (value == null) return "";
+        String clean = value.trim().replaceAll("\\s+", " ");
+        if (clean.length() <= maxLen) return clean;
+        return clean.substring(0, maxLen) + "...";
     }
 }

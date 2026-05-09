@@ -92,8 +92,7 @@ public class OpenAiClient {
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatMatching(String systemPrompt, String userPrompt) throws Exception {
-        // Use sonnet model for matching with higher token limit
-        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, matchingMaxTokens);
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, dynamicMatchingMaxTokens(userPrompt));
     }
 
     private String chat(String systemPrompt, String userPrompt, String model,
@@ -150,6 +149,17 @@ public class OpenAiClient {
             if (end != -1) s = s.substring(0, end);
         }
         return s.trim();
+    }
+
+    private int dynamicMatchingMaxTokens(String userPrompt) {
+        try {
+            JsonNode node = objectMapper.readTree(userPrompt);
+            int candidateCount = node.isArray() ? node.size() : 1;
+            int dynamic = 1200 + (candidateCount * 220);
+            return Math.max(1400, Math.min(matchingMaxTokens, dynamic));
+        } catch (Exception ignored) {
+            return Math.min(matchingMaxTokens, 3200);
+        }
     }
 
     private void trackTokenUsage(String interviewId, String operationType, String model, 

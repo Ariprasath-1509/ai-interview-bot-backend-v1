@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -19,6 +20,7 @@ public class QuestionService {
 
     private static final int MANIPULATION_WARN_THRESHOLD = 1;
     private static final int MANIPULATION_TERMINATE_THRESHOLD = 5;
+    private static final long QUESTION_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
     // Patterns that indicate prompt injection or score manipulation
     private static final List<Pattern> MANIPULATION_PATTERNS = List.of(
@@ -87,6 +89,9 @@ public class QuestionService {
 
     private final LlmClient llmClient;
     private final QuestionCacheService cacheService;
+    private final ConcurrentHashMap<String, CachedQuestionResult> requestCache = new ConcurrentHashMap<>();
+
+    private record CachedQuestionResult(QuestionResult result, long createdAtMs) {}
 
     public QuestionService(LlmClient llmClient, QuestionCacheService cacheService) {
         this.llmClient = llmClient;
@@ -94,39 +99,62 @@ public class QuestionService {
     }
 
     public QuestionResult getNextQuestion(NextQuestionRequest req, String userId) {
+        String requestCacheKey = buildRequestCacheKey(req);
+        QuestionResult cachedResult = getCachedResult(requestCacheKey);
+        if (cachedResult != null) {
+            return cachedResult;
+        }
+
         // Check for manipulation
         ManipulationCheck check = checkManipulation(req.getLastAnswer(), req.getManipulationCount());
 
         if (check.terminate()) {
-            return new QuestionResult(
+            QuestionResult result = new QuestionResult(
                 "This interview is being terminated. Multiple attempts to manipulate the AI interviewer have been detected and flagged for review.",
                 true, true
             );
+            cacheResult(requestCacheKey, result);
+            return result;
         }
 
         if (check.warn()) {
-            return new QuestionResult(
+            QuestionResult result = new QuestionResult(
                 "Please answer the interview questions directly. Attempts to influence the AI or manipulate scores are not allowed and have been noted.",
                 true, false
             );
+            cacheResult(requestCacheKey, result);
+            return result;
         }
 
         // Normal flow
         if (llmClient.isConfigured()) {
             try {
                 // Check for vague/short answers first
-                // IMPORTANT: don't get stuck in probe loops. If we already asked a probe/fallback,
-                // do not probe again; continue to the next real question.
-                if (isVagueAnswer(req.getLastAnswer()) && !lastQuestionWasProbe(req.getUtterances())) {
-                    return new QuestionResult(getVagueAnswerProbe(), false, false);
+                // IMPORTANT: don't get stuck in probe loops. Allow one probe, then move forward deterministically.
+                if (isVagueAnswer(req.getLastAnswer())) {
+                    int recentProbeCount = countRecentProbeQuestions(req.getUtterances());
+                    if (recentProbeCount >= 1 || lastQuestionWasProbe(req.getUtterances())) {
+                        QuestionResult result = new QuestionResult(
+                            deterministicProgressQuestion(req),
+                            false,
+                            false
+                        );
+                        cacheResult(requestCacheKey, result);
+                        return result;
+                    }
+                    QuestionResult result = new QuestionResult(getVagueAnswerProbe(), false, false);
+                    cacheResult(requestCacheKey, result);
+                    return result;
                 }
                 
                 // Check cache for first question
                 if (req.getSlot() == 1 && (req.getLastAnswer() == null || req.getLastAnswer().isBlank())) {
-                    String cached = cacheService.getCachedFirstQuestion(
+                    String firstQuestionCacheHit = cacheService.getCachedFirstQuestion(
                         req.getJdTitle(), req.getJdText(), req.getFocusAreas(), req.getInterviewMode());
-                    if (cached != null) {
-                        return new QuestionResult(cached, false, false);
+                    if (firstQuestionCacheHit != null) {
+                        QuestionResult result = new QuestionResult(firstQuestionCacheHit, false, false);
+                        cacheResult(requestCacheKey, result);
+                        return result;
                     }
                 }
                 
@@ -138,14 +166,59 @@ public class QuestionService {
                         req.getJdTitle(), req.getJdText(), req.getFocusAreas(), req.getInterviewMode(), question);
                 }
                 
-                return new QuestionResult(question, false, false);
+                QuestionResult result = new QuestionResult(question, false, false);
+                cacheResult(requestCacheKey, result);
+                return result;
             } catch (Exception e) {
                 log.warn("Claude failed, falling back to heuristic: {}", e.getMessage());
             }
         } else {
             log.warn("LLM provider not configured — falling back to heuristic");
         }
-        return new QuestionResult(fallbackQuestion(req), false, false);
+        QuestionResult fallback = new QuestionResult(fallbackQuestion(req), false, false);
+        cacheResult(requestCacheKey, fallback);
+        return fallback;
+    }
+
+    private String buildRequestCacheKey(NextQuestionRequest req) {
+        String interviewId = req.getInterviewId() != null ? req.getInterviewId() : "unknown";
+        String slot = String.valueOf(req.getSlot());
+        String manipulationCount = String.valueOf(req.getManipulationCount());
+        String answer = req.getLastAnswer() != null ? req.getLastAnswer().trim() : "";
+
+        String tailContext = "";
+        if (req.getUtterances() != null && !req.getUtterances().isEmpty()) {
+            int size = req.getUtterances().size();
+            int start = Math.max(0, size - 4);
+            tailContext = req.getUtterances().subList(start, size).stream()
+                .map(u -> u.speaker() + ":" + u.text())
+                .collect(Collectors.joining("|"));
+        }
+
+        return interviewId + "|" + slot + "|" + manipulationCount + "|" + answer + "|" + tailContext;
+    }
+
+    private QuestionResult getCachedResult(String key) {
+        CachedQuestionResult cached = requestCache.get(key);
+        if (cached == null) return null;
+        long age = System.currentTimeMillis() - cached.createdAtMs();
+        if (age > QUESTION_CACHE_TTL_MS) {
+            requestCache.remove(key);
+            return null;
+        }
+        return cached.result();
+    }
+
+    private void cacheResult(String key, QuestionResult result) {
+        requestCache.put(key, new CachedQuestionResult(result, System.currentTimeMillis()));
+        if (requestCache.size() > 5000) {
+            clearExpiredRequestCache();
+        }
+    }
+
+    private void clearExpiredRequestCache() {
+        long now = System.currentTimeMillis();
+        requestCache.entrySet().removeIf(entry -> (now - entry.getValue().createdAtMs()) > QUESTION_CACHE_TTL_MS);
     }
 
     private boolean lastQuestionWasProbe(List<NextQuestionRequest.Utterance> utterances) {
@@ -191,6 +264,9 @@ public class QuestionService {
         String slotTheme = slotThemes.getOrDefault(req.getSlot(),
             "Continue probing technical depth and communication quality relevant to the role.");
         String coveredTopics = extractCoveredTopics(req.getUtterances());
+        List<String> rubricLabels = extractRubricLabels(req.getRubricJson());
+        String targetSkill = pickTargetSkill(req.getSlot(), rubricLabels, coveredTopics);
+        String coverageHint = buildCoverageHint(rubricLabels, coveredTopics);
 
         // Parse candidate profile for difficulty calibration, but override with mode difficulty
         String difficultyInstruction = getDifficultyForMode(mode);
@@ -224,6 +300,8 @@ public class QuestionService {
             "Technical interviewer. Reply with ONE question (1-2 sentences).",
             "React to candidate's answer — reference specifics.",
             "Slot: " + slotTheme,
+            targetSkill.isBlank() ? "" : "Prioritize this skill now: " + targetSkill,
+            coverageHint.isBlank() ? "" : coverageHint,
             levelInstruction,
             rubricFocus.isBlank() ? "" : rubricFocus,
             coveredTopics.isBlank() ? "" : "Covered: " + coveredTopics,
@@ -390,5 +468,74 @@ public class QuestionService {
             case 9 -> "Explain a tricky technical trade-off as you would to a sharp but rushed peer.";
             default -> "A vague requirement — how do you turn it into a concrete technical plan with checkpoints?";
         };
+    }
+
+    private List<String> extractRubricLabels(String rubricJson) {
+        if (rubricJson == null || rubricJson.isBlank()) return List.of();
+        try {
+            com.fasterxml.jackson.databind.JsonNode rubric =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(rubricJson);
+            com.fasterxml.jackson.databind.JsonNode cats = rubric.path("categories");
+            if (!cats.isArray()) return List.of();
+            List<String> labels = new ArrayList<>();
+            cats.forEach(c -> {
+                String label = c.path("label").asText("").trim();
+                if (!label.isBlank()) labels.add(label);
+            });
+            return labels;
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    private String pickTargetSkill(int slot, List<String> rubricLabels, String coveredTopics) {
+        if (rubricLabels.isEmpty()) return "";
+        String covered = coveredTopics == null ? "" : coveredTopics.toLowerCase();
+        List<String> missing = rubricLabels.stream()
+            .filter(label -> !covered.contains(label.toLowerCase()))
+            .toList();
+        List<String> source = missing.isEmpty() ? rubricLabels : missing;
+        int idx = Math.max(0, (slot - 1) % source.size());
+        return source.get(idx);
+    }
+
+    private String buildCoverageHint(List<String> rubricLabels, String coveredTopics) {
+        if (rubricLabels.isEmpty()) return "";
+        String covered = coveredTopics == null ? "" : coveredTopics.toLowerCase();
+        List<String> missing = rubricLabels.stream()
+            .filter(label -> !covered.contains(label.toLowerCase()))
+            .limit(3)
+            .toList();
+        if (missing.isEmpty()) return "All rubric areas have at least one touchpoint. Go deeper on weakest evidence.";
+        return "Must-cover remaining (prioritize soon): " + String.join(", ", missing);
+    }
+
+    private int countRecentProbeQuestions(List<NextQuestionRequest.Utterance> utterances) {
+        if (utterances == null || utterances.isEmpty()) return 0;
+        int size = utterances.size();
+        int start = Math.max(0, size - 8);
+        int count = 0;
+        for (int i = start; i < size; i++) {
+            NextQuestionRequest.Utterance u = utterances.get(i);
+            if (!"BOT".equals(u.speaker())) continue;
+            String text = u.text() == null ? "" : u.text().toLowerCase();
+            if (text.contains("elaborate")
+                || text.contains("tell me more")
+                || text.contains("specific example")
+                || text.contains("concrete")
+                || text.contains("didn't quite catch")
+                || text.contains("didnt quite catch")) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private String deterministicProgressQuestion(NextQuestionRequest req) {
+        String base = fallbackQuestion(req);
+        if (base.endsWith("?")) {
+            return base + " Use one concrete production example with actions and outcome.";
+        }
+        return base + " Please answer with one concrete production example, actions, and measurable outcome.";
     }
 }

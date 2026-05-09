@@ -71,7 +71,7 @@ public class ClaudeAiClient implements LlmClient {
             case "question" -> 300;
             case "rubric" -> 1000;
             case "assessment" -> 4000;
-            case "matching" -> 6000;
+            case "matching" -> 3200;
             default -> 1000;
         };
     }
@@ -99,7 +99,7 @@ public class ClaudeAiClient implements LlmClient {
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatMatching(String systemPrompt, String userPrompt) throws Exception {
-        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForOperation("matching"));
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, dynamicMatchingMaxTokens(userPrompt));
     }
 
     private String chat(String systemPrompt, String userPrompt, String model,
@@ -190,6 +190,17 @@ public class ClaudeAiClient implements LlmClient {
             if (end != -1) s = s.substring(0, end);
         }
         return s.trim();
+    }
+
+    private int dynamicMatchingMaxTokens(String userPrompt) {
+        try {
+            JsonNode node = objectMapper.readTree(userPrompt);
+            int candidateCount = node.isArray() ? node.size() : 1;
+            int dynamic = 1200 + (candidateCount * 220);
+            return Math.max(1400, Math.min(3200, dynamic));
+        } catch (Exception ignored) {
+            return getMaxTokensForOperation("matching");
+        }
     }
 
     private void trackTokenUsage(String interviewId, String operationType, String model, 
