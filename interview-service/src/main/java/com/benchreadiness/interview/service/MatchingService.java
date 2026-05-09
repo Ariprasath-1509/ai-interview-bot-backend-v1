@@ -35,72 +35,246 @@ public class MatchingService {
         this.reviewServiceClient = reviewServiceClient;
     }
     
-    @Cacheable(value = "candidateMatches", key = "#clientId + '-' + #source + '-' + #maxCandidates")
-    public List<CandidateMatch> findMatchingCandidates(String clientId, String source, Integer maxCandidates, String userId, String userRole) {
+    @Cacheable(value = "candidateMatches", key = "#clientId + '-' + #source + '-' + #skillSet + '-' + #minYoeRequired + '-' + #maxCandidates")
+    public List<CandidateMatch> findMatchingCandidates(String clientId, String source, Integer maxCandidates, 
+                                                        String skillSet, Double minYoeRequired, String userId, String userRole) {
         try {
             // Get client details
             Client client = clientRepository.findById(UUID.fromString(clientId))
                     .orElseThrow(() -> new IllegalArgumentException("Client not found: " + clientId));
             
-            // Get candidates from auth service based on source
-            List<Map<String, Object>> candidates;
-            try {
-                candidates = authServiceClient.searchCandidates("");
+            // Check if client has skill requirements
+            if (!client.getSkillRequirements().isEmpty()) {
+                return findMatchingCandidatesWithSkillFiltering(client, source, maxCandidates, skillSet, minYoeRequired, userId, userRole);
+            }
+            
+            // Fallback to legacy matching for clients without skill requirements
+            return findMatchingCandidatesLegacy(client, source, maxCandidates, userId, userRole);
+            
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to find matching candidates: " + e.getMessage(), e);
+        }
+    }
+    
+    private List<CandidateMatch> findMatchingCandidatesWithSkillFiltering(Client client, String source, Integer maxCandidates, 
+                                                                            String filterSkillSet, Double filterMinYoe, String userId, String userRole) {
+        List<CandidateMatch> allMatches = new ArrayList<>();
+        
+        // Get all candidates from auth service
+        List<Map<String, Object>> allCandidates;
+        try {
+            allCandidates = authServiceClient.searchCandidates("");
+            System.out.println("[MATCHING] Total candidates fetched: " + allCandidates.size());
+        } catch (Exception e) {
+            System.err.println("Failed to fetch candidates from auth service: " + e.getMessage());
+            return createMockMatches(source, maxCandidates != null ? maxCandidates : 3);
+        }
+        
+        // Enrich candidates with interview evidence
+        allCandidates = enrichCandidatesWithInterviewEvidence(allCandidates);
+        
+        System.out.println("[MATCHING] Client has " + client.getSkillRequirements().size() + " skill requirements");
+        
+        // Process each skill requirement
+        for (com.benchreadiness.interview.entity.SkillRequirement skillReq : client.getSkillRequirements()) {
+            // If specific skill filter provided, skip non-matching skills
+            if (filterSkillSet != null && !filterSkillSet.equals(skillReq.getSkillSet().name())) {
+                System.out.println("[MATCHING] Skipping skill " + skillReq.getSkillSet() + " - doesn't match filter: " + filterSkillSet);
+                continue;
+            }
+            
+            System.out.println("[MATCHING] Processing skill: " + skillReq.getSkillSet() + " with " + skillReq.getPositions().size() + " positions");
+            
+            for (com.benchreadiness.interview.entity.PositionRequirement posReq : skillReq.getPositions()) {
+                // If specific YOE filter provided, skip non-matching positions
+                if (filterMinYoe != null && !filterMinYoe.equals(posReq.getMinYoeRequired())) {
+                    System.out.println("[MATCHING] Skipping position with minYOE " + posReq.getMinYoeRequired() + " - doesn't match filter: " + filterMinYoe);
+                    continue;
+                }
                 
-                // Filter by source AND eligibility criteria (RFD + 3 interviews minimum)
-                candidates = candidates.stream()
+                System.out.println("[MATCHING] Position requirement - Source: " + posReq.getSource() + ", MinYOE: " + posReq.getMinYoeRequired() + ", Candidates needed: " + posReq.getCandidatesNeeded());
+                
+                // Skip if source doesn't match
+                if (!source.equals(posReq.getSource())) {
+                    System.out.println("[MATCHING] Skipping position - source mismatch (requested: " + source + ", position: " + posReq.getSource() + ")");
+                    continue;
+                }
+                
+                // Filter candidates by skill set, YOE, and eligibility
+                List<Map<String, Object>> filteredCandidates = allCandidates.stream()
                     .filter(candidate -> {
+                        String candidateName = (String) candidate.get("name");
+                        
+                        // Check skill set match
+                        String candidateSkill = (String) candidate.get("skillSet");
+                        if (!skillReq.getSkillSet().name().equals(candidateSkill)) {
+                            System.out.println("[MATCHING] " + candidateName + " filtered out - skill mismatch (has: " + candidateSkill + ", needs: " + skillReq.getSkillSet() + ")");
+                            return false;
+                        }
+                        
+                        // Check YOE requirement - use yoePortrayed for client matching
+                        Double yoePortrayed = candidate.get("yoePortrayed") != null ? 
+                            ((Number) candidate.get("yoePortrayed")).doubleValue() : 0.0;
+                        if (yoePortrayed < posReq.getMinYoeRequired()) {
+                            System.out.println("[MATCHING] " + candidateName + " filtered out - insufficient YOE portrayed (has: " + yoePortrayed + ", needs: " + posReq.getMinYoeRequired() + ")");
+                            return false;
+                        }
+                        
+                        // Check source match
                         String candidateSource = (String) candidate.get("source");
                         boolean sourceMatch = false;
                         if ("BENCH_B2B".equals(source)) {
                             sourceMatch = "BENCH".equals(candidateSource) || "B2B".equals(candidateSource);
                         } else if ("MARKET".equals(source)) {
                             sourceMatch = "MARKET".equals(candidateSource);
-                        } else {
-                            sourceMatch = true;
                         }
                         
-                        if (!sourceMatch) return false;
+                        if (!sourceMatch) {
+                            System.out.println("[MATCHING] " + candidateName + " filtered out - source mismatch (has: " + candidateSource + ", needs: " + source + ")");
+                            return false;
+                        }
                         
-                        // Only match RFD candidates with 3+ interviews in our system
+                        // Match RFD candidates with at least 1 completed interview in our system
                         String candidateStatus = (String) candidate.get("candidateStatus");
                         Integer systemInterviewCount = candidate.get("systemInterviewCount") != null ? 
                             ((Number) candidate.get("systemInterviewCount")).intValue() : 0;
                         
-                        return "RFD".equals(candidateStatus) && systemInterviewCount >= 3;
+                        if (!"RFD".equals(candidateStatus)) {
+                            System.out.println("[MATCHING] " + candidateName + " filtered out - not RFD (status: " + candidateStatus + ")");
+                            return false;
+                        }
+                        
+                        if (systemInterviewCount < 1) {
+                            System.out.println("[MATCHING] " + candidateName + " filtered out - no completed interviews (count: " + systemInterviewCount + ")");
+                            return false;
+                        }
+                        
+                        System.out.println("[MATCHING] " + candidateName + " PASSED all filters - eligible for matching");
+                        return true;
                     })
                     .collect(java.util.stream.Collectors.toList());
+                
+                System.out.println("[MATCHING] Filtered candidates for this position: " + filteredCandidates.size());
+                
+                if (filteredCandidates.isEmpty()) {
+                    System.out.println("[MATCHING] No candidates match the criteria for skill: " + skillReq.getSkillSet() + ", minYOE: " + posReq.getMinYoeRequired() + ", source: " + source);
+                    continue;
+                }
+                // Use existing AI matching on filtered candidates
+                try {
+                    Map<String, Object> aiRequest = new HashMap<>();
+                    aiRequest.put("clientId", client.getId().toString());
+                    aiRequest.put("jdTitle", client.getJdRole());
+                    aiRequest.put("jdDescription", client.getJdDescription());
+                    aiRequest.put("clientName", client.getClientName());
+                    aiRequest.put("source", source);
+                    aiRequest.put("candidates", filteredCandidates);
+                    aiRequest.put("maxCandidates", posReq.getCandidatesNeeded());
                     
-            } catch (Exception e) {
-                System.err.println("Failed to fetch candidates from auth service: " + e.getMessage());
-                candidates = createMockCandidates(source, maxCandidates != null ? maxCandidates : 3);
+                    Map<String, Object> aiResponse = aiMatchingClient.matchCandidates(aiRequest, userId);
+                    List<CandidateMatch> positionMatches = parseAiMatchingResponse(aiResponse);
+                    
+                    // Add skill context to match rationale
+                    for (CandidateMatch match : positionMatches) {
+                        match.setMatchRationale("[" + skillReq.getSkillSet() + " - " + posReq.getMinYoeRequired() + "+ YOE] " + match.getMatchRationale());
+                    }
+                    
+                    allMatches.addAll(positionMatches);
+                    
+                } catch (Exception e) {
+                    System.err.println("AI matching failed for position requirement, falling back to rule-based: " + e.getMessage());
+                    List<CandidateMatch> fallbackMatches = fallbackRuleBasedMatching(client, filteredCandidates, posReq.getCandidatesNeeded());
+                    
+                    // Add skill context to match rationale
+                    for (CandidateMatch match : fallbackMatches) {
+                        match.setMatchRationale("[" + skillReq.getSkillSet() + " - " + posReq.getMinYoeRequired() + "+ YOE] " + match.getMatchRationale());
+                    }
+                    
+                    allMatches.addAll(fallbackMatches);
+                }
             }
-            
-            // Enrich candidates with interview evidence from recent 3 interviews
-            candidates = enrichCandidatesWithInterviewEvidence(candidates);
-            
-            // Use AI-based matching
-            try {
-                Map<String, Object> aiRequest = new HashMap<>();
-                aiRequest.put("clientId", clientId);
-                aiRequest.put("jdTitle", client.getJdRole());
-                aiRequest.put("jdDescription", client.getJdDescription());
-                aiRequest.put("clientName", client.getClientName());
-                aiRequest.put("source", source);
-                aiRequest.put("candidates", candidates);
-                aiRequest.put("maxCandidates", maxCandidates != null ? maxCandidates : 10);
-                
-                Map<String, Object> aiResponse = aiMatchingClient.matchCandidates(aiRequest, userId);
-                
-                return parseAiMatchingResponse(aiResponse);
-                
-            } catch (Exception e) {
-                System.err.println("AI matching failed, falling back to rule-based: " + e.getMessage());
-                return fallbackRuleBasedMatching(client, candidates, maxCandidates);
+        }
+        
+        // Remove duplicates and sort by match score
+        Map<String, CandidateMatch> uniqueMatches = new HashMap<>();
+        for (CandidateMatch match : allMatches) {
+            String key = match.getCandidateId();
+            if (!uniqueMatches.containsKey(key) || uniqueMatches.get(key).getMatchScore() < match.getMatchScore()) {
+                uniqueMatches.put(key, match);
             }
+        }
+        
+        List<CandidateMatch> finalMatches = new ArrayList<>(uniqueMatches.values());
+        finalMatches.sort((a, b) -> Double.compare(b.getMatchScore(), a.getMatchScore()));
+        
+        int limit = maxCandidates != null ? maxCandidates : 10;
+        return finalMatches.subList(0, Math.min(finalMatches.size(), limit));
+    }
+    
+    private List<CandidateMatch> findMatchingCandidatesLegacy(Client client, String source, Integer maxCandidates, String userId, String userRole) {
+        // Get candidates from auth service based on source
+        List<Map<String, Object>> candidates;
+        try {
+            candidates = authServiceClient.searchCandidates("");
+            
+            // Filter by source AND eligibility criteria (RFD + 3 interviews minimum)
+            candidates = candidates.stream()
+                .filter(candidate -> {
+                    String candidateSource = (String) candidate.get("source");
+                    boolean sourceMatch = false;
+                    if ("BENCH_B2B".equals(source)) {
+                        sourceMatch = "BENCH".equals(candidateSource) || "B2B".equals(candidateSource);
+                    } else if ("MARKET".equals(source)) {
+                        sourceMatch = "MARKET".equals(candidateSource);
+                    } else {
+                        sourceMatch = true;
+                    }
+                    
+                    if (!sourceMatch) return false;
+                    
+                    // Match RFD candidates with at least 1 completed interview in our system
+                    String candidateStatus = (String) candidate.get("candidateStatus");
+                    Integer systemInterviewCount = candidate.get("systemInterviewCount") != null ? 
+                        ((Number) candidate.get("systemInterviewCount")).intValue() : 0;
+                    
+                    if (!"RFD".equals(candidateStatus)) {
+                        return false;
+                    }
+                    
+                    if (systemInterviewCount < 1) {
+                        return false;
+                    }
+                    
+                    return true;
+                })
+                .collect(java.util.stream.Collectors.toList());
+                
+        } catch (Exception e) {
+            System.err.println("Failed to fetch candidates from auth service: " + e.getMessage());
+            candidates = createMockCandidates(source, maxCandidates != null ? maxCandidates : 3);
+        }
+        
+        // Enrich candidates with interview evidence from recent 3 interviews
+        candidates = enrichCandidatesWithInterviewEvidence(candidates);
+        
+        // Use AI-based matching
+        try {
+            Map<String, Object> aiRequest = new HashMap<>();
+            aiRequest.put("clientId", client.getId().toString());
+            aiRequest.put("jdTitle", client.getJdRole());
+            aiRequest.put("jdDescription", client.getJdDescription());
+            aiRequest.put("clientName", client.getClientName());
+            aiRequest.put("source", source);
+            aiRequest.put("candidates", candidates);
+            aiRequest.put("maxCandidates", maxCandidates != null ? maxCandidates : 10);
+            
+            Map<String, Object> aiResponse = aiMatchingClient.matchCandidates(aiRequest, userId);
+            
+            return parseAiMatchingResponse(aiResponse);
             
         } catch (Exception e) {
-            throw new RuntimeException("Failed to find matching candidates: " + e.getMessage(), e);
+            System.err.println("AI matching failed, falling back to rule-based: " + e.getMessage());
+            return fallbackRuleBasedMatching(client, candidates, maxCandidates);
         }
     }
     
@@ -141,11 +315,13 @@ public class MatchingService {
                 match.setNoOfInterviews(interviewCountObj != null ? ((Number) interviewCountObj).intValue() : 0);
             }
             
-            // Experience alignment
+            // Experience alignment - show both actual and portrayed
             Map<String, Object> expAlignment = (Map<String, Object>) aiMatch.get("experienceAlignment");
             if (expAlignment != null) {
-                Object yoeObj = expAlignment.get("candidateYoe");
-                match.setYoeActual(yoeObj != null ? ((Number) yoeObj).doubleValue() : 0.0);
+                Object yoeActualObj = expAlignment.get("candidateYoe");
+                match.setYoeActual(yoeActualObj != null ? ((Number) yoeActualObj).doubleValue() : 0.0);
+                Object yoePortrayedObj = expAlignment.get("candidateYoePortrayed");
+                match.setYoePortrayed(yoePortrayedObj != null ? ((Number) yoePortrayedObj).doubleValue() : 0.0);
             }
             
             // Skill alignment
@@ -192,6 +368,8 @@ public class MatchingService {
             match.setSkillSet((String) candidate.get("skillSet"));
             match.setYoeActual(candidate.get("yoeActual") != null ? 
                 ((Number) candidate.get("yoeActual")).doubleValue() : 0.0);
+            match.setYoePortrayed(candidate.get("yoePortrayed") != null ? 
+                ((Number) candidate.get("yoePortrayed")).doubleValue() : 0.0);
             match.setRating((String) candidate.getOrDefault("rating", "MEDIUM"));
             match.setCandidateStatus((String) candidate.getOrDefault("candidateStatus", "NOT_RFD"));
             match.setNoOfInterviews(candidate.get("noOfInterviews") != null ? 
@@ -607,7 +785,7 @@ public class MatchingService {
                 String candidateEmail = getCandidateEmail(candidate);
                 if (candidateEmail == null) continue;
                 
-                // Get recent 3 completed interviews for this candidate
+                // Get recent interviews for this candidate (up to 3 for analysis)
                 List<com.benchreadiness.interview.entity.Interview> interviews = 
                     interviewRepository.findByCandidateEmailOrderByCreatedAtDesc(candidateEmail)
                         .stream()
@@ -733,5 +911,26 @@ public class MatchingService {
         }
         
         return mockCandidates;
+    }
+    
+    private List<CandidateMatch> createMockMatches(String source, int maxCandidates) {
+        List<Map<String, Object>> mockCandidates = createMockCandidates(source, maxCandidates);
+        List<CandidateMatch> matches = new ArrayList<>();
+        
+        for (Map<String, Object> candidate : mockCandidates) {
+            CandidateMatch match = new CandidateMatch();
+            match.setCandidateId((String) candidate.get("id"));
+            match.setCandidateName((String) candidate.get("name"));
+            match.setCandidateEmail((String) candidate.get("email"));
+            match.setSkillSet((String) candidate.get("skillSet"));
+            match.setYoeActual(((Number) candidate.get("yoeActual")).doubleValue());
+            match.setRating((String) candidate.get("rating"));
+            match.setCandidateStatus((String) candidate.get("candidateStatus"));
+            match.setMatchScore(0.7);
+            match.setMatchRationale("Mock candidate for testing");
+            matches.add(match);
+        }
+        
+        return matches;
     }
 }

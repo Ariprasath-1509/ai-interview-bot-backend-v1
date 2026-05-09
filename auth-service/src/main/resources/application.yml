@@ -52,6 +52,10 @@ app:
   demo:
     username: Demo
     password: Demo123
+  third-party:
+    excel-api:
+      base-url: http://localhost:8000
+      timeout-seconds: 30
 
 management:
   endpoints:

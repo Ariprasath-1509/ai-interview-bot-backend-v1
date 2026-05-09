@@ -3,7 +3,11 @@ package com.benchreadiness.interview.service;
 import com.benchreadiness.interview.client.DocumentServiceClient;
 import com.benchreadiness.interview.client.ObserverServiceClient;
 import com.benchreadiness.interview.dto.ClientDTO;
+import com.benchreadiness.interview.dto.PositionRequirementDTO;
+import com.benchreadiness.interview.dto.SkillRequirementDTO;
 import com.benchreadiness.interview.entity.Client;
+import com.benchreadiness.interview.entity.PositionRequirement;
+import com.benchreadiness.interview.entity.SkillRequirement;
 import com.benchreadiness.interview.repository.ClientRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,10 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -65,6 +66,25 @@ public class ClientService {
         client.setRecruitmentReviewed(false);
         client.setCreatedAt(LocalDateTime.now());
         client.setUpdatedAt(LocalDateTime.now());
+
+        // Handle skill requirements
+        if (clientDTO.getSkillRequirements() != null && !clientDTO.getSkillRequirements().isEmpty()) {
+            for (SkillRequirementDTO skillReqDTO : clientDTO.getSkillRequirements()) {
+                SkillRequirement skillReq = new SkillRequirement(client, skillReqDTO.getSkillSet());
+                
+                for (PositionRequirementDTO posReqDTO : skillReqDTO.getPositions()) {
+                    PositionRequirement posReq = new PositionRequirement(
+                        skillReq, 
+                        posReqDTO.getCandidatesNeeded(),
+                        posReqDTO.getMinYoeRequired(),
+                        posReqDTO.getSource()
+                    );
+                    skillReq.addPosition(posReq);
+                }
+                
+                client.addSkillRequirement(skillReq);
+            }
+        }
 
         // Handle JD file upload
         if (jdFile != null && !jdFile.isEmpty()) {
@@ -120,6 +140,29 @@ public class ClientService {
         client.setStatus(Client.ClientStatus.valueOf(clientDTO.getStatus()));
         client.setUpdatedAt(LocalDateTime.now());
 
+        // Handle skill requirements update
+        if (clientDTO.getSkillRequirements() != null) {
+            // Clear existing skill requirements
+            client.getSkillRequirements().clear();
+            
+            // Add new skill requirements
+            for (SkillRequirementDTO skillReqDTO : clientDTO.getSkillRequirements()) {
+                SkillRequirement skillReq = new SkillRequirement(client, skillReqDTO.getSkillSet());
+                
+                for (PositionRequirementDTO posReqDTO : skillReqDTO.getPositions()) {
+                    PositionRequirement posReq = new PositionRequirement(
+                        skillReq, 
+                        posReqDTO.getCandidatesNeeded(),
+                        posReqDTO.getMinYoeRequired(),
+                        posReqDTO.getSource()
+                    );
+                    skillReq.addPosition(posReq);
+                }
+                
+                client.addSkillRequirement(skillReq);
+            }
+        }
+
         Client savedClient = clientRepository.save(client);
         return convertToDTO(savedClient);
     }
@@ -162,6 +205,15 @@ public class ClientService {
     }
 
     private ClientDTO convertToDTO(Client client) {
+        List<SkillRequirementDTO> skillRequirements = new ArrayList<>();
+        
+        // Handle null or empty skill requirements for backward compatibility
+        if (client.getSkillRequirements() != null && !client.getSkillRequirements().isEmpty()) {
+            skillRequirements = client.getSkillRequirements().stream()
+                    .map(this::convertSkillRequirementToDTO)
+                    .collect(Collectors.toList());
+        }
+                
         return new ClientDTO(
                 client.getId(),
                 client.getClientName(),
@@ -176,7 +228,33 @@ public class ClientService {
                 client.getCreatedAt(),
                 client.getUpdatedAt(),
                 client.getDocId(),
-                client.getJdFileName()
+                client.getJdFileName(),
+                skillRequirements
         );
+    }
+    
+    private SkillRequirementDTO convertSkillRequirementToDTO(SkillRequirement skillReq) {
+        SkillRequirementDTO dto = new SkillRequirementDTO(skillReq.getSkillSet());
+        dto.setId(skillReq.getId());
+        
+        List<PositionRequirementDTO> positions = new ArrayList<>();
+        if (skillReq.getPositions() != null && !skillReq.getPositions().isEmpty()) {
+            positions = skillReq.getPositions().stream()
+                    .map(this::convertPositionRequirementToDTO)
+                    .collect(Collectors.toList());
+        }
+        dto.setPositions(positions);
+        
+        return dto;
+    }
+    
+    private PositionRequirementDTO convertPositionRequirementToDTO(PositionRequirement posReq) {
+        PositionRequirementDTO dto = new PositionRequirementDTO(
+            posReq.getCandidatesNeeded(),
+            posReq.getMinYoeRequired(),
+            posReq.getSource()
+        );
+        dto.setId(posReq.getId());
+        return dto;
     }
 }

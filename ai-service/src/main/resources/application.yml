@@ -24,7 +24,7 @@ app:
   jwt:
     secret: dev-jwt-secret-change-in-production-min-32-chars
   claude:
-    api-key: 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
+    api-key: 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
     model: claude-haiku-4-5
     assessment-model: claude-sonnet-4-5
     question-temperature: 0.55

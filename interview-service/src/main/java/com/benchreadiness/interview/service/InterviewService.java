@@ -384,6 +384,20 @@ public class InterviewService {
         log.info("Interview {} updated successfully. New status: {}, finalVerdict: {}", 
             id, saved.getStatus(), saved.getFinalVerdict());
         
+        // Increment system interview count when interview is signed off
+        if (updates.containsKey("status") && "SIGNED_OFF".equals(updates.get("status"))) {
+            try {
+                Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
+                if (engineer != null && engineer.getEmail() != null) {
+                    log.info("Incrementing system interview count for candidate: {}", engineer.getEmail());
+                    authServiceClient.incrementSystemInterviewCountByEmail(engineer.getEmail());
+                    log.info("Successfully incremented system interview count for: {}", engineer.getEmail());
+                }
+            } catch (Exception e) {
+                log.warn("Failed to increment system interview count for interview {}: {}", id, e.getMessage());
+            }
+        }
+        
         // Log audit trail for status changes
         if (updates.containsKey("status") || updates.containsKey("finalVerdict")) {
             String detail = "";
@@ -502,6 +516,58 @@ public class InterviewService {
             complianceServiceClient.recordAuditLog(auditLog);
         } catch (Exception e) {
             log.error("Failed to record audit log: {}", e.getMessage());
+        }
+    }
+
+    @Transactional
+    public Map<String, Object> recalculateAllSystemInterviewCounts() {
+        try {
+            log.info("Starting recalculation of system interview counts for all candidates");
+            
+            // Get all completed and signed-off interviews grouped by candidate email
+            List<Interview> completedInterviews = interviewRepository.findByStatusIn(
+                List.of(InterviewStatus.COMPLETED, InterviewStatus.SIGNED_OFF)
+            );
+            
+            log.info("Found {} completed/signed-off interviews", completedInterviews.size());
+            
+            Map<String, Integer> emailToCount = new HashMap<>();
+            
+            for (Interview interview : completedInterviews) {
+                try {
+                    Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
+                    if (engineer != null && engineer.getEmail() != null) {
+                        String email = engineer.getEmail();
+                        emailToCount.put(email, emailToCount.getOrDefault(email, 0) + 1);
+                        log.debug("Counted interview {} for candidate {}", interview.getId(), email);
+                    } else {
+                        log.warn("Engineer not found or has no email for interview {}", interview.getId());
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to process interview {} for count calculation: {}", interview.getId(), e.getMessage());
+                }
+            }
+            
+            log.info("Calculated counts for {} candidates: {}", emailToCount.size(), emailToCount);
+            
+            // For now, just return the calculated counts without updating
+            // This will help us see what the counts should be
+            return Map.of(
+                "ok", true,
+                "message", "System interview counts calculated successfully",
+                "totalInterviews", completedInterviews.size(),
+                "candidatesFound", emailToCount.size(),
+                "candidateCountMap", emailToCount,
+                "note", "Counts calculated but not updated yet - check logs for details"
+            );
+            
+        } catch (Exception e) {
+            log.error("Failed to recalculate system interview counts: {}", e.getMessage(), e);
+            return Map.of(
+                "ok", false,
+                "error", "Failed to recalculate counts: " + e.getMessage(),
+                "errorType", e.getClass().getSimpleName()
+            );
         }
     }
 }

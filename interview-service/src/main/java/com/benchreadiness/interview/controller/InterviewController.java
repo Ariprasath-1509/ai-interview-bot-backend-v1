@@ -1,9 +1,11 @@
 package com.benchreadiness.interview.controller;
 
 import com.benchreadiness.interview.dto.AutoFillPreview;
+import com.benchreadiness.interview.dto.CandidateMatchingResult;
 import com.benchreadiness.interview.dto.CompleteInterviewRequest;
 import com.benchreadiness.interview.dto.CreateInterviewRequest;
 import com.benchreadiness.interview.entity.Interview;
+import com.benchreadiness.interview.service.CandidateMatchingService;
 import com.benchreadiness.interview.service.InterviewService;
 import com.benchreadiness.interview.service.EnhancedInterviewService;
 import jakarta.validation.Valid;
@@ -20,11 +22,14 @@ public class InterviewController {
 
     private final InterviewService interviewService;
     private final EnhancedInterviewService enhancedInterviewService;
+    private final CandidateMatchingService candidateMatchingService;
 
     public InterviewController(InterviewService interviewService,
-                              EnhancedInterviewService enhancedInterviewService) {
+                              EnhancedInterviewService enhancedInterviewService,
+                              CandidateMatchingService candidateMatchingService) {
         this.interviewService = interviewService;
         this.enhancedInterviewService = enhancedInterviewService;
+        this.candidateMatchingService = candidateMatchingService;
     }
 
     @GetMapping("/auto-fill/preview")
@@ -145,5 +150,39 @@ public class InterviewController {
         return interviewService.findPlanById(planId)
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/recalculate-system-interview-counts")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<?> recalculateSystemInterviewCounts() {
+        try {
+            Map<String, Object> result = interviewService.recalculateAllSystemInterviewCounts();
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/candidates/{candidateId}/client-matches")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<?> getCandidateClientMatches(@PathVariable String candidateId,
+                                                       @RequestParam(defaultValue = "false") boolean forceRefresh) {
+        try {
+            CandidateMatchingResult result = candidateMatchingService.getCandidateClientMatches(candidateId, forceRefresh);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/candidates/{candidateId}/refresh-client-matches")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<?> refreshCandidateClientMatches(@PathVariable String candidateId) {
+        try {
+            CandidateMatchingResult result = candidateMatchingService.getCandidateClientMatches(candidateId, true);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 }

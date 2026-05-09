@@ -8,6 +8,7 @@ public class CandidateMatch {
     private String candidateEmail;
     private String skillSet;
     private Double yoeActual;
+    private Double yoePortrayed;
     private String rating;
     private String candidateStatus;
     private Integer noOfInterviews;
@@ -81,6 +82,14 @@ public class CandidateMatch {
 
     public void setYoeActual(Double yoeActual) {
         this.yoeActual = yoeActual;
+    }
+
+    public Double getYoePortrayed() {
+        return yoePortrayed;
+    }
+
+    public void setYoePortrayed(Double yoePortrayed) {
+        this.yoePortrayed = yoePortrayed;
     }
 
     public String getRating() {

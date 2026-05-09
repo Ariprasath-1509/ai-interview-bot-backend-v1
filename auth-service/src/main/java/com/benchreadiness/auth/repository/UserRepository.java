@@ -37,4 +37,17 @@ public interface UserRepository extends JpaRepository<User, String> {
     
     @Query("SELECT u FROM User u WHERE u.role = 'CANDIDATE' AND u.candidateStatus = 'DEPLOYED'")
     List<User> findDeployedCandidates();
+    
+    // Bulk import duplicate check
+    @Query("SELECT CASE WHEN COUNT(u) > 0 THEN true ELSE false END FROM User u WHERE " +
+           "u.email = :email1 OR u.email = :email2 OR " +
+           "u.officialEmail = :email1 OR u.officialEmail = :email2 OR " +
+           "u.personalEmail = :email1 OR u.personalEmail = :email2 OR " +
+           "u.contactNumber = :contactNumber")
+    boolean existsByEmailOrOfficialEmailOrPersonalEmailOrContactNumber(
+        @Param("email1") String email1, 
+        @Param("email2") String email2, 
+        @Param("email1") String officialEmail1, 
+        @Param("email2") String officialEmail2, 
+        @Param("contactNumber") String contactNumber);
 }

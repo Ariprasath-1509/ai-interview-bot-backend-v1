@@ -56,7 +56,7 @@ public class ClientController {
                     // Try to get matching candidates for this client
                     if (client.getBenchB2bCandidatesNeeded() != null && client.getBenchB2bCandidatesNeeded() > 0) {
                         List<?> benchMatches = matchingService.findMatchingCandidates(
-                            client.getId().toString(), "BENCH_B2B", 1, userId, userRole
+                            client.getId().toString(), "BENCH_B2B", 1, null, null, userId, userRole
                         );
                         if (benchMatches != null && !benchMatches.isEmpty()) {
                             hasMatches = true;
@@ -65,7 +65,7 @@ public class ClientController {
                     
                     if (!hasMatches && client.getMarketCandidatesNeeded() != null && client.getMarketCandidatesNeeded() > 0) {
                         List<?> marketMatches = matchingService.findMatchingCandidates(
-                            client.getId().toString(), "MARKET", 1, userId, userRole
+                            client.getId().toString(), "MARKET", 1, null, null, userId, userRole
                         );
                         if (marketMatches != null && !marketMatches.isEmpty()) {
                             hasMatches = true;
@@ -139,8 +139,44 @@ public class ClientController {
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
     public ResponseEntity<ClientDTO> createClientJson(@RequestBody ClientDTO clientDTO) {
+        // Ensure backward compatibility - if no skill requirements provided, 
+        // create default ones based on legacy fields
+        if ((clientDTO.getSkillRequirements() == null || clientDTO.getSkillRequirements().isEmpty()) &&
+            (clientDTO.getBenchB2bCandidatesNeeded() > 0 || clientDTO.getMarketCandidatesNeeded() > 0)) {
+            
+            clientDTO = createLegacySkillRequirements(clientDTO);
+        }
+        
         ClientDTO created = clientService.createClient(clientDTO, null);
         return ResponseEntity.ok(created);
+    }
+    
+    private ClientDTO createLegacySkillRequirements(ClientDTO clientDTO) {
+        List<com.benchreadiness.interview.dto.SkillRequirementDTO> skillRequirements = new ArrayList<>();
+        
+        // Create a default JAVA_SB skill requirement if candidates are needed
+        if (clientDTO.getBenchB2bCandidatesNeeded() > 0 || clientDTO.getMarketCandidatesNeeded() > 0) {
+            com.benchreadiness.interview.dto.SkillRequirementDTO skillReq = 
+                new com.benchreadiness.interview.dto.SkillRequirementDTO(com.benchreadiness.interview.entity.SkillSet.JAVA_SB);
+            
+            List<com.benchreadiness.interview.dto.PositionRequirementDTO> positions = new ArrayList<>();
+            
+            if (clientDTO.getBenchB2bCandidatesNeeded() > 0) {
+                positions.add(new com.benchreadiness.interview.dto.PositionRequirementDTO(
+                    clientDTO.getBenchB2bCandidatesNeeded(), 3.0, "BENCH_B2B"));
+            }
+            
+            if (clientDTO.getMarketCandidatesNeeded() > 0) {
+                positions.add(new com.benchreadiness.interview.dto.PositionRequirementDTO(
+                    clientDTO.getMarketCandidatesNeeded(), 3.0, "MARKET"));
+            }
+            
+            skillReq.setPositions(positions);
+            skillRequirements.add(skillReq);
+        }
+        
+        clientDTO.setSkillRequirements(skillRequirements);
+        return clientDTO;
     }
 
     @PutMapping("/{id}")

@@ -28,7 +28,8 @@ public class MatchingController {
                                                    @RequestHeader("X-User-Id") String userId) {
         try {
             List<CandidateMatch> matches = matchingService.findMatchingCandidates(
-                req.getClientId(), req.getSource(), req.getMaxCandidates(), userId, userRole
+                req.getClientId(), req.getSource(), req.getMaxCandidates(), 
+                req.getSkillSet(), req.getMinYoeRequired(), userId, userRole
             );
             return ResponseEntity.ok(Map.of(
                 "matches", matches,
@@ -49,7 +50,7 @@ public class MatchingController {
                                                 @RequestHeader("X-User-Id") String userId) {
         try {
             List<CandidateMatch> matches = matchingService.findMatchingCandidates(
-                clientId, "BENCH_B2B", maxCandidates, userId, userRole
+                clientId, "BENCH_B2B", maxCandidates, null, null, userId, userRole
             );
             return ResponseEntity.ok(Map.of(
                 "matches", matches,
@@ -69,7 +70,7 @@ public class MatchingController {
                                                  @RequestHeader("X-User-Id") String userId) {
         try {
             List<CandidateMatch> matches = matchingService.findMatchingCandidates(
-                clientId, "MARKET", maxCandidates, userId, userRole
+                clientId, "MARKET", maxCandidates, null, null, userId, userRole
             );
             return ResponseEntity.ok(Map.of(
                 "matches", matches,

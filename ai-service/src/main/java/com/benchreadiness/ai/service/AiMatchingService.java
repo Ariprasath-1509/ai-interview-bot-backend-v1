@@ -54,11 +54,20 @@ public class AiMatchingService {
             **Job Description:** %s
             **Source:** %s
 
-            ## CANDIDATE ELIGIBILITY
-            **NOTE:** All candidates provided have already been pre-filtered to meet minimum criteria:
-            - Status: RFD (Ready for Deployment)
-            - Interview History: 3+ completed interviews in our system
-            - Each candidate includes REAL INTERVIEW EVIDENCE from their recent 3 interviews
+            ## CANDIDATE DATA STRUCTURE
+            
+            Each candidate object contains:
+            - **Basic Profile:** id, name, email, skillSet, rating, candidateStatus
+            - **Experience:** yoeForMatching (YOE Portrayed - use this for matching), yop (Year of Passing)
+            - **Resume:** resumeSummary (key for understanding background and projects)
+            - **Interview Evidence:** interviewEvidence object with:
+              - strengths: List of proven capabilities from recent interviews
+              - weaknesses: List of identified gaps from recent interviews  
+              - categoryScores: Average scores per technical category (e.g., {"java": 4.2, "spring": 3.8})
+              - recentInterviewCount: Number of recent interviews (1-3)
+              - averageScore: Overall interview performance average
+            
+            **CRITICAL: Always use yoeForMatching for experience comparisons, not yoeActual**
 
             ## MATCHING CRITERIA & WEIGHTS
 
@@ -71,9 +80,12 @@ public class AiMatchingService {
             - **Partial Match (0.10-0.15):** Some relevant skills but significant gaps
             - **Poor Match (0.05):** Minimal skill alignment
             - **USE interviewEvidence.categoryScores** to validate claimed skills with actual performance
+            - **USE resumeSummary** to understand project experience and technology depth
+            - **Cross-validate:** Resume claims vs Interview evidence vs JD requirements
 
             ### 2. EXPERIENCE LEVEL ALIGNMENT (25%% weight)
             - Extract required years from JD (look for "X+ years", "X years", role seniority indicators)
+            - **Use candidate's yoeForMatching field (YOE Portrayed) for experience comparison**
             - **Perfect (0.25):** Candidate YOE within ±0.5 years of requirement
             - **Close (0.20):** Within ±1 year
             - **Acceptable (0.15):** Within ±2 years
@@ -120,7 +132,7 @@ public class AiMatchingService {
             - **strengths:** List of proven capabilities from recent interviews (use these as primary strengths)
             - **weaknesses:** List of identified gaps from recent interviews (use these as primary concerns)
             - **categoryScores:** Average scores per technical category (e.g., {"java": 4.2, "spring": 3.8, "microservices": 3.5})
-            - **recentInterviewCount:** Number of recent interviews analyzed (always 3 for eligible candidates)
+            - **recentInterviewCount:** Number of recent interviews analyzed (1-3 for eligible candidates)
 
             **YOU MUST prioritize interview evidence over resume claims:**
             - If interviewEvidence shows weakness in a skill, mention it as a concern even if resume claims expertise
@@ -168,7 +180,7 @@ public class AiMatchingService {
                     "score": 0.20,
                     "requiredYoe": 5.0,
                     "candidateYoe": 5.5,
-                    "analysis": "Experience level perfectly matches requirements"
+                    "analysis": "Experience level perfectly matches requirements (using YOE Portrayed)"
                   },
                   "strengths": [
                     "Strong Java fundamentals demonstrated in recent interviews (avg 4.2/5)",

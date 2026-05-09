@@ -11,6 +11,7 @@ import java.util.List;
 public interface InterviewRepository extends JpaRepository<Interview, String> {
     List<Interview> findByEngineerId(String engineerId);
     List<Interview> findByStatus(InterviewStatus status);
+    List<Interview> findByStatusIn(List<InterviewStatus> statuses);
     
     @Query("SELECT i FROM Interview i JOIN Engineer e ON i.engineerId = e.id WHERE e.email = :email ORDER BY i.createdAt DESC")
     List<Interview> findByCandidateEmailOrderByCreatedAtDesc(@Param("email") String email);

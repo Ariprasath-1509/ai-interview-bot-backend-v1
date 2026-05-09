@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -57,6 +59,9 @@ public class Client {
     
     @Column(name = "jd_file_name")
     private String jdFileName;
+    
+    @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+    private List<SkillRequirement> skillRequirements = new ArrayList<>();
     
     // Constructors
     public Client() {}
@@ -195,6 +200,19 @@ public class Client {
     
     public void setJdFileName(String jdFileName) {
         this.jdFileName = jdFileName;
+    }
+    
+    public List<SkillRequirement> getSkillRequirements() {
+        return skillRequirements;
+    }
+    
+    public void setSkillRequirements(List<SkillRequirement> skillRequirements) {
+        this.skillRequirements = skillRequirements;
+    }
+    
+    public void addSkillRequirement(SkillRequirement skillRequirement) {
+        skillRequirements.add(skillRequirement);
+        skillRequirement.setClient(this);
     }
     
     @PrePersist

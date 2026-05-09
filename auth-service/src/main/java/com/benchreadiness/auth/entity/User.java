@@ -206,4 +206,10 @@ public class User {
     public void setInterviewMentorName(String interviewMentorName) { this.interviewMentorName = interviewMentorName; }
     public String getClientName() { return clientName; }
     public void setClientName(String clientName) { this.clientName = clientName; }
+    
+    // Timestamp getters and setters
+    public Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
 }
