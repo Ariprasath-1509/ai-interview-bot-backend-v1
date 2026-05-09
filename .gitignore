@@ -83,3 +83,9 @@ node_modules/
 # Gradle (if used)
 .gradle/
 **/.gradle/
+
+# Local Dev Files
+Dockerfile.local
+docker-compose.local.yml
+start-local.bat
+apache-maven-*/

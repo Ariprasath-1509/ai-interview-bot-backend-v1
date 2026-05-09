@@ -197,6 +197,24 @@ services:
       - bench-network
     restart: always
 
+  questionbank-service:
+    image: registry.gitlab.com/ty_optimize/optimize/questionbank_service:latest
+    container_name: questionbank-service
+    ports:
+      - "6010:6010"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://103.182.211.219:5434/aibot
+      SPRING_DATASOURCE_USERNAME: aibot
+      SPRING_DATASOURCE_PASSWORD: aibot!@#$%
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - bench-network
+    restart: always
+
 volumes:
   elasticsearch-data:
     driver: local
