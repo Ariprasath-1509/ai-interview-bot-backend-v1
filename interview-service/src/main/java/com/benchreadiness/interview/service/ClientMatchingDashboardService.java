@@ -72,7 +72,7 @@ public class ClientMatchingDashboardService {
 
         // Get matches from matching service (which calls AI) - no DB transaction here
         List<CandidateMatch> matches = matchingService.findMatchingCandidates(
-            clientId, source, 50, userId, userRole
+            clientId, source, 50, null, null, userId, userRole
         );
 
         // Build summary
@@ -180,7 +180,7 @@ public class ClientMatchingDashboardService {
         try {
             // Get matches from in-memory cache via matching service with limited candidates
             List<CandidateMatch> matches = matchingService.findMatchingCandidates(
-                clientId, source, 10, userId, userRole // Limit to 10 candidates for overview
+                clientId, source, 10, null, null, userId, userRole // Limit to 10 candidates for overview
             );
 
             if (matches == null || matches.isEmpty()) {

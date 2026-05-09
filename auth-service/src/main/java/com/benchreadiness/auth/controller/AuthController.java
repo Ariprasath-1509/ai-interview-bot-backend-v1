@@ -41,12 +41,14 @@ public class AuthController {
     private final OtpService otpService;
     private final EmailService emailService;
     private final com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient;
+    private final CandidateBulkImportService candidateBulkImportService;
 
     public AuthController(UserRepository userRepository, JwtService jwtService,
                          ExcelParserService excelParserService, BulkImportService bulkImportService,
                          DeploymentService deploymentService, OtpService otpService,
                          EmailService emailService,
-                         com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient) {
+                         com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient,
+                         CandidateBulkImportService candidateBulkImportService) {
         this.userRepository = userRepository;
         this.jwtService = jwtService;
         this.excelParserService = excelParserService;
@@ -55,6 +57,7 @@ public class AuthController {
         this.otpService = otpService;
         this.emailService = emailService;
         this.complianceServiceClient = complianceServiceClient;
+        this.candidateBulkImportService = candidateBulkImportService;
     }
 
     /** POST /auth/register — candidate self-registration */
@@ -256,7 +259,14 @@ public class AuthController {
     @GetMapping("/users/{id}")
     public ResponseEntity<?> getUserById(@PathVariable String id) {
         return userRepository.findById(id)
-            .map(u -> ResponseEntity.ok(buildUserMap(u)))
+            .map(u -> {
+                // Return full candidate profile for candidates, basic info for staff
+                if (u.getRole() == UserRole.CANDIDATE) {
+                    return ResponseEntity.ok(buildCandidateMap(u));
+                } else {
+                    return ResponseEntity.ok(buildUserMap(u));
+                }
+            })
             .orElse(ResponseEntity.notFound().build());
     }
 
@@ -460,6 +470,89 @@ public class AuthController {
         userRepository.save(user);
         
         return ResponseEntity.ok(Map.of("ok", true, "systemInterviewCount", user.getSystemInterviewCount()));
+    }
+
+    /** POST /auth/candidates/recalculate-system-interview-counts — Recalculate all system interview counts */
+    @PostMapping("/candidates/recalculate-system-interview-counts")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<?> recalculateSystemInterviewCounts(@RequestHeader("X-User-Role") String callerRole) {
+        try {
+            // This endpoint will be called by interview-service to sync counts
+            // For now, just reset all counts to 0 - interview-service will provide the actual counts
+            List<User> candidates = userRepository.findByRole(UserRole.CANDIDATE);
+            int updatedCount = 0;
+            
+            for (User candidate : candidates) {
+                candidate.setSystemInterviewCount(0);
+                userRepository.save(candidate);
+                updatedCount++;
+            }
+            
+            return ResponseEntity.ok(Map.of(
+                "ok", true, 
+                "message", "System interview counts reset",
+                "candidatesUpdated", updatedCount
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", e.getMessage()));
+        }
+    }
+
+    /** POST /auth/candidates/by-email/{email}/set-system-interview-count — Set specific count by email */
+    @PostMapping("/candidates/by-email/{email}/set-system-interview-count")
+    public ResponseEntity<?> setSystemInterviewCountByEmail(@PathVariable String email, @RequestBody Map<String, Integer> request) {
+        // Try to find by email, officialEmail, or personalEmail
+        User user = userRepository.findByOfficialEmailOrPersonalEmail(email, email).orElse(null);
+        if (user == null) {
+            user = userRepository.findByEmail(email).orElse(null);
+        }
+        if (user == null) return ResponseEntity.notFound().build();
+        if (user.getRole() != UserRole.CANDIDATE) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "User is not a candidate"));
+        }
+        
+        Integer newCount = request.get("count");
+        if (newCount == null || newCount < 0) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "Invalid count value"));
+        }
+        
+        user.setSystemInterviewCount(newCount);
+        userRepository.save(user);
+        
+        return ResponseEntity.ok(Map.of("ok", true, "systemInterviewCount", user.getSystemInterviewCount()));
+    }
+
+    /** POST /auth/candidates/bulk-import/api — Bulk import from third-party API */
+    @PostMapping("/candidates/bulk-import/api")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<?> bulkImportFromApi(@RequestParam String gdriveFileUrl,
+                                               @RequestHeader("X-User-Id") String userId,
+                                               @RequestHeader("X-User-Role") String callerRole) {
+        
+        if (gdriveFileUrl == null || gdriveFileUrl.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "Google Drive file URL is required"));
+        }
+        
+        try {
+            BulkImportResponse result = candidateBulkImportService.importFromThirdPartyApi(gdriveFileUrl, userId);
+            
+            // Log audit trail
+            logAudit(userId, null, callerRole, "BULK_IMPORT_API", "CANDIDATES",
+                String.format("API bulk import - Success: %d, Skipped: %d, Errors: %d", 
+                    result.getSuccessCount(), result.getSkippedCount(), result.getErrorCount()),
+                null, gdriveFileUrl);
+            
+            return ResponseEntity.ok(result);
+            
+        } catch (Exception e) {
+            logger.error("API bulk import failed for user: {}", userId, e);
+            
+            // Log audit trail for failure
+            logAudit(userId, null, callerRole, "BULK_IMPORT_API_FAILED", "CANDIDATES",
+                "API bulk import failed: " + e.getMessage(), null, gdriveFileUrl);
+            
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Import failed: " + e.getMessage()));
+        }
     }
 
     /** POST /auth/candidates/bulk-upload — Upload Excel file for bulk import validation */

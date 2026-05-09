@@ -32,7 +32,15 @@ public class ReviewService {
     }
 
     public List<Score> getScores(String interviewId) {
-        return scoreRepository.findByInterviewId(interviewId);
+        try {
+            log.info("Fetching scores for interview: {}", interviewId);
+            List<Score> scores = scoreRepository.findByInterviewId(interviewId);
+            log.info("Found {} scores for interview: {}", scores.size(), interviewId);
+            return scores;
+        } catch (Exception e) {
+            log.error("Error fetching scores for interview {}: {}", interviewId, e.getMessage(), e);
+            throw new RuntimeException("Failed to fetch scores for interview: " + interviewId, e);
+        }
     }
 
     @Transactional
@@ -103,6 +111,30 @@ public class ReviewService {
 
     public SignOff getSignOff(String interviewId) {
         return signOffRepository.findByInterviewId(interviewId).orElse(null);
+    }
+
+    public Map<String, Object> checkDatabaseHealth() {
+        try {
+            log.info("Checking database health...");
+            long scoreCount = scoreRepository.count();
+            long signOffCount = signOffRepository.count();
+            log.info("Database health check successful - Scores: {}, SignOffs: {}", scoreCount, signOffCount);
+            return Map.of(
+                "status", "UP",
+                "database", "Connected",
+                "scoreCount", scoreCount,
+                "signOffCount", signOffCount,
+                "timestamp", java.time.Instant.now().toString()
+            );
+        } catch (Exception e) {
+            log.error("Database health check failed: {}", e.getMessage(), e);
+            return Map.of(
+                "status", "DOWN",
+                "database", "Connection failed",
+                "error", e.getMessage(),
+                "timestamp", java.time.Instant.now().toString()
+            );
+        }
     }
 
     private void logAudit(String actorId, String actorName, String actorRole, String action, 

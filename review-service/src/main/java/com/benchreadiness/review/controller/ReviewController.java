@@ -28,6 +28,12 @@ public class ReviewController {
         return ResponseEntity.ok(reviewService.getScores(interviewId));
     }
 
+    /** GET /health/db — check database connectivity */
+    @GetMapping("/health/db")
+    public ResponseEntity<?> checkDatabaseHealth() {
+        return ResponseEntity.ok(reviewService.checkDatabaseHealth());
+    }
+
     /** POST /scores — save (replace) scores for an interview, called by ai-service after assessment */
     @PostMapping("/scores")
     public ResponseEntity<?> saveScores(@Valid @RequestBody SaveScoresRequest req) {

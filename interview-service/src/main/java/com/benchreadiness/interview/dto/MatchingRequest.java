@@ -8,6 +8,8 @@ public class MatchingRequest {
     
     private Integer maxCandidates = 10;
     private String source; // "BENCH_B2B" or "MARKET"
+    private String skillSet; // Optional: filter by specific skill
+    private Double minYoeRequired; // Optional: filter by specific YOE requirement
 
     public MatchingRequest() {}
 
@@ -39,5 +41,21 @@ public class MatchingRequest {
 
     public void setSource(String source) {
         this.source = source;
+    }
+
+    public String getSkillSet() {
+        return skillSet;
+    }
+
+    public void setSkillSet(String skillSet) {
+        this.skillSet = skillSet;
+    }
+
+    public Double getMinYoeRequired() {
+        return minYoeRequired;
+    }
+
+    public void setMinYoeRequired(Double minYoeRequired) {
+        this.minYoeRequired = minYoeRequired;
     }
 }

@@ -34,4 +34,10 @@ public interface AuthServiceClient {
 
     @PostMapping("/auth/candidates/by-email/{email}/increment-interview-count")
     Map<String, Object> incrementSystemInterviewCountByEmail(@PathVariable("email") String email);
+
+    @PostMapping("/auth/candidates/by-email/{email}/set-system-interview-count")
+    Map<String, Object> setSystemInterviewCountByEmail(@PathVariable("email") String email, @RequestBody Map<String, Integer> request);
+
+    @PostMapping("/auth/candidates/recalculate-system-interview-counts")
+    Map<String, Object> recalculateSystemInterviewCounts();
 }

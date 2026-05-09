@@ -1,6 +1,8 @@
 package com.benchreadiness.interview.dto;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 public class ClientDTO {
@@ -19,6 +21,7 @@ public class ClientDTO {
     private LocalDateTime updatedAt;
     private String docId;
     private String jdFileName;
+    private List<SkillRequirementDTO> skillRequirements = new ArrayList<>();
     
     // Constructors
     public ClientDTO() {}
@@ -28,7 +31,7 @@ public class ClientDTO {
                     Integer benchB2bCandidatesNeeded, String status, 
                     Boolean benchReviewed, Boolean recruitmentReviewed,
                     LocalDateTime createdAt, LocalDateTime updatedAt,
-                    String docId, String jdFileName) {
+                    String docId, String jdFileName, List<SkillRequirementDTO> skillRequirements) {
         this.id = id;
         this.clientName = clientName;
         this.jdRole = jdRole;
@@ -43,6 +46,7 @@ public class ClientDTO {
         this.updatedAt = updatedAt;
         this.docId = docId;
         this.jdFileName = jdFileName;
+        this.skillRequirements = skillRequirements != null ? skillRequirements : new ArrayList<>();
     }
     
     // Getters
@@ -157,5 +161,13 @@ public class ClientDTO {
     
     public void setJdFileName(String jdFileName) {
         this.jdFileName = jdFileName;
+    }
+    
+    public List<SkillRequirementDTO> getSkillRequirements() {
+        return skillRequirements;
+    }
+    
+    public void setSkillRequirements(List<SkillRequirementDTO> skillRequirements) {
+        this.skillRequirements = skillRequirements;
     }
 }
