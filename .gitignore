@@ -87,5 +87,7 @@ node_modules/
 # Local Dev Files
 Dockerfile.local
 docker-compose.local.yml
+docker-compose.db.yml
 start-local.bat
 apache-maven-*/
+LOCAL_DEV_README.md
