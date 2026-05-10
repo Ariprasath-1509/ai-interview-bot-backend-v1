@@ -20,15 +20,15 @@ eureka:
 app:
   llm:
     # Switch LLM provider: 'claude' (default) or 'ollama'
-    provider: claude
+    provider: ${APP_LLM_PROVIDER:claude}
   jwt:
     secret: dev-jwt-secret-change-in-production-min-32-chars
   claude:
-    api-key: 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
-    model: claude-haiku-4-5
-    assessment-model: claude-sonnet-4-5
-    question-temperature: 0.55
-    assessment-temperature: 0.25
+    api-key: ${APP_CLAUDE_API_KEY:}
+    model: ${APP_CLAUDE_MODEL:claude-haiku-4-5}
+    assessment-model: ${APP_CLAUDE_ASSESSMENT_MODEL:claude-sonnet-4-5}
+    question-temperature: ${APP_CLAUDE_QUESTION_TEMPERATURE:0.55}
+    assessment-temperature: ${APP_CLAUDE_ASSESSMENT_TEMPERATURE:0.25}
   ollama:
     base-url: http://103.182.211.219:11434
     model: qwen2.5:1.5b

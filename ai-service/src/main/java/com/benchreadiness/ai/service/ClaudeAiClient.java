@@ -45,6 +45,7 @@ public class ClaudeAiClient implements LlmClient {
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private volatile boolean authFailed = false;
 
     public ClaudeAiClient(ComplianceServiceClient complianceServiceClient) {
         this.complianceServiceClient = complianceServiceClient;
@@ -54,6 +55,9 @@ public class ClaudeAiClient implements LlmClient {
     
     @Override
     public boolean isConfigured() {
+        if (authFailed) {
+            return false;
+        }
         if (configuredCache == null) {
             configuredCache = apiKey != null && !apiKey.isBlank();
             log.info("Claude API configured: {}", configuredCache);
@@ -143,6 +147,12 @@ public class ClaudeAiClient implements LlmClient {
             }
         }
         
+        if (response.statusCode() == 401) {
+            authFailed = true;
+            configuredCache = false;
+            throw new RuntimeException("Claude returned 401: authentication failed (invalid x-api-key)");
+        }
+
         if (response.statusCode() != 200) {
             throw new RuntimeException("Claude returned " + response.statusCode() + ": " + response.body());
         }
