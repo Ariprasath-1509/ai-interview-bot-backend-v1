@@ -1,6 +1,7 @@
 package com.benchreadiness.ai.service;
 
 import com.benchreadiness.ai.client.ComplianceServiceClient;
+import com.benchreadiness.ai.exception.ClaudeAuthenticationException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -80,28 +81,28 @@ public class ClaudeAiClient implements LlmClient {
         };
     }
 
-    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
+    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2), exclude = {ClaudeAuthenticationException.class})
     public String chatRubric(String systemPrompt, String userPrompt) throws Exception {
         return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForOperation("rubric"));
     }
 
-    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
+    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2), exclude = {ClaudeAuthenticationException.class})
     public String chatQuestion(String systemPrompt, String userPrompt) throws Exception {
         return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForOperation("question"));
     }
 
-    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
+    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2), exclude = {ClaudeAuthenticationException.class})
     public String chatQuestionWithSlot(String systemPrompt, String userPrompt, int slot) throws Exception {
         String model = slot <= 5 ? questionModel : assessmentModel;
         return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForOperation("question"));
     }
 
-    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
+    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2), exclude = {ClaudeAuthenticationException.class})
     public String chatAssessment(String systemPrompt, String userPrompt) throws Exception {
         return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForOperation("assessment"));
     }
 
-    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
+    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2), exclude = {ClaudeAuthenticationException.class})
     public String chatMatching(String systemPrompt, String userPrompt) throws Exception {
         return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, dynamicMatchingMaxTokens(userPrompt));
     }
@@ -113,6 +114,13 @@ public class ClaudeAiClient implements LlmClient {
 
     private String chat(String systemPrompt, String userPrompt, String model,
                         double temperature, int maxTokens, String interviewId, String operationType, String userId) throws Exception {
+        String effectiveApiKey = apiKey == null ? "" : apiKey.trim();
+        if (effectiveApiKey.isBlank()) {
+            authFailed = true;
+            configuredCache = false;
+            throw new ClaudeAuthenticationException("Claude API key is missing");
+        }
+
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model);
         body.put("max_tokens", maxTokens);
@@ -125,7 +133,7 @@ public class ClaudeAiClient implements LlmClient {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(CLAUDE_API_URL))
                 .header("Content-Type", "application/json")
-                .header("x-api-key", apiKey)
+                .header("x-api-key", effectiveApiKey)
                 .header("anthropic-version", ANTHROPIC_VERSION)
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
                 .build();
@@ -150,7 +158,7 @@ public class ClaudeAiClient implements LlmClient {
         if (response.statusCode() == 401) {
             authFailed = true;
             configuredCache = false;
-            throw new RuntimeException("Claude returned 401: authentication failed (invalid x-api-key)");
+            throw new ClaudeAuthenticationException("Claude returned 401: authentication failed (invalid x-api-key)");
         }
 
         if (response.statusCode() != 200) {
