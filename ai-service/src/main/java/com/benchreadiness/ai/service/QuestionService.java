@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -90,6 +91,7 @@ public class QuestionService {
     private final LlmClient llmClient;
     private final QuestionCacheService cacheService;
     private final ConcurrentHashMap<String, CachedQuestionResult> requestCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicInteger> idempotencyHitCountByInterview = new ConcurrentHashMap<>();
 
     private record CachedQuestionResult(QuestionResult result, long createdAtMs) {}
 
@@ -102,6 +104,7 @@ public class QuestionService {
         String requestCacheKey = buildRequestCacheKey(req);
         QuestionResult cachedResult = getCachedResult(requestCacheKey);
         if (cachedResult != null) {
+            incrementIdempotencyHit(req.getInterviewId());
             return cachedResult;
         }
 
@@ -219,6 +222,17 @@ public class QuestionService {
     private void clearExpiredRequestCache() {
         long now = System.currentTimeMillis();
         requestCache.entrySet().removeIf(entry -> (now - entry.getValue().createdAtMs()) > QUESTION_CACHE_TTL_MS);
+    }
+
+    private void incrementIdempotencyHit(String interviewId) {
+        if (interviewId == null || interviewId.isBlank()) return;
+        idempotencyHitCountByInterview.computeIfAbsent(interviewId, key -> new AtomicInteger()).incrementAndGet();
+    }
+
+    public int getIdempotencyHits(String interviewId) {
+        if (interviewId == null || interviewId.isBlank()) return 0;
+        AtomicInteger count = idempotencyHitCountByInterview.get(interviewId);
+        return count != null ? count.get() : 0;
     }
 
     private boolean lastQuestionWasProbe(List<NextQuestionRequest.Utterance> utterances) {
