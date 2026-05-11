@@ -8,8 +8,7 @@ services:
       - xpack.security.enabled=false
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     ports:
-      - "9200:9200"
-      - "9300:9300"
+      - "6015:6015"
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
     networks:
@@ -28,7 +27,6 @@ services:
       - ./elk/logstash/pipeline:/usr/share/logstash/pipeline
     ports:
       - "6010:6010"
-      - "9600:9600"
     environment:
       - "LS_JAVA_OPTS=-Xmx256m -Xms256m"
     depends_on:
@@ -47,7 +45,7 @@ services:
     image: docker.elastic.co/kibana/kibana:8.11.0
     container_name: kibana
     ports:
-      - "5601:5601"
+      - "6012:6012"
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     depends_on:
@@ -201,8 +199,49 @@ services:
       - bench-network
     restart: always
 
+  whisper-stt:
+    image: fedirz/faster-whisper-server:latest-cpu
+    container_name: whisper-stt
+    ports:
+      - "6013:6013"
+    environment:
+      - WHISPER_MODEL=medium
+      - WHISPER_LANGUAGE=en
+    volumes:
+      - whisper-models:/root/.cache/whisper
+    networks:
+      - bench-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  coqui-tts:
+    build: ./tts-service
+    container_name: coqui-tts
+    ports:
+      - "6014:6014"
+    volumes:
+      - tts-models:/root/.local/share/tts
+    networks:
+      - bench-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/api/tts"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
 volumes:
   elasticsearch-data:
+    driver: local
+  whisper-models:
+    driver: local
+  tts-models:
     driver: local
 
 networks:
