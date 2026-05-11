@@ -6,19 +6,28 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
     ports:
-      - "6015:6015"
+      - "6015:9200"
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
     networks:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
-      interval: 10s
+      test: ["CMD-SHELL", "curl -u elastic:${ELASTIC_PASSWORD} -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
 
   logstash:
     image: docker.elastic.co/logstash/logstash:8.11.0
@@ -26,9 +35,12 @@ services:
     volumes:
       - ./elk/logstash/pipeline:/usr/share/logstash/pipeline
     ports:
-      - "6010:6010"
+      - "6010:5000"
     environment:
-      - "LS_JAVA_OPTS=-Xmx256m -Xms256m"
+      - "LS_JAVA_OPTS=-Xmx512m -Xms512m"
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTIC_USER=elastic
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -37,23 +49,42 @@ services:
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:9600 || exit 1"]
-      interval: 10s
+      interval: 30s
+      timeout: 10s
       retries: 10
-      start_period: 30s
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.11.0
     container_name: kibana
     ports:
-      - "6012:6012"
+      - "6012:5601"
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
     depends_on:
       elasticsearch:
         condition: service_healthy
     networks:
       - bench-network
     restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   eureka-server:
     image: registry.gitlab.com/ty_optimize/optimize/ai_eurekha:latest
@@ -67,9 +98,18 @@ services:
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:6009/actuator/health"]
-      interval: 10s
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 20s
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   compliance-service:
     image: registry.gitlab.com/ty_optimize/optimize/compliance_service:latest
@@ -86,6 +126,20 @@ services:
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6005/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   auth-service:
     image: registry.gitlab.com/ty_optimize/optimize/ai_auth:latest
@@ -102,6 +156,20 @@ services:
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6004/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   interview-service:
     image: registry.gitlab.com/ty_optimize/optimize/interview_service:latest
@@ -114,14 +182,28 @@ services:
       eureka-server:
         condition: service_healthy
       compliance-service:
-        condition: service_started
+        condition: service_healthy
       auth-service:
-        condition: service_started
+        condition: service_healthy
       logstash:
         condition: service_healthy
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6006/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
 
   ai-service:
     image: registry.gitlab.com/ty_optimize/optimize/ai_service:latest
@@ -138,12 +220,26 @@ services:
       eureka-server:
         condition: service_healthy
       compliance-service:
-        condition: service_started
+        condition: service_healthy
       logstash:
         condition: service_healthy
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6003/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
 
   observer-service:
     image: registry.gitlab.com/ty_optimize/optimize/observer_service:latest
@@ -156,14 +252,28 @@ services:
       eureka-server:
         condition: service_healthy
       auth-service:
-        condition: service_started
+        condition: service_healthy
       interview-service:
-        condition: service_started
+        condition: service_healthy
       logstash:
         condition: service_healthy
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6007/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   review-service:
     image: registry.gitlab.com/ty_optimize/optimize/review_service:latest
@@ -176,12 +286,26 @@ services:
       eureka-server:
         condition: service_healthy
       interview-service:
-        condition: service_started
+        condition: service_healthy
       logstash:
         condition: service_healthy
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6008/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   api-gateway:
     image: registry.gitlab.com/ty_optimize/optimize/api_gateway:latest
@@ -198,43 +322,67 @@ services:
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6002/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   whisper-stt:
     image: fedirz/faster-whisper-server:latest-cpu
     container_name: whisper-stt
     ports:
-      - "6013:6013"
+      - "6013:8000"
     environment:
       - WHISPER_MODEL=medium
       - WHISPER_LANGUAGE=en
+      - VAD_FILTER=true
+      - VAD_THRESHOLD=0.5
+      - VAD_MIN_SPEECH_DURATION_MS=250
+      - VAD_MAX_SPEECH_DURATION_S=30
+      - VAD_MIN_SILENCE_DURATION_MS=2000
+      - VAD_SPEECH_PAD_MS=400
     volumes:
       - whisper-models:/root/.cache/whisper
     networks:
       - bench-network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
 
   coqui-tts:
     build: ./tts-service
     container_name: coqui-tts
     ports:
-      - "6014:6014"
+      - "6014:5002"
     volumes:
       - tts-models:/root/.local/share/tts
     networks:
       - bench-network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5002/api/tts"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
 
 volumes:
   elasticsearch-data:
