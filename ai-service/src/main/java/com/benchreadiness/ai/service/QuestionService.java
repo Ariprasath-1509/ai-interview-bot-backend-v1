@@ -373,7 +373,8 @@ public class QuestionService {
             "next question", "skip", "skip this", "move on", "pass", "next",
             "i don't know this", "i dont know this", "not prepared", "can we skip",
             "different questions", "another questions", "can you please different questions",
-            "can you please ask different questions", "hello can you please ask different questions"
+            "can you please ask different questions", "hello can you please ask different questions",
+            "can we go", "lets move", "let's move"
         };
         
         for (String pattern : skipPatterns) {
@@ -382,8 +383,8 @@ public class QuestionService {
                 trimmed.startsWith(pattern + ",") ||
                 trimmed.endsWith(" " + pattern) ||
                 trimmed.contains(" " + pattern + " ")) {
-                log.info("Detected skip request: '{}' - allowing progression to next question", trimmed);
-                return false; // Allow moving to next question
+                log.info("Detected skip request: '{}' - NOT treating as vague, will progress naturally", trimmed);
+                return false; // Allow moving to next question without probe
             }
         }
         

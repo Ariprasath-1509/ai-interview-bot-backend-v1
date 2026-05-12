@@ -59,6 +59,21 @@ public class AssessmentService {
             return result;
         }
         
+        // Check transcription quality
+        double transcriptionQuality = assessTranscriptionQuality(utterances);
+        log.info("Transcription quality score for interview {}: {}", req.getInterviewId(), transcriptionQuality);
+        
+        if (transcriptionQuality < 0.5) {
+            log.warn("Poor transcription quality detected for interview {} (score: {}). Assessment may be unreliable.", 
+                    req.getInterviewId(), transcriptionQuality);
+            Map<String, Object> result = poorTranscriptionResult(
+                "Poor audio/transcription quality detected. Please review the transcript manually before making hiring decisions.",
+                transcriptionQuality
+            );
+            cacheAssessment(cacheKey, result);
+            return result;
+        }
+        
         if (!llmClient.isConfigured()) {
             log.warn("LLM provider not configured - falling back to heuristic assessment");
             Map<String, Object> result = heuristicAssessment(utterances);
@@ -699,6 +714,74 @@ public class AssessmentService {
         ));
         result.put("source", "thin-transcript");
         return result;
+    }
+    
+    private Map<String, Object> poorTranscriptionResult(String reason, double qualityScore) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("categoryScores", List.of());
+        result.put("proposedVerdict", "NEEDS_RESKILLING");
+        result.put("summary", reason + " Quality score: " + String.format("%.2f", qualityScore));
+        result.put("transcriptionQualityScore", qualityScore);
+        result.put("candidateFeedback", Map.of(
+            "summary", "The audio quality or transcription accuracy was too low to generate reliable feedback. Please retake the interview with better audio setup.",
+            "overallSummary", "The audio quality or transcription accuracy was too low to generate reliable feedback.",
+            "prosAndCons", List.of(),
+            "strengths", List.of(),
+            "areasToImprove", List.of("Ensure clear audio", "Use a good microphone", "Minimize background noise"),
+            "resumeConsistencyForCandidate", List.of(),
+            "roadmap", List.of(),
+            "estimatedReadiness", "Unable to assess due to poor transcription quality",
+            "estimatedReadinessTimeline", "Unable to assess due to poor transcription quality"
+        ));
+        result.put("source", "poor-transcription");
+        return result;
+    }
+    
+    private double assessTranscriptionQuality(List<Map<String, String>> utterances) {
+        List<Map<String, String>> candidateUtterances = utterances.stream()
+            .filter(u -> "CANDIDATE".equals(u.get("speaker")))
+            .toList();
+        
+        if (candidateUtterances.isEmpty()) return 0.0;
+        
+        int totalUtterances = candidateUtterances.size();
+        int qualityIssues = 0;
+        
+        // Patterns indicating poor transcription
+        String[] poorTranscriptionPatterns = {
+            "\\b(centigrade|airms|athletics)\\b",  // Common STT errors
+            "\\b[a-z]{15,}\\b",  // Very long words without spaces (STT concatenation)
+            "[^\\s]{30,}",  // 30+ chars without space
+            "\\b(uh|um|ah){3,}\\b",  // Excessive filler words in sequence
+            "\\b\\w\\s\\w\\s\\w\\b"  // Single letters with spaces (broken words)
+        };
+        
+        for (Map<String, String> utterance : candidateUtterances) {
+            String text = utterance.get("text").toLowerCase();
+            
+            // Check for poor transcription patterns
+            for (String pattern : poorTranscriptionPatterns) {
+                if (text.matches(".*" + pattern + ".*")) {
+                    qualityIssues++;
+                    break;
+                }
+            }
+            
+            // Check for very short responses (< 5 words repeatedly)
+            if (text.split("\\s+").length < 5) {
+                qualityIssues++;
+            }
+            
+            // Check for lack of technical terms (should have at least some)
+            boolean hasTechnicalContent = text.matches(".*(java|spring|api|database|service|class|method|system|application|code|implement|design|architecture).*");
+            if (!hasTechnicalContent && text.split("\\s+").length > 10) {
+                qualityIssues++;
+            }
+        }
+        
+        // Quality score: 1.0 = perfect, 0.0 = completely garbled
+        double qualityScore = 1.0 - ((double) qualityIssues / totalUtterances);
+        return Math.max(0.0, qualityScore);
     }
 
     private Map<String, Object> heuristicAssessment(List<Map<String, String>> utterances) {
