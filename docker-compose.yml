@@ -395,6 +395,10 @@ services:
       SPRING_DATASOURCE_USERNAME: aibot
       SPRING_DATASOURCE_PASSWORD: aibot!@#$%
       GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # Add Eureka configuration
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:6009/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: true
+      EUREKA_INSTANCE_HOSTNAME: questionbank-service
     depends_on:
       eureka-server:
         condition: service_healthy
