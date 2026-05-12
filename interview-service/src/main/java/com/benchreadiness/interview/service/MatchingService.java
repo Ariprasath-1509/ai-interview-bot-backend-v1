@@ -56,6 +56,31 @@ public class MatchingService {
         }
     }
     
+    /**
+     * Get all eligible candidates (RFD status with at least 1 completed interview)
+     * Cached for 5 minutes to speed up repeated calls
+     */
+    @Cacheable(value = "eligibleCandidates", key = "'all'")
+    public List<Map<String, Object>> getAllEligibleCandidates() {
+        try {
+            List<Map<String, Object>> allCandidates = authServiceClient.searchCandidates("");
+            
+            // Filter to only RFD candidates with at least 1 completed interview
+            return allCandidates.stream()
+                .filter(candidate -> {
+                    String candidateStatus = (String) candidate.get("candidateStatus");
+                    Integer systemInterviewCount = candidate.get("systemInterviewCount") != null ? 
+                        ((Number) candidate.get("systemInterviewCount")).intValue() : 0;
+                    
+                    return "RFD".equals(candidateStatus) && systemInterviewCount >= 1;
+                })
+                .collect(java.util.stream.Collectors.toList());
+        } catch (Exception e) {
+            System.err.println("Failed to fetch eligible candidates: " + e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+    
     private List<CandidateMatch> findMatchingCandidatesWithSkillFiltering(Client client, String source, Integer maxCandidates, 
                                                                             String filterSkillSet, Double filterMinYoe, String userId, String userRole) {
         List<CandidateMatch> allMatches = new ArrayList<>();

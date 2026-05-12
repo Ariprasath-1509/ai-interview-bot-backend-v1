@@ -41,41 +41,13 @@ public class ClientController {
         
         List<ClientDTO> allClients = clientService.getAllClients();
         
-        // Get clients with matching candidates using the matching service
+        // Quick rule-based check: does client have ANY matching candidates?
+        // No AI calls - just skill + YOE + status filtering
         List<ClientDTO> clientsWithMatches = new ArrayList<>();
         List<ClientDTO> clientsWithoutMatches = new ArrayList<>();
         
         for (ClientDTO client : allClients) {
-            boolean hasMatches = false;
-            
-            // Check if client needs candidates and has matches
-            if ((client.getBenchB2bCandidatesNeeded() != null && client.getBenchB2bCandidatesNeeded() > 0) ||
-                (client.getMarketCandidatesNeeded() != null && client.getMarketCandidatesNeeded() > 0)) {
-                
-                try {
-                    // Try to get matching candidates for this client
-                    if (client.getBenchB2bCandidatesNeeded() != null && client.getBenchB2bCandidatesNeeded() > 0) {
-                        List<?> benchMatches = matchingService.findMatchingCandidates(
-                            client.getId().toString(), "BENCH_B2B", 1, null, null, userId, userRole
-                        );
-                        if (benchMatches != null && !benchMatches.isEmpty()) {
-                            hasMatches = true;
-                        }
-                    }
-                    
-                    if (!hasMatches && client.getMarketCandidatesNeeded() != null && client.getMarketCandidatesNeeded() > 0) {
-                        List<?> marketMatches = matchingService.findMatchingCandidates(
-                            client.getId().toString(), "MARKET", 1, null, null, userId, userRole
-                        );
-                        if (marketMatches != null && !marketMatches.isEmpty()) {
-                            hasMatches = true;
-                        }
-                    }
-                } catch (Exception e) {
-                    // If matching service fails, treat as no matches
-                    log.warn("Failed to check matches for client {}: {}", client.getClientName(), e.getMessage());
-                }
-            }
+            boolean hasMatches = quickCheckForMatches(client);
             
             if (hasMatches) {
                 clientsWithMatches.add(client);
@@ -84,18 +56,17 @@ public class ClientController {
             }
         }
         
-        // If there are clients with matches, return only those
-        // Otherwise, return all clients with a message
+        // Return clients with matches first, or all if none have matches
         List<ClientDTO> clientsToReturn;
         String message;
         boolean hasMatchingClients = !clientsWithMatches.isEmpty();
         
         if (hasMatchingClients) {
             clientsToReturn = clientsWithMatches;
-            message = "";
+            message = "Showing clients with potential candidate matches (based on skill + experience)";
         } else {
             clientsToReturn = allClients;
-            message = "No matching clients found. Showing all available clients.";
+            message = "No matching candidates found. Showing all clients.";
         }
         
         Map<String, Object> response = Map.of(
@@ -108,6 +79,90 @@ public class ClientController {
         );
         
         return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * Quick rule-based check: Does this client have ANY candidates matching:
+     * 1. Skill requirement
+     * 2. YOE requirement (using yoePortrayed)
+     * 3. Status = RFD with at least 1 completed interview
+     * 
+     * NO AI CALLS - just database filtering for speed
+     */
+    private boolean quickCheckForMatches(ClientDTO client) {
+        try {
+            // Get all RFD candidates with at least 1 interview
+            List<Map<String, Object>> allCandidates = matchingService.getAllEligibleCandidates();
+            
+            // Check if client has skill requirements
+            if (client.getSkillRequirements() != null && !client.getSkillRequirements().isEmpty()) {
+                // New skill-based matching
+                for (var skillReq : client.getSkillRequirements()) {
+                    for (var posReq : skillReq.getPositions()) {
+                        // Check if ANY candidate matches this skill + YOE + source
+                        boolean hasMatch = allCandidates.stream().anyMatch(candidate -> 
+                            matchesSkillRequirement(candidate, skillReq.getSkillSet().name(), 
+                                                   posReq.getMinYoeRequired(), posReq.getSource())
+                        );
+                        
+                        if (hasMatch) {
+                            return true; // Found at least one match
+                        }
+                    }
+                }
+                return false;
+            } else {
+                // Legacy: check if ANY candidate matches the source
+                if (client.getBenchB2bCandidatesNeeded() != null && client.getBenchB2bCandidatesNeeded() > 0) {
+                    boolean hasMatch = allCandidates.stream()
+                        .anyMatch(c -> "BENCH".equals(c.get("source")) || "B2B".equals(c.get("source")));
+                    if (hasMatch) return true;
+                }
+                
+                if (client.getMarketCandidatesNeeded() != null && client.getMarketCandidatesNeeded() > 0) {
+                    boolean hasMatch = allCandidates.stream()
+                        .anyMatch(c -> "MARKET".equals(c.get("source")));
+                    if (hasMatch) return true;
+                }
+                
+                return false;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to check matches for client {}: {}", client.getClientName(), e.getMessage());
+            return false; // On error, assume no matches
+        }
+    }
+    
+    /**
+     * Check if candidate matches skill requirement:
+     * - Skill set matches
+     * - YOE portrayed >= minimum required
+     * - Source matches (BENCH/B2B or MARKET)
+     */
+    private boolean matchesSkillRequirement(Map<String, Object> candidate, String requiredSkill, 
+                                           Double minYoeRequired, String requiredSource) {
+        // 1. Check skill match
+        String candidateSkill = (String) candidate.get("skillSet");
+        if (!requiredSkill.equals(candidateSkill)) {
+            return false;
+        }
+        
+        // 2. Check YOE match (use yoePortrayed for client matching)
+        Double yoePortrayed = candidate.get("yoePortrayed") != null ? 
+            ((Number) candidate.get("yoePortrayed")).doubleValue() : 0.0;
+        if (yoePortrayed < minYoeRequired) {
+            return false;
+        }
+        
+        // 3. Check source match
+        String candidateSource = (String) candidate.get("source");
+        if ("BENCH_B2B".equals(requiredSource)) {
+            return "BENCH".equals(candidateSource) || "B2B".equals(candidateSource);
+        } else if ("MARKET".equals(requiredSource)) {
+            return "MARKET".equals(candidateSource);
+        }
+        
+        return false;
     }
 
     @GetMapping
