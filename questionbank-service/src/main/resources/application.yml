@@ -99,7 +99,7 @@ management:
 # --- App-specific config ---
 app:
   cors:
-    allowed-origins: http://localhost:5173,http://localhost:3000,http://localhost:6001,http://localhost:6101,http://103.182.211.219:6001,http://103.182.211.219:6101
+    allowed-origins: http://localhost:5173,http://localhost:3000,http://localhost:6001,http://localhost:6101,http://103.182.211.219:6001,http://103.182.211.219:6101,https://prod.voiceaibot.in
   email:
     sender-email: learningdevelopment.tyss@gmail.com
     sender-name: QuestionBank

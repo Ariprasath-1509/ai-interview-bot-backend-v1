@@ -269,6 +269,14 @@ public class CandidateMatchingService {
             }
             enhanced.put("resumeSummary", resumeSummary);
             
+            // Ensure both interview counts are present
+            Integer systemInterviewCount = candidate.get("systemInterviewCount") != null ? 
+                ((Number) candidate.get("systemInterviewCount")).intValue() : 0;
+            Integer noOfInterviews = candidate.get("noOfInterviews") != null ? 
+                ((Number) candidate.get("noOfInterviews")).intValue() : 0;
+            enhanced.put("systemInterviewCount", systemInterviewCount);
+            enhanced.put("noOfInterviews", noOfInterviews);
+            
             // Add interview evidence from recent interviews
             Map<String, Object> interviewEvidence = getInterviewEvidence(candidate);
             enhanced.put("interviewEvidence", interviewEvidence);
