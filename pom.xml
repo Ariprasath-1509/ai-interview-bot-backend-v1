@@ -19,6 +19,7 @@
     <module>observer-service</module>
     <module>review-service</module>
     <module>compliance-service</module>
+    <module>questionbank-service</module>
   </modules>
 
   <parent>
