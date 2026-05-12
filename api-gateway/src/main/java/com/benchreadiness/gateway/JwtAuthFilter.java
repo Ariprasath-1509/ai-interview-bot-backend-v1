@@ -22,7 +22,16 @@ import java.util.List;
 public class JwtAuthFilter implements GlobalFilter, Ordered {
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthFilter.class);
-    private static final List<String> PUBLIC_PATHS = List.of("/auth/login", "/auth/logout", "/auth/register", "/auth/forgot-password", "/auth/reset-password", "/actuator");
+    private static final List<String> PUBLIC_PATHS = List.of(
+        "/auth/login", 
+        "/auth/logout", 
+        "/auth/register", 
+        "/auth/forgot-password", 
+        "/auth/reset-password", 
+        "/actuator",
+        "/api/qb",
+        "/api/questionbank"
+    );
 
     @Value("${app.jwt.secret}")
     private String jwtSecret;
