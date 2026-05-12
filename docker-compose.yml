@@ -388,7 +388,7 @@ services:
     image: registry.gitlab.com/ty_optimize/optimize/questionbank_service:latest
     container_name: questionbank-service
     ports:
-      - "6010:6010"
+      - "6016:6016"
     environment:
       SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:postgresql://103.182.211.219:5434/aibot

@@ -6,31 +6,43 @@ spring:
     active: local
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL}
-    username: ${SPRING_DATASOURCE_USERNAME}
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    url: jdbc:postgresql://103.182.211.219:5434/aibot?serverTimezone=UTC
+    username: aibot
+    password: aibot!@#$%
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 3
+      minimum-idle: 1
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 30000
+      validation-timeout: 5000
+      connection-init-sql: SET TIME ZONE 'UTC'
 
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO}
+      ddl-auto: none
     properties:
       hibernate:
-        default_schema: ${SPRING_JPA_PROPERTIES_HIBERNATE_DEFAULT_SCHEMA}
+        default_schema: questionbank_svc
         dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          time_zone: UTC
 
   flyway:
-    schemas: ${SPRING_FLYWAY_SCHEMAS}
-    locations: ${SPRING_FLYWAY_LOCATIONS}
-    baseline-on-migrate: ${SPRING_FLYWAY_BASELINE_ON_MIGRATE}
-    validate-on-migrate: ${SPRING_FLYWAY_VALIDATE_ON_MIGRATE}
+    schemas: questionbank_svc
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: false
     ignore-migration-patterns: "*:missing,*:ignored"
 
   mail:
-    host: ${SPRING_MAIL_HOST}
-    port: ${SPRING_MAIL_PORT}
-    username: ${SPRING_MAIL_USERNAME}
-    password: ${SPRING_MAIL_PASSWORD}
+    host: smtp.gmail.com
+    port: 587
+    username: learningdevelopment.tyss@gmail.com
+    password: xcbc bgrj lbql tgkd
     properties:
       mail:
         smtp:
@@ -40,7 +52,7 @@ spring:
 
   ai:
     openai:
-      api-key: ${GROQ_API_KEY}
+      api-key: ${GROQ_API_KEY:your-groq-api-key-here}
       base-url: https://api.groq.com/openai
       chat:
         options:
@@ -59,7 +71,7 @@ spring:
       spec: maximumSize=500,expireAfterWrite=600s
 
 server:
-  port: 6010
+  port: 6016
   servlet:
     context-path: /
   compression:
@@ -75,20 +87,37 @@ springdoc:
     tags-sorter: alpha
     operations-sorter: alpha
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,env,loggers
+  endpoint:
+    health:
+      show-details: always
+
 # --- App-specific config ---
 app:
   cors:
-    allowed-origins: http://localhost:5173,http://localhost:3000
+    allowed-origins: http://localhost:5173,http://localhost:3000,http://localhost:6001,http://localhost:6101,http://103.182.211.219:6001,http://103.182.211.219:6101
   email:
-    sender-email: ${SPRING_MAIL_USERNAME}
+    sender-email: learningdevelopment.tyss@gmail.com
     sender-name: QuestionBank
+  jwt:
+    secret: dev-jwt-secret-change-in-production-min-32-chars
+    expiry-ms: 86400000
+  claude:
+    api-key: ${CLAUDE_API_KEY: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}
+    model: ${CLAUDE_MODEL:claude-haiku-4-5}
 
 eureka:
   client:
     service-url:
-      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE}
+      defaultZone: http://localhost:6009/eureka/
     fetch-registry: true
     register-with-eureka: true
   instance:
     hostname: localhost
     prefer-ip-address: false
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
