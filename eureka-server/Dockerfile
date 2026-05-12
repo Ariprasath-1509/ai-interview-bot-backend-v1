@@ -1,4 +1,11 @@
 FROM registry.access.redhat.com/ubi9/openjdk-21:1.20
-COPY ./eureka-server/target/eureka-server-0.0.1-SNAPSHOT.jar app.jar
+
+RUN microdnf install -y curl && microdnf clean all
+
+WORKDIR /app
+
+COPY target/*.jar app.jar
+
 EXPOSE 6009
-ENTRYPOINT ["java", "-jar", "app.jar"]
+
+ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]
