@@ -1,6 +1,6 @@
 FROM registry.access.redhat.com/ubi9/openjdk-21:1.20
 
-COPY --chown=185 api-gateway/target/*.jar /deployments/app.jar
+COPY --chown=185 target/*.jar /deployments/app.jar
 
 EXPOSE 6016
 
