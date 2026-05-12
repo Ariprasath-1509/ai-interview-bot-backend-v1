@@ -97,7 +97,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6009/actuator/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6009/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -127,7 +127,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6005/actuator/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6005/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -157,7 +157,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6004/actuator/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6004/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -191,7 +191,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6006/actuator/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6006/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -227,7 +227,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6003/actuator/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6003/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -261,7 +261,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6007/actuator/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6007/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -293,7 +293,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6008/actuator/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6008/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -323,7 +323,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6002/actuator/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6002/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
