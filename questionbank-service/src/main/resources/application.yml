@@ -1,0 +1,94 @@
+spring:
+  application:
+    name: questionbank-service
+
+  profiles:
+    active: local
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO}
+    properties:
+      hibernate:
+        default_schema: ${SPRING_JPA_PROPERTIES_HIBERNATE_DEFAULT_SCHEMA}
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  flyway:
+    schemas: ${SPRING_FLYWAY_SCHEMAS}
+    locations: ${SPRING_FLYWAY_LOCATIONS}
+    baseline-on-migrate: ${SPRING_FLYWAY_BASELINE_ON_MIGRATE}
+    validate-on-migrate: ${SPRING_FLYWAY_VALIDATE_ON_MIGRATE}
+    ignore-migration-patterns: "*:missing,*:ignored"
+
+  mail:
+    host: ${SPRING_MAIL_HOST}
+    port: ${SPRING_MAIL_PORT}
+    username: ${SPRING_MAIL_USERNAME}
+    password: ${SPRING_MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+  ai:
+    openai:
+      api-key: ${GROQ_API_KEY}
+      base-url: https://api.groq.com/openai
+      chat:
+        options:
+          model: ${AI_MODEL:llama-3.3-70b-versatile}
+          temperature: 0.2
+
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+  cache:
+    type: caffeine
+    cache-names: questions,question,companies,tags,sessions,admin-dashboard
+    caffeine:
+      spec: maximumSize=500,expireAfterWrite=600s
+
+server:
+  port: 6010
+  servlet:
+    context-path: /
+  compression:
+    enabled: true
+    min-response-size: 1024
+    mime-types: application/json,text/html,text/css,application/javascript,text/plain
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+
+# --- App-specific config ---
+app:
+  cors:
+    allowed-origins: http://localhost:5173,http://localhost:3000
+  email:
+    sender-email: ${SPRING_MAIL_USERNAME}
+    sender-name: QuestionBank
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE}
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    hostname: localhost
+    prefer-ip-address: false

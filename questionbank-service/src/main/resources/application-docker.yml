@@ -1,0 +1,37 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://103.182.211.219:5434/aibot
+    username: aibot
+    password: aibot!@#$%
+  jpa:
+    properties:
+      hibernate:
+        default_schema: questionbank_svc
+  flyway:
+    schemas: questionbank_svc
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: learningdevelopment.tyss@gmail.com
+    password: xcbc bgrj lbql tgkd
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+  ai:
+    openai:
+      api-key: ${GROQ_API_KEY:}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka-server:6009/eureka/
+  instance:
+    prefer-ip-address: true
+
+app:
+  email:
+    sender-email: learningdevelopment.tyss@gmail.com
+    sender-name: QuestionBank

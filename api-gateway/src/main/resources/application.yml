@@ -76,6 +76,12 @@ spring:
           uri: lb://compliance-service
           predicates:
             - Path=/compliance/**,/tokens/**
+        - id: questionbank-service
+          uri: lb://questionbank-service
+          predicates:
+            - Path=/api/qb/**
+          filters:
+            - RewritePath=/api/qb/(?<segment>.*), /$\{segment}
 
 eureka:
   client:
