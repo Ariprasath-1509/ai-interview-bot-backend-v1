@@ -409,14 +409,6 @@ services:
       - "6016:6016"
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      SPRING_DATASOURCE_URL: jdbc:postgresql://103.182.211.219:5434/aibot
-      SPRING_DATASOURCE_USERNAME: aibot
-      SPRING_DATASOURCE_PASSWORD: aibot!@#$%
-      CLAUDE_API_KEY: ${APP_CLAUDE_API_KEY}
-      CLAUDE_MODEL: ${APP_CLAUDE_MODEL:-claude-haiku-4-5}
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:6009/eureka/
-      EUREKA_INSTANCE_PREFER_IP_ADDRESS: true
-      EUREKA_INSTANCE_HOSTNAME: questionbank-service
       JAVA_OPTS: "-Xms512m -Xmx1024m -XX:+UseG1GC"
     depends_on:
       eureka-server:
