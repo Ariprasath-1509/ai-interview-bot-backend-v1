@@ -13,31 +13,9 @@
     </appender>
 
     <springProfile name="docker">
-        <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
-            <destination>${logstashHost}:${logstashPort}</destination>
-            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-                <customFields>{"serviceName":"${serviceName}"}</customFields>
-                <includeMdcKeyName>traceId</includeMdcKeyName>
-                <includeMdcKeyName>userId</includeMdcKeyName>
-                <includeMdcKeyName>userRole</includeMdcKeyName>
-                <includeMdcKeyName>userEmail</includeMdcKeyName>
-            </encoder>
-            <keepAliveDuration>5 minutes</keepAliveDuration>
-            <!-- Make Logstash connection non-blocking -->
-            <reconnectionDelay>30 second</reconnectionDelay>
-            <secondaryConnectionTTL>5 minutes</secondaryConnectionTTL>
-        </appender>
-        <appender name="ASYNC_LOGSTASH" class="ch.qos.logback.classic.AsyncAppender">
-            <appender-ref ref="LOGSTASH"/>
-            <queueSize>512</queueSize>
-            <discardingThreshold>0</discardingThreshold>
-            <includeCallerData>false</includeCallerData>
-            <!-- Never block on logging -->
-            <neverBlock>true</neverBlock>
-        </appender>
+        <!-- Eureka server uses console logging only to avoid startup delays -->
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="ASYNC_LOGSTASH"/>
         </root>
     </springProfile>
 
