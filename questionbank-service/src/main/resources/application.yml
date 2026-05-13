@@ -6,7 +6,7 @@ spring:
     active: local
 
   datasource:
-    url: jdbc:postgresql://103.182.211.219:5434/aibot?serverTimezone=UTC
+    url: jdbc:postgresql://103.182.211.219:5434/aibot?serverTimezone=UTC&currentSchema=questionbank_svc&searchpath=questionbank_svc,public
     username: aibot
     password: aibot!@#$%
     driver-class-name: org.postgresql.Driver
@@ -18,7 +18,7 @@ spring:
       max-lifetime: 1800000
       leak-detection-threshold: 30000
       validation-timeout: 5000
-      connection-init-sql: SET TIME ZONE 'UTC'
+      connection-init-sql: SET search_path TO questionbank_svc, public; SET TIME ZONE 'UTC';
 
   jpa:
     open-in-view: false
@@ -49,15 +49,6 @@ spring:
           auth: true
           starttls:
             enable: true
-
-  ai:
-    openai:
-      api-key: ${CLAUDE_API_KEY:your-claude-api-key-here}
-      base-url: https://api.anthropic.com/v1
-      chat:
-        options:
-          model: ${CLAUDE_MODEL:claude-haiku-4-5}
-          temperature: 0.2
 
   jackson:
     default-property-inclusion: non_null
@@ -107,7 +98,7 @@ app:
     secret: dev-jwt-secret-change-in-production-min-32-chars
     expiry-ms: 86400000
   claude:
-    api-key: ${CLAUDE_API_KEY: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}
+    api-key: ${CLAUDE_API_KEY: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}
     model: ${CLAUDE_MODEL:claude-haiku-4-5}
 
 eureka:

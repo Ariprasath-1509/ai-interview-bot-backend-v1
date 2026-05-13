@@ -7,7 +7,9 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 
 import java.util.TimeZone;
 
-@SpringBootApplication
+@SpringBootApplication(exclude = {
+		org.springframework.ai.autoconfigure.openai.OpenAiAutoConfiguration.class
+})
 @EnableDiscoveryClient
 @EnableFeignClients
 public class QuestionbankApiApplication {

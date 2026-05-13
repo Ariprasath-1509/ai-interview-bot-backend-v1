@@ -15,7 +15,6 @@ import com.qb.core.service.CompanyService;
 import com.qb.core.service.RelevancyScoreService;
 import com.qb.core.service.TagService;
 import com.qb.core.repository.SessionRepository;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.converter.BeanOutputConverter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,13 +40,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class DigestService {
 
-    @Value("${spring.ai.openai.chat.options.model}")
-    private String aiModel;
-
     @Value("${app.claude.api-key:}")
     private String claudeApiKey;
 
-    @Value("${app.claude.model:claude-haiku-4-5}")
+    @Value("${app.claude.model:claude-3-5-haiku-20241022}")
     private String claudeModel;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -55,7 +51,7 @@ public class DigestService {
 
     @PostConstruct
     public void init() {
-        log.info("Initialized Spring AI with model: {}", aiModel);
+        log.info("Initialized DigestService with Claude model: {}", claudeModel);
     }
 
     private LocalDate parseDate(String dateStr) {
@@ -86,7 +82,6 @@ public class DigestService {
         }
     }
 
-    private final ChatClient chatClient;
     private final FuzzyMatchService fuzzyMatchService;
     private final CompanyService companyService;
     private final CategoryService categoryService;
@@ -97,7 +92,6 @@ public class DigestService {
     private final RelevancyScoreService relevancyScoreService;
 
     public DigestService(
-            ChatClient.Builder chatClientBuilder,
             FuzzyMatchService fuzzyMatchService,
             CompanyService companyService,
             CategoryService categoryService,
@@ -107,7 +101,6 @@ public class DigestService {
             OccurrenceRepository occurrenceRepo,
             RelevancyScoreService relevancyScoreService
     ) {
-        this.chatClient = chatClientBuilder.build();
         this.fuzzyMatchService = fuzzyMatchService;
         this.companyService = companyService;
         this.categoryService = categoryService;
@@ -128,22 +121,12 @@ public class DigestService {
         // 1. Fetch category list from DB for constrained classification
         String categoryList = String.join(", ", categoryService.getAllCategoryNames());
 
-        // 2. Call AI to extract structured data
-        log.info("Calling Spring AI to parse interview text ({} chars)", rawText.length());
+        // 2. Call Claude AI to extract structured data
+        log.info("Calling Claude AI to parse interview text ({} chars)", rawText.length());
 
         BeanOutputConverter<DigestAiResponse> converter = new BeanOutputConverter<>(DigestAiResponse.class);
 
-        DigestAiResponse aiResult;
-        try {
-            aiResult = chatClient.prompt()
-                    .system(s -> s.text(PromptTemplates.DIGEST_SYSTEM_PROMPT).param("categoryList", categoryList))
-                    .user(rawText)
-                    .call()
-                    .entity(converter);
-        } catch (Exception e) {
-            log.warn("Groq failed ({}), falling back to Claude", e.getMessage());
-            aiResult = callClaude(rawText, categoryList, converter);
-        }
+        DigestAiResponse aiResult = callClaude(rawText, categoryList, converter);
 
         // 3. Convert AI output to response DTOs + run fuzzy matching
         List<ParsedSession> sessions = new ArrayList<>();
