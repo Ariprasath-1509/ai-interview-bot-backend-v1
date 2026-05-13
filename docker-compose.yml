@@ -43,8 +43,6 @@ services:
     environment:
       - "LS_JAVA_OPTS=-Xmx768m -Xms768m"
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - ELASTIC_USER=elastic
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -75,8 +73,6 @@ services:
       - "6012:5601"
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - ELASTICSEARCH_USERNAME=elastic
-      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -398,7 +394,7 @@ services:
           memory: 4G
 
   coqui-tts:
-    build: ./tts-service
+    image: registry.gitlab.com/ty_optimize/optimize/coqui_tts:latest
     container_name: coqui-tts
     mem_limit: 2g
     memswap_limit: 2g
