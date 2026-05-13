@@ -172,7 +172,7 @@ public class DigestService {
 
         Map<String, Object> body = Map.of(
                 "model", claudeModel,
-                "max_tokens", 2000,
+                "max_tokens", 8000,
                 "messages", List.of(Map.of("role", "user", "content", fullPrompt))
         );
 
