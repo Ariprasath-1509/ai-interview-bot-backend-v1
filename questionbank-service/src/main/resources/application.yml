@@ -52,11 +52,11 @@ spring:
 
   ai:
     openai:
-      api-key: ${GROQ_API_KEY:your-groq-api-key-here}
-      base-url: https://api.groq.com/openai
+      api-key: ${CLAUDE_API_KEY:your-claude-api-key-here}
+      base-url: https://api.anthropic.com/v1
       chat:
         options:
-          model: ${AI_MODEL:llama-3.3-70b-versatile}
+          model: ${CLAUDE_MODEL:claude-haiku-4-5}
           temperature: 0.2
 
   jackson:
