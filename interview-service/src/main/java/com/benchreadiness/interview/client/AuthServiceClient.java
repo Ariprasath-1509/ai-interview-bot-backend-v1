@@ -40,4 +40,8 @@ public interface AuthServiceClient {
 
     @PostMapping("/auth/candidates/recalculate-system-interview-counts")
     Map<String, Object> recalculateSystemInterviewCounts();
+
+    @GetMapping("/auth/candidates/{candidateId}")
+    Map<String, Object> getCandidateById(@PathVariable("candidateId") String candidateId,
+                                        @RequestHeader("X-User-Id") String userId);
 }
