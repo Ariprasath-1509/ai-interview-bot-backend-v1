@@ -141,17 +141,16 @@ public class PdfGenerationService {
         subheading.setSpacingAfter(5);
         document.add(subheading);
 
-        PdfPTable table = new PdfPTable(new float[]{2, 1, 3, 3});
+        PdfPTable table = new PdfPTable(new float[]{3, 1, 4});
         table.setWidthPercentage(100);
         table.setSpacingAfter(10);
 
-        addTableHeader(table, "Category", "Score", "Strengths", "Gaps");
+        addTableHeader(table, "Category", "Score", "Gaps to Address");
 
         for (CandidateReviewSummary.CategoryScore score : scores) {
             addCell(table, capitalize(score.getDimension()), NORMAL_FONT);
             addCell(table, String.valueOf(score.getValue()), BOLD_FONT, getScoreColor(score.getValue()));
-            addCell(table, cleanJsonArray(score.getStrengths()), SMALL_FONT);
-            addCell(table, score.getGap() != null ? score.getGap() : "-", SMALL_FONT);
+            addCell(table, score.getGap() != null && !score.getGap().isEmpty() ? score.getGap() : "None identified", SMALL_FONT);
         }
 
         document.add(table);
