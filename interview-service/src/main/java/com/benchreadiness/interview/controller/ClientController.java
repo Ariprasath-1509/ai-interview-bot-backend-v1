@@ -6,12 +6,15 @@ import com.benchreadiness.interview.service.MatchingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -234,11 +237,26 @@ public class ClientController {
         return clientDTO;
     }
 
-    @PutMapping("/{id}")
+    @PutMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
-    public ResponseEntity<ClientDTO> updateClient(@PathVariable UUID id,
-                                                  @RequestBody ClientDTO clientDTO) {
-        return ResponseEntity.ok(clientService.updateClient(id, clientDTO));
+    public ResponseEntity<ClientDTO> updateClientJson(@PathVariable UUID id,
+                                                       @RequestBody ClientDTO clientDTO) {
+        return ResponseEntity.ok(clientService.updateClient(id, clientDTO, null));
+    }
+
+    @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<ClientDTO> updateClientMultipart(
+            @PathVariable UUID id,
+            @RequestPart("client") String clientJson,
+            @RequestPart(value = "jdFile", required = false) MultipartFile jdFile) {
+        try {
+            ClientDTO clientDTO = objectMapper.readValue(clientJson, ClientDTO.class);
+            return ResponseEntity.ok(clientService.updateClient(id, clientDTO, jdFile));
+        } catch (Exception e) {
+            log.warn("updateClient multipart parse failed: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
     }
 
     @DeleteMapping("/{id}")
@@ -256,5 +274,23 @@ public class ClientController {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(Map.of("docId", docId));
+    }
+
+    @GetMapping("/{id}/jd-file")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<byte[]> downloadClientJd(@PathVariable UUID id) {
+        var jd = clientService.getJdFileDownload(id);
+        if (jd.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        var file = jd.get();
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(file.filename(), StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .contentLength(file.data().length)
+                .body(file.data());
     }
 }

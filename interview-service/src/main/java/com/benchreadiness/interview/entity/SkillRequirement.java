@@ -21,7 +21,7 @@ public class SkillRequirement {
     @Column(nullable = false)
     private SkillSet skillSet;
     
-    @OneToMany(mappedBy = "skillRequirement", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+    @OneToMany(mappedBy = "skillRequirement", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<PositionRequirement> positions = new ArrayList<>();
     
     // Constructors
