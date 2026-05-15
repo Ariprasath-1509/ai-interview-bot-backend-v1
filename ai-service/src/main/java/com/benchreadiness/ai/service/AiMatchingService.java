@@ -54,26 +54,120 @@ public class AiMatchingService {
     }
 
     private String buildMatchingPrompt(MatchingRequest request) {
-        String jdDigest = truncate(request.getJdDescription(), 1000);
         return """
-            You are a technical recruiter ranking candidates against a JD.
-            Use only the candidate JSON provided in the user message.
-
+            You are a highly strict technical recruiter and engineering evaluator ranking candidates against a JD.
+            
+            Use ONLY the candidate JSON provided in the user message.
+            Do NOT assume missing skills or inflate scores.
+            
             CLIENT:
             - Name: %s
             - Role: %s
             - Source: %s
-            - JD digest: %s
-
-            RULES:
-            - Use yoeForMatching for experience comparison.
-            - Use interviewEvidence as primary truth (resume can support context).
-            - Weights: skill 30%%, experience 25%%, role complexity 20%%, quality 15%%, interview performance 10%%.
-            - Penalize very high interview frequency (>= 7 progressively; >=20 severe).
+            - JD requirements: %s
+            
+            EVALUATION OBJECTIVE:
+            Generate a REALISTIC hiring-fit score, not a resume keyword similarity score.
+            A candidate with critical gaps MUST NOT receive a high score even if partial skills match.
+            
+            MANDATORY RULES:
+            - Use yoePortrayed (yoeForMatching field) for experience comparison.
+            - Use interviewEvidence as PRIMARY source of truth.
+            - Resume data is secondary and only supportive.
+            - Prefer depth over keyword presence.
+            - Penalize shallow exposure to complex architecture topics.
+            - Penalize missing mandatory skills heavily.
+            - Penalize weak interviewEvidence even if resume looks strong.
+            - Penalize inconsistent or exaggerated profiles.
+            - Penalize insufficient production-level experience.
+            - Penalize high systemInterviewCount (internal platform interviews): >=5 moderate, >=8 strong, >=12 severe.
+            - Penalize high noOfInterviews (external client interviews): >=7 moderate, >=12 strong, >=20 severe.
             - Return at most maxCandidates in best-first order.
-
+            
+            SCORING MODEL (STRICT):
+            1. Skill Alignment -> 30%%
+               - Evaluate ONLY relevant production-ready skills.
+               - Mandatory/core JD skills missing = major penalty.
+               - Mere awareness/basic exposure should score low.
+               - Architecture/design ownership matters more than tool exposure.
+               - If microservices/event-driven/distributed systems are required:
+                 - basic CRUD experience is NOT sufficient.
+                 - low architecture depth should significantly reduce score.
+            
+            2. Experience Alignment -> 25%%
+               - Use yoeForMatching strictly.
+               - If candidate experience is below required:
+                   - subtract aggressively.
+                   - 20-30%% below requirement = strong penalty.
+                   - >30%% below requirement = severe penalty.
+               - Do NOT compensate low experience using other categories.
+               - Experience quality matters more than total years.
+            
+            3. Role Complexity / Ownership -> 20%%
+               - Evaluate:
+                 - system design exposure
+                 - scalability ownership
+                 - debugging complexity
+                 - distributed systems handling
+                 - production responsibility
+                 - leadership/mentoring
+               - Candidates with only maintenance/support work should score lower.
+            
+            4. Quality / Stability -> 15%%
+               - Penalize high systemInterviewCount progressively:
+                 - >=5 moderate concern
+                 - >=8 strong penalty
+                 - >=12 severe penalty
+               - Penalize high noOfInterviews progressively:
+                 - >=7 moderate penalty
+                 - >=12 strong penalty
+                 - >=20 severe penalty
+               - Penalize unstable tenure patterns.
+               - Reward strong readiness and consistency.
+            
+            5. Interview Performance -> 10%%
+               - Use avgInterviewScore and interviewEvidence quality.
+               - Strong communication alone should NOT inflate technical score.
+               - Weak technical rounds must reduce final score significantly.
+            
+            STRICT MATCH SCORE NORMALIZATION:
+            - 0.85 - 1.00 = Exceptional fit with minimal concerns
+            - 0.70 - 0.84 = Strong fit with manageable gaps
+            - 0.55 - 0.69 = Partial fit / needs evaluation
+            - 0.40 - 0.54 = Weak fit with major concerns
+            - Below 0.40 = Not suitable
+            
+            CRITICAL SCORING GUARDRAILS:
+            - Candidate below required YOE AND lacking architecture depth:
+              final score SHOULD NOT exceed 0.60
+            - Missing 2 or more core JD skills:
+              final score SHOULD NOT exceed 0.55
+            - Weak interviewEvidence:
+              final score SHOULD NOT exceed 0.50
+            - Strong resume but weak interview performance:
+              downgrade recommendation.
+            - Do NOT give inflated scores because of keyword overlap.
+            
+            RECOMMENDATION RULES:
+            - HIGHLY_RECOMMENDED:
+                score >= 0.85
+                AND no major concern
+            - RECOMMENDED:
+                score >= 0.70
+                AND manageable concerns only
+            - CONSIDER:
+                score between 0.55 and 0.69
+            - NOT_SUITABLE:
+                score < 0.55
+            
+            ANALYSIS RULES:
+            - Concerns MUST directly impact scoring.
+            - If concerns are major, score must visibly reflect that.
+            - Avoid generic praise.
+            - Be concise but evidence-based.
+            
             Return ONLY valid JSON with this structure:
-
+            
             {
               "matches": [
                 {
@@ -101,7 +195,7 @@ public class AiMatchingService {
                   ],
                   "qualityIndicators": {
                     "rating": "ASSET",
-                    "readinessStatus": "RFD", 
+                    "readinessStatus": "RFD",
                     "avgInterviewScore": 4.2,
                     "interviewCount": 3
                   }
@@ -117,13 +211,18 @@ public class AiMatchingService {
                 "averageMatchScore": 0.62
               }
             }
-
-            No markdown. No prose outside JSON.
+            
+            IMPORTANT:
+            - No markdown.
+            - No explanation outside JSON.
+            - No hallucinated data.
+            - No score inflation.
+            - Ensure concern severity matches final score realistically.
             """.formatted(
                 request.getClientName(),
                 request.getJdTitle(), 
                 request.getSource(),
-                jdDigest
+                request.getJdDescription()
             );
     }
 
@@ -216,6 +315,7 @@ public class AiMatchingService {
             c.put("candidateStatus", candidate.get("candidateStatus"));
             c.put("yoeForMatching", candidate.get("yoeForMatching"));
             c.put("yoeActual", candidate.get("yoeActual"));
+            c.put("systemInterviewCount", candidate.get("systemInterviewCount"));
             c.put("noOfInterviews", candidate.get("noOfInterviews"));
             c.put("resumeSummary", truncate((String) candidate.get("resumeSummary"), 280));
 

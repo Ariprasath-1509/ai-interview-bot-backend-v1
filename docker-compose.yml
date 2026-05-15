@@ -3,13 +3,14 @@ services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
     container_name: elasticsearch
+    mem_limit: 6g
+    memswap_limit: 6g
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "ES_JAVA_OPTS=-Xms3g -Xmx3g"
     ports:
-      - "9200:9200"
-      - "9300:9300"
+      - "6015:9200"
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
     networks:
@@ -17,20 +18,31 @@ services:
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
-      interval: 10s
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '3'
+          memory: 6G
+        reservations:
+          cpus: '1.5'
+          memory: 3G
 
   logstash:
     image: docker.elastic.co/logstash/logstash:8.11.0
     container_name: logstash
+    mem_limit: 1536m
+    memswap_limit: 1536m
     volumes:
       - ./elk/logstash/pipeline:/usr/share/logstash/pipeline
     ports:
-      - "6010:6010"
-      - "9600:9600"
+      - "6010:5000"
     environment:
-      - "LS_JAVA_OPTS=-Xmx256m -Xms256m"
+      - "LS_JAVA_OPTS=-Xmx768m -Xms768m"
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -39,15 +51,26 @@ services:
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:9600 || exit 1"]
-      interval: 10s
+      interval: 30s
+      timeout: 10s
       retries: 10
-      start_period: 30s
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1536M
+        reservations:
+          cpus: '0.75'
+          memory: 1G
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.11.0
     container_name: kibana
+    mem_limit: 1g
+    memswap_limit: 1g
     ports:
-      - "5601:5601"
+      - "6012:5601"
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     depends_on:
@@ -56,78 +79,145 @@ services:
     networks:
       - bench-network
     restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   eureka-server:
     image: registry.gitlab.com/ty_optimize/optimize/ai_eurekha:latest
     container_name: eureka-server
+    mem_limit: 512m
+    memswap_limit: 512m
     ports:
       - "6009:6009"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      JAVA_OPTS: "-Xms256m -Xmx512m"
     networks:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6009/actuator/health"]
-      interval: 10s
-      retries: 5
-      start_period: 20s
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6009' || exit 1"]
+      interval: 20s
+      timeout: 15s
+      retries: 15
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   compliance-service:
     image: registry.gitlab.com/ty_optimize/optimize/compliance_service:latest
     container_name: compliance-service
+    mem_limit: 1g
+    memswap_limit: 1g
     ports:
       - "6005:6005"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      JAVA_OPTS: "-Xms512m -Xmx1024m -XX:+UseG1GC"
     depends_on:
       eureka-server:
-        condition: service_healthy
-      logstash:
         condition: service_healthy
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6005' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   auth-service:
     image: registry.gitlab.com/ty_optimize/optimize/ai_auth:latest
     container_name: auth-service
+    mem_limit: 1536m
+    memswap_limit: 1536m
     ports:
       - "6004:6004"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      JAVA_OPTS: "-Xms1g -Xmx1536m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
     depends_on:
       eureka-server:
-        condition: service_healthy
-      logstash:
         condition: service_healthy
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6004' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1536M
+        reservations:
+          cpus: '1'
+          memory: 1G
 
   interview-service:
     image: registry.gitlab.com/ty_optimize/optimize/interview_service:latest
     container_name: interview-service
+    mem_limit: 4g
+    memswap_limit: 4g
     ports:
       - "6006:6006"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      JAVA_OPTS: "-Xms2g -Xmx3g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
     depends_on:
       eureka-server:
         condition: service_healthy
       compliance-service:
-        condition: service_started
+        condition: service_healthy
       auth-service:
-        condition: service_started
-      logstash:
         condition: service_healthy
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6006' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
 
   ai-service:
     image: registry.gitlab.com/ty_optimize/optimize/ai_service:latest
     container_name: ai-service
+    mem_limit: 4g
+    memswap_limit: 4g
     ports:
       - "6003:6003"
     environment:
@@ -136,73 +226,217 @@ services:
       APP_CLAUDE_API_KEY: ${APP_CLAUDE_API_KEY}
       APP_CLAUDE_MODEL: ${APP_CLAUDE_MODEL:-claude-haiku-4-5}
       APP_CLAUDE_ASSESSMENT_MODEL: ${APP_CLAUDE_ASSESSMENT_MODEL:-claude-sonnet-4-5}
+      JAVA_OPTS: "-Xms2g -Xmx3g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
     depends_on:
       eureka-server:
         condition: service_healthy
       compliance-service:
-        condition: service_started
-      logstash:
         condition: service_healthy
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6003' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
 
   observer-service:
     image: registry.gitlab.com/ty_optimize/optimize/observer_service:latest
     container_name: observer-service
+    mem_limit: 1536m
+    memswap_limit: 1536m
     ports:
       - "6007:6007"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      JAVA_OPTS: "-Xms1g -Xmx1536m -XX:+UseG1GC"
     depends_on:
       eureka-server:
         condition: service_healthy
       auth-service:
-        condition: service_started
+        condition: service_healthy
       interview-service:
-        condition: service_started
-      logstash:
         condition: service_healthy
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6007' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1536M
+        reservations:
+          cpus: '0.75'
+          memory: 1G
 
   review-service:
     image: registry.gitlab.com/ty_optimize/optimize/review_service:latest
     container_name: review-service
+    mem_limit: 1g
+    memswap_limit: 1g
     ports:
       - "6008:6008"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      JAVA_OPTS: "-Xms512m -Xmx1024m -XX:+UseG1GC"
     depends_on:
       eureka-server:
         condition: service_healthy
       interview-service:
-        condition: service_started
-      logstash:
         condition: service_healthy
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6008' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   api-gateway:
     image: registry.gitlab.com/ty_optimize/optimize/api_gateway:latest
     container_name: api-gateway
+    mem_limit: 2g
+    memswap_limit: 2g
     ports:
       - "6002:6002"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      JAVA_OPTS: "-Xms1g -Xmx2g -XX:+UseG1GC -XX:MaxGCPauseMillis=100"
     depends_on:
       eureka-server:
-        condition: service_healthy
-      logstash:
         condition: service_healthy
     networks:
       - bench-network
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6002' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  whisper-stt:
+    image: fedirz/faster-whisper-server:latest-cpu
+    container_name: whisper-stt
+    mem_limit: 6g
+    memswap_limit: 6g
+    ports:
+      - "6013:8000"
+    environment:
+      - WHISPER_MODEL=medium
+      - WHISPER_LANGUAGE=en
+      - VAD_FILTER=true
+      - VAD_THRESHOLD=0.5
+      - VAD_MIN_SPEECH_DURATION_MS=250
+      - VAD_MAX_SPEECH_DURATION_S=30
+      - VAD_MIN_SILENCE_DURATION_MS=2000
+      - VAD_SPEECH_PAD_MS=400
+    volumes:
+      - whisper-models:/root/.cache/whisper
+    networks:
+      - bench-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 6G
+        reservations:
+          cpus: '2'
+          memory: 4G
+
+  coqui-tts:
+    image: registry.gitlab.com/ty_optimize/optimize/coqui_tts:latest
+    container_name: coqui-tts
+    mem_limit: 2g
+    memswap_limit: 2g
+    ports:
+      - "6014:5002"
+    volumes:
+      - tts-models:/root/.local/share/tts
+    networks:
+      - bench-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  questionbank-service:
+    image: registry.gitlab.com/ty_optimize/optimize/questionbank_service:latest
+    container_name: questionbank-service
+    mem_limit: 1g
+    memswap_limit: 1g
+    ports:
+      - "6016:6016"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      JAVA_OPTS: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - bench-network
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6016' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
 volumes:
   elasticsearch-data:
+    driver: local
+  whisper-models:
+    driver: local
+  tts-models:
     driver: local
 
 networks:

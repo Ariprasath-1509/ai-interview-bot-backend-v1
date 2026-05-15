@@ -11,7 +11,7 @@ spring:
       globalcors:
         corsConfigurations:
           '[/**]':
-            allowedOrigins: ["http://localhost:6001","http://103.182.211.219:6001"]
+            allowedOrigins: ["http://localhost:6001","http://localhost:6101","http://103.182.211.219:6001","http://103.182.211.219:6101"]
             allowedMethods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"]
             allowedHeaders: ["*"]
             allowCredentials: true
@@ -76,6 +76,12 @@ spring:
           uri: lb://compliance-service
           predicates:
             - Path=/compliance/**,/tokens/**
+        - id: questionbank-service
+          uri: lb://questionbank-service
+          predicates:
+            - Path=/api/qb/**,/api/questionbank/**
+          filters:
+            - RewritePath=/api/(qb|questionbank)/(?<segment>.*), /api/$\{segment}
 
 eureka:
   client:

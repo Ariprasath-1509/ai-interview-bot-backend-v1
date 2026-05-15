@@ -570,6 +570,12 @@ curl -X POST http://localhost:6002/interviews/<id>/abandon \
   -d '{"transcriptJson":"...","reason":"not_prepared"}'
 # reason: "not_prepared" | "time_expired" | "ai_manipulation"
 # Admin notified by email automatically
+
+# Download candidate review summary PDF (last 5 interviews)
+curl -X GET "http://localhost:6002/interviews/candidates/<candidateId>/review-summary/download" \
+  -H "Authorization: Bearer <admin-token>" \
+  -o candidate_review.pdf
+# Response: PDF file with candidate profile, performance overview, interview details, scores, feedback, roadmaps
 ```
 
 ### AI

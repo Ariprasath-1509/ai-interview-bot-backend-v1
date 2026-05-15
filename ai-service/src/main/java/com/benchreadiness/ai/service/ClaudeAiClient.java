@@ -206,8 +206,8 @@ public class ClaudeAiClient implements LlmClient {
         try {
             JsonNode node = objectMapper.readTree(userPrompt);
             int candidateCount = node.isArray() ? node.size() : 1;
-            int dynamic = 1200 + (candidateCount * 220);
-            return Math.max(1400, Math.min(3200, dynamic));
+            int dynamic = 2000 + (candidateCount * 400);
+            return Math.max(2400, Math.min(8000, dynamic));
         } catch (Exception ignored) {
             return getMaxTokensForOperation("matching");
         }

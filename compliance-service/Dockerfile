@@ -1,4 +1,7 @@
 FROM registry.access.redhat.com/ubi9/openjdk-21:1.20
-COPY --chown=185 ./compliance-service/target/compliance-service-0.0.1-SNAPSHOT.jar /deployments/app.jar
+
+COPY --chown=185 compliance-service/target/*.jar /deployments/app.jar
+
 EXPOSE 6005
-ENTRYPOINT ["java", "-jar", "/deployments/app.jar"]
+
+ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-jar", "/deployments/app.jar"]

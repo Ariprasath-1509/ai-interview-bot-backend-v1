@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: questionbank-service
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka-server:6009/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    hostname: questionbank-service
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30

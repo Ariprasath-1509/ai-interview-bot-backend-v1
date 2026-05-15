@@ -1,0 +1,71 @@
+package com.qb.core.controller;
+
+import com.qb.core.dto.ApiResponse;
+import com.qb.core.dto.QuestionDTO;
+import com.qb.core.dto.QuestionUpdateRequest;
+import com.qb.core.service.QuestionService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/questions")
+@RequiredArgsConstructor
+public class QuestionController {
+
+    private final QuestionService questionService;
+
+    /**
+     * GET /api/questions?search=kafka&company=mantra-labs&round=l1&category=Kafka&tag=event-driven&page=0&size=20
+     */
+    @GetMapping
+    public ResponseEntity<ApiResponse<Page<QuestionDTO>>> search(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String interviewType,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String company,
+            @RequestParam(required = false) String round,
+            @RequestParam(required = false) String tag,
+            @RequestParam(required = false) String importance,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        Page<QuestionDTO> result = questionService.searchQuestions(
+                search, interviewType, category, company, round, tag, importance, page, size
+        );
+        return ResponseEntity.ok(ApiResponse.ok(result));
+    }
+
+    /**
+     * GET /api/questions/{id}
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<QuestionDTO>> getById(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.ok(questionService.getById(id)));
+    }
+
+    /**
+     * PUT /api/questions/{id} — Admin only
+     */
+    @PutMapping("/{id}")
+    public ResponseEntity<ApiResponse<QuestionDTO>> update(
+            @PathVariable UUID id,
+            @Valid @RequestBody QuestionUpdateRequest request
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(questionService.updateQuestion(id, request)));
+    }
+
+    /**
+     * DELETE /api/questions/{id} — Admin only
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable UUID id) {
+        questionService.deleteQuestion(id);
+        return ResponseEntity.ok(ApiResponse.ok(null, "Question deleted"));
+    }
+}

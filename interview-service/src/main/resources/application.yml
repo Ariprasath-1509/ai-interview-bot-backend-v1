@@ -7,6 +7,13 @@ spring:
   cloud:
     compatibility-verifier:
       enabled: false
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=1000,expireAfterWrite=5m
+    cache-names:
+      - candidateMatches
+      - eligibleCandidates
   datasource:
     url: jdbc:postgresql://103.182.211.219:5434/aibot
     username: aibot

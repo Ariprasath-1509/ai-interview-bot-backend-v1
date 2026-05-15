@@ -56,6 +56,31 @@ public class MatchingService {
         }
     }
     
+    /**
+     * Get all eligible candidates (RFD status with at least 1 completed interview)
+     * Cached for 5 minutes to speed up repeated calls
+     */
+    @Cacheable(value = "eligibleCandidates", key = "'all'")
+    public List<Map<String, Object>> getAllEligibleCandidates() {
+        try {
+            List<Map<String, Object>> allCandidates = authServiceClient.searchCandidates("");
+            
+            // Filter to only RFD candidates with at least 1 completed interview
+            return allCandidates.stream()
+                .filter(candidate -> {
+                    String candidateStatus = (String) candidate.get("candidateStatus");
+                    Integer systemInterviewCount = candidate.get("systemInterviewCount") != null ? 
+                        ((Number) candidate.get("systemInterviewCount")).intValue() : 0;
+                    
+                    return "RFD".equals(candidateStatus) && systemInterviewCount >= 1;
+                })
+                .collect(java.util.stream.Collectors.toList());
+        } catch (Exception e) {
+            System.err.println("Failed to fetch eligible candidates: " + e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+    
     private List<CandidateMatch> findMatchingCandidatesWithSkillFiltering(Client client, String source, Integer maxCandidates, 
                                                                             String filterSkillSet, Double filterMinYoe, String userId, String userRole) {
         List<CandidateMatch> allMatches = new ArrayList<>();
@@ -785,6 +810,19 @@ public class MatchingService {
                 String candidateEmail = getCandidateEmail(candidate);
                 if (candidateEmail == null) continue;
                 
+                // Ensure yoeForMatching is set (use yoePortrayed)
+                Double yoePortrayed = candidate.get("yoePortrayed") != null ? 
+                    ((Number) candidate.get("yoePortrayed")).doubleValue() : 0.0;
+                candidate.put("yoeForMatching", yoePortrayed);
+                
+                // Ensure both interview counts are present
+                Integer systemInterviewCount = candidate.get("systemInterviewCount") != null ? 
+                    ((Number) candidate.get("systemInterviewCount")).intValue() : 0;
+                Integer noOfInterviews = candidate.get("noOfInterviews") != null ? 
+                    ((Number) candidate.get("noOfInterviews")).intValue() : 0;
+                candidate.put("systemInterviewCount", systemInterviewCount);
+                candidate.put("noOfInterviews", noOfInterviews);
+                
                 // Get recent interviews for this candidate (up to 3 for analysis)
                 List<com.benchreadiness.interview.entity.Interview> interviews = 
                     interviewRepository.findByCandidateEmailOrderByCreatedAtDesc(candidateEmail)
@@ -839,9 +877,16 @@ public class MatchingService {
                     avgCategoryScores.put(entry.getKey(), avg);
                 }
                 
+                // Calculate overall average score
+                double overallAvg = avgCategoryScores.values().stream()
+                    .mapToDouble(Double::doubleValue)
+                    .average()
+                    .orElse(0.0);
+                
                 // Add interview evidence to candidate data
                 Map<String, Object> interviewEvidence = new HashMap<>();
                 interviewEvidence.put("recentInterviewCount", interviews.size());
+                interviewEvidence.put("averageScore", Math.round(overallAvg * 10.0) / 10.0);
                 interviewEvidence.put("strengths", deduplicateAndLimit(allStrengths, 5));
                 interviewEvidence.put("weaknesses", deduplicateAndLimit(allWeaknesses, 5));
                 interviewEvidence.put("categoryScores", avgCategoryScores);

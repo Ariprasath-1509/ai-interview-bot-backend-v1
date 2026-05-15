@@ -21,6 +21,8 @@ import java.util.stream.Collectors;
 @Service
 public class ClientService {
 
+    public record JdFileDownload(String filename, byte[] data) {}
+
     private static final Logger log = LoggerFactory.getLogger(ClientService.class);
 
     private final ClientRepository clientRepository;
@@ -51,6 +53,22 @@ public class ClientService {
         Client client = clientRepository.findById(clientId)
                 .orElseThrow(() -> new RuntimeException("Client not found with id: " + clientId));
         return client.getDocId();
+    }
+
+    /**
+     * Stored JD binary for download (not included in {@link ClientDTO}).
+     */
+    public Optional<JdFileDownload> getJdFileDownload(UUID id) {
+        Client client = clientRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Client not found with id: " + id));
+        byte[] bytes = client.getJdFile();
+        if (bytes == null || bytes.length == 0) {
+            return Optional.empty();
+        }
+        String filename = client.getJdFileName() != null && !client.getJdFileName().isBlank()
+                ? client.getJdFileName()
+                : "job-description";
+        return Optional.of(new JdFileDownload(filename, bytes));
     }
 
     public ClientDTO createClient(ClientDTO clientDTO, MultipartFile jdFile) {
@@ -86,28 +104,7 @@ public class ClientService {
             }
         }
 
-        // Handle JD file upload
-        if (jdFile != null && !jdFile.isEmpty()) {
-            try {
-                byte[] fileBytes = jdFile.getBytes();
-                client.setJdFile(fileBytes);
-                client.setJdFileName(jdFile.getOriginalFilename());
-
-                // Upload to document service and get docId
-                String docId = documentServiceClient.uploadDocument(fileBytes, jdFile.getOriginalFilename());
-                client.setDocId(docId);
-                log.info("JD file uploaded to document service. docId={}", docId);
-            } catch (Exception e) {
-                log.error("Failed to upload JD file to document service: {}", e.getMessage());
-                // Still save the file blob even if document service is unavailable
-                try {
-                    client.setJdFile(jdFile.getBytes());
-                    client.setJdFileName(jdFile.getOriginalFilename());
-                } catch (Exception ex) {
-                    log.error("Failed to read file bytes: {}", ex.getMessage());
-                }
-            }
-        }
+        applyJdFile(client, jdFile);
 
         Client savedClient = clientRepository.save(client);
 
@@ -127,7 +124,7 @@ public class ClientService {
         return convertToDTO(savedClient);
     }
 
-    public ClientDTO updateClient(UUID id, ClientDTO clientDTO) {
+    public ClientDTO updateClient(UUID id, ClientDTO clientDTO, MultipartFile jdFile) {
         Client client = clientRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Client not found with id: " + id));
 
@@ -163,8 +160,33 @@ public class ClientService {
             }
         }
 
+        applyJdFile(client, jdFile);
+
         Client savedClient = clientRepository.save(client);
         return convertToDTO(savedClient);
+    }
+
+    private void applyJdFile(Client client, MultipartFile jdFile) {
+        if (jdFile == null || jdFile.isEmpty()) {
+            return;
+        }
+        try {
+            byte[] fileBytes = jdFile.getBytes();
+            client.setJdFile(fileBytes);
+            client.setJdFileName(jdFile.getOriginalFilename());
+
+            String docId = documentServiceClient.uploadDocument(fileBytes, jdFile.getOriginalFilename());
+            client.setDocId(docId);
+            log.info("JD file uploaded to document service. docId={}", docId);
+        } catch (Exception e) {
+            log.error("Failed to upload JD file to document service: {}", e.getMessage());
+            try {
+                client.setJdFile(jdFile.getBytes());
+                client.setJdFileName(jdFile.getOriginalFilename());
+            } catch (Exception ex) {
+                log.error("Failed to read file bytes: {}", ex.getMessage());
+            }
+        }
     }
 
     public void deleteClient(UUID id) {

@@ -60,7 +60,7 @@ public class Client {
     @Column(name = "jd_file_name")
     private String jdFileName;
     
-    @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+    @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<SkillRequirement> skillRequirements = new ArrayList<>();
     
     // Constructors

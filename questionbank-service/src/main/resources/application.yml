@@ -1,0 +1,114 @@
+spring:
+  application:
+    name: questionbank-service
+
+  profiles:
+    active: local
+
+  datasource:
+    url: jdbc:postgresql://103.182.211.219:5434/aibot?serverTimezone=UTC&currentSchema=questionbank_svc&searchpath=questionbank_svc,public
+    username: aibot
+    password: aibot!@#$%
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 3
+      minimum-idle: 1
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 30000
+      validation-timeout: 5000
+      connection-init-sql: SET search_path TO questionbank_svc, public; SET TIME ZONE 'UTC';
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        default_schema: questionbank_svc
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    schemas: questionbank_svc
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: false
+    ignore-migration-patterns: "*:missing,*:ignored"
+
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: learningdevelopment.tyss@gmail.com
+    password: xcbc bgrj lbql tgkd
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+  cache:
+    type: caffeine
+    cache-names: questions,question,companies,tags,sessions,admin-dashboard
+    caffeine:
+      spec: maximumSize=500,expireAfterWrite=600s
+
+server:
+  port: 6016
+  servlet:
+    context-path: /
+  compression:
+    enabled: true
+    min-response-size: 1024
+    mime-types: application/json,text/html,text/css,application/javascript,text/plain
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,env,loggers
+  endpoint:
+    health:
+      show-details: always
+
+# --- App-specific config ---
+app:
+  cors:
+    allowed-origins: http://localhost:5173,http://localhost:3000,http://localhost:6001,http://localhost:6101,http://103.182.211.219:6001,http://103.182.211.219:6101,https://prod.voiceaibot.in
+  email:
+    sender-email: learningdevelopment.tyss@gmail.com
+    sender-name: QuestionBank
+  jwt:
+    secret: dev-jwt-secret-change-in-production-min-32-chars
+    expiry-ms: 86400000
+  claude:
+    api-key: ${CLAUDE_API_KEY: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}
+    model: ${CLAUDE_MODEL:claude-haiku-4-5}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:6009/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    hostname: localhost
+    prefer-ip-address: false
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30

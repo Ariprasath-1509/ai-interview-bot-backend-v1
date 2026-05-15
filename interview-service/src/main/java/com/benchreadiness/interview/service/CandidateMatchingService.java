@@ -28,15 +28,18 @@ public class CandidateMatchingService {
     private final AuthServiceClient authServiceClient;
     private final AiMatchingClient aiMatchingClient;
     private final ObjectMapper objectMapper;
+    private final com.benchreadiness.interview.repository.EngineerRepository engineerRepository;
 
     public CandidateMatchingService(CandidateMatchingCacheRepository cacheRepository,
                                    ClientRepository clientRepository,
                                    AuthServiceClient authServiceClient,
-                                   AiMatchingClient aiMatchingClient) {
+                                   AiMatchingClient aiMatchingClient,
+                                   com.benchreadiness.interview.repository.EngineerRepository engineerRepository) {
         this.cacheRepository = cacheRepository;
         this.clientRepository = clientRepository;
         this.authServiceClient = authServiceClient;
         this.aiMatchingClient = aiMatchingClient;
+        this.engineerRepository = engineerRepository;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
         this.objectMapper.disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -269,6 +272,14 @@ public class CandidateMatchingService {
             }
             enhanced.put("resumeSummary", resumeSummary);
             
+            // Ensure both interview counts are present
+            Integer systemInterviewCount = candidate.get("systemInterviewCount") != null ? 
+                ((Number) candidate.get("systemInterviewCount")).intValue() : 0;
+            Integer noOfInterviews = candidate.get("noOfInterviews") != null ? 
+                ((Number) candidate.get("noOfInterviews")).intValue() : 0;
+            enhanced.put("systemInterviewCount", systemInterviewCount);
+            enhanced.put("noOfInterviews", noOfInterviews);
+            
             // Add interview evidence from recent interviews
             Map<String, Object> interviewEvidence = getInterviewEvidence(candidate);
             enhanced.put("interviewEvidence", interviewEvidence);
@@ -412,6 +423,16 @@ public class CandidateMatchingService {
             email = (String) candidate.get("personalEmail");
         }
         return email;
+    }
+    
+    private String resolveEngineerId(Map<String, Object> candidate) {
+        String email = getCandidateEmail(candidate);
+        if (email == null || email.isBlank()) {
+            return null;
+        }
+        return engineerRepository.findByEmail(email)
+            .map(com.benchreadiness.interview.entity.Engineer::getId)
+            .orElse(null);
     }
     
     private CandidateMatchingResult createEmptyResult(Map<String, Object> candidate, String reason) {
