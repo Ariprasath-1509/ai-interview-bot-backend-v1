@@ -2,13 +2,18 @@ package com.benchreadiness.interview.controller;
 
 import com.benchreadiness.interview.dto.AutoFillPreview;
 import com.benchreadiness.interview.dto.CandidateMatchingResult;
+import com.benchreadiness.interview.dto.CandidateReviewSummary;
 import com.benchreadiness.interview.dto.CompleteInterviewRequest;
 import com.benchreadiness.interview.dto.CreateInterviewRequest;
 import com.benchreadiness.interview.entity.Interview;
 import com.benchreadiness.interview.service.CandidateMatchingService;
+import com.benchreadiness.interview.service.CandidateReviewService;
 import com.benchreadiness.interview.service.InterviewService;
 import com.benchreadiness.interview.service.EnhancedInterviewService;
+import com.benchreadiness.interview.service.PdfGenerationService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -23,13 +28,19 @@ public class InterviewController {
     private final InterviewService interviewService;
     private final EnhancedInterviewService enhancedInterviewService;
     private final CandidateMatchingService candidateMatchingService;
+    private final CandidateReviewService candidateReviewService;
+    private final PdfGenerationService pdfGenerationService;
 
     public InterviewController(InterviewService interviewService,
                               EnhancedInterviewService enhancedInterviewService,
-                              CandidateMatchingService candidateMatchingService) {
+                              CandidateMatchingService candidateMatchingService,
+                              CandidateReviewService candidateReviewService,
+                              PdfGenerationService pdfGenerationService) {
         this.interviewService = interviewService;
         this.enhancedInterviewService = enhancedInterviewService;
         this.candidateMatchingService = candidateMatchingService;
+        this.candidateReviewService = candidateReviewService;
+        this.pdfGenerationService = pdfGenerationService;
     }
 
     @GetMapping("/auto-fill/preview")
@@ -183,6 +194,39 @@ public class InterviewController {
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/candidates/{candidateId}/review-summary/download")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<byte[]> downloadCandidateReviewSummary(@PathVariable String candidateId,
+                                                                 @RequestHeader("X-User-Id") String userId) {
+        try {
+            CandidateReviewSummary summary = candidateReviewService.getCandidateReviewSummary(candidateId, userId);
+            
+            // Check if candidate has any interviews
+            if (summary.getInterviews() == null || summary.getInterviews().isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .header("X-Error-Message", "No completed interviews found for this candidate")
+                        .build();
+            }
+            
+            byte[] pdfBytes = pdfGenerationService.generateCandidateReviewPdf(summary);
+            
+            String filename = summary.getCandidateInfo().getName().replaceAll("\\s+", "_") + "_Review_Summary.pdf";
+            
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_PDF);
+            headers.setContentDispositionFormData("attachment", filename);
+            headers.setCacheControl("must-revalidate, post-check=0, pre-check=0");
+            
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .body(pdfBytes);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .header("X-Error-Message", e.getMessage())
+                    .build();
         }
     }
 }
