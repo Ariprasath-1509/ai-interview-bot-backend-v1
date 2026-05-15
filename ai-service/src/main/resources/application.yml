@@ -24,7 +24,7 @@ app:
   jwt:
     secret: dev-jwt-secret-change-in-production-min-32-chars
   claude:
-    api-key: ${APP_CLAUDE_API_KEY:${CLAUDE_API_KEY:${ANTHROPIC_API_KEY:}}}
+    api-key: ${APP_CLAUDE_API_KEY:}
     model: ${APP_CLAUDE_MODEL:claude-haiku-4-5}
     assessment-model: ${APP_CLAUDE_ASSESSMENT_MODEL:claude-sonnet-4-5}
     question-temperature: ${APP_CLAUDE_QUESTION_TEMPERATURE:0.55}
