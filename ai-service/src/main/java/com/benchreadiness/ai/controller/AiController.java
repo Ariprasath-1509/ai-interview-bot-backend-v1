@@ -10,7 +10,6 @@ import com.benchreadiness.ai.service.AsyncAssessmentService;
 import com.benchreadiness.ai.service.LlmClient;
 import com.benchreadiness.ai.service.QuestionService;
 import com.benchreadiness.ai.service.RubricService;
-import com.benchreadiness.ai.service.TokenAuditService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -27,19 +26,17 @@ public class AiController {
     private final RubricService rubricService;
     private final AiMatchingService aiMatchingService;
     private final LlmClient llmClient;
-    private final TokenAuditService tokenAuditService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AiController(QuestionService questionService, AssessmentService assessmentService,
                        AsyncAssessmentService asyncAssessmentService, RubricService rubricService, 
-                       AiMatchingService aiMatchingService, LlmClient llmClient, TokenAuditService tokenAuditService) {
+                       AiMatchingService aiMatchingService, LlmClient llmClient) {
         this.questionService = questionService;
         this.assessmentService = assessmentService;
         this.asyncAssessmentService = asyncAssessmentService;
         this.rubricService = rubricService;
         this.aiMatchingService = aiMatchingService;
         this.llmClient = llmClient;
-        this.tokenAuditService = tokenAuditService;
     }
 
     @GetMapping("/health")
@@ -219,11 +216,6 @@ public class AiController {
     public ResponseEntity<?> matchCandidates(@RequestBody MatchingRequest req,
                                            @RequestHeader("X-User-Id") String userId) {
         return ResponseEntity.ok(aiMatchingService.matchCandidates(req, userId));
-    }
-
-    @GetMapping("/token-audit/{interviewId}")
-    public ResponseEntity<?> getTokenAudit(@PathVariable String interviewId) {
-        return ResponseEntity.ok(tokenAuditService.getInterviewAudit(interviewId));
     }
 
     @PostMapping("/resume-summary")

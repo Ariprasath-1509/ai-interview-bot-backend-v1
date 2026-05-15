@@ -9,7 +9,6 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.Arrays;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
@@ -23,7 +22,6 @@ public class AssessmentService {
     private final ComplianceServiceClient complianceServiceClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ConcurrentHashMap<String, CachedAssessmentResult> assessmentCache = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, AtomicInteger> idempotencyHitCountByInterview = new ConcurrentHashMap<>();
     private static final long ASSESSMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
     private record CachedAssessmentResult(String payloadJson, long createdAtMs) {}
@@ -39,7 +37,6 @@ public class AssessmentService {
         Map<String, Object> cached = getCachedAssessment(cacheKey);
         if (cached != null) {
             log.info("Returning cached assessment for interview {}", req.getInterviewId());
-            incrementIdempotencyHit(req.getInterviewId());
             return cached;
         }
 
@@ -138,17 +135,6 @@ public class AssessmentService {
     private void clearExpiredAssessmentCache() {
         long now = System.currentTimeMillis();
         assessmentCache.entrySet().removeIf(entry -> (now - entry.getValue().createdAtMs()) > ASSESSMENT_CACHE_TTL_MS);
-    }
-
-    private void incrementIdempotencyHit(String interviewId) {
-        if (interviewId == null || interviewId.isBlank()) return;
-        idempotencyHitCountByInterview.computeIfAbsent(interviewId, key -> new AtomicInteger()).incrementAndGet();
-    }
-
-    public int getIdempotencyHits(String interviewId) {
-        if (interviewId == null || interviewId.isBlank()) return 0;
-        AtomicInteger count = idempotencyHitCountByInterview.get(interviewId);
-        return count != null ? count.get() : 0;
     }
 
     // ── Pass 1: Evidence extraction ──────────────────────────────────────────
