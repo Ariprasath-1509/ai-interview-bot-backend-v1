@@ -98,7 +98,7 @@ app:
     secret: dev-jwt-secret-change-in-production-min-32-chars
     expiry-ms: 86400000
   claude:
-    api-key: ${CLAUDE_API_KEY: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}
+    api-key: ${APP_CLAUDE_API_KEY:}
     model: ${CLAUDE_MODEL:claude-haiku-4-5}
 
 eureka:
