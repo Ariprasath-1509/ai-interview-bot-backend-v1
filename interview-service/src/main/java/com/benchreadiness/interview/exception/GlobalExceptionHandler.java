@@ -119,6 +119,13 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGlobalException(Exception ex, WebRequest request) {
+        // Ignore client abort exceptions - these are normal when users navigate away
+        if (ex instanceof org.springframework.web.context.request.async.AsyncRequestNotUsableException ||
+            (ex.getCause() != null && ex.getCause() instanceof org.apache.catalina.connector.ClientAbortException)) {
+            log.debug("Client aborted request: {}", ex.getMessage());
+            return null; // Don't send response, connection is already closed
+        }
+        
         log.error("Unexpected error occurred: {}", ex.getMessage(), ex);
         ErrorResponse error = new ErrorResponse(
             HttpStatus.INTERNAL_SERVER_ERROR.value(),

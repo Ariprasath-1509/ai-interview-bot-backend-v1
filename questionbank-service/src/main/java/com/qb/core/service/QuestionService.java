@@ -143,6 +143,21 @@ public class QuestionService {
                 .toList();
     }
 
+    /**
+     * Get questions by company and interview mode.
+     * Used by interview-service to fetch questions at interview creation.
+     */
+    @Cacheable(
+            value = "questionsByCompanyMode",
+            key = "#company + '::' + #mode"
+    )
+    @Transactional(readOnly = true)
+    public List<QuestionDTO> getQuestionsByCompanyAndMode(String company, String mode) {
+        return questionRepo.findByCompanyAndRound(company, mode).stream()
+                .map(q -> toDTO(q, company, mode))
+                .toList();
+    }
+
     // ── Batch loading helpers (N+1 elimination) ──
 
     /**

@@ -89,7 +89,6 @@ public class MatchingService {
         List<Map<String, Object>> allCandidates;
         try {
             allCandidates = authServiceClient.searchCandidates("");
-            System.out.println("[MATCHING] Total candidates fetched: " + allCandidates.size());
         } catch (Exception e) {
             System.err.println("Failed to fetch candidates from auth service: " + e.getMessage());
             return createMockMatches(source, maxCandidates != null ? maxCandidates : 3);
@@ -98,42 +97,31 @@ public class MatchingService {
         // Enrich candidates with interview evidence
         allCandidates = enrichCandidatesWithInterviewEvidence(allCandidates);
         
-        System.out.println("[MATCHING] Client has " + client.getSkillRequirements().size() + " skill requirements");
         
         // Process each skill requirement
         for (com.benchreadiness.interview.entity.SkillRequirement skillReq : client.getSkillRequirements()) {
             // If specific skill filter provided, skip non-matching skills
             if (filterSkillSet != null && !filterSkillSet.equals(skillReq.getSkillSet().name())) {
-                System.out.println("[MATCHING] Skipping skill " + skillReq.getSkillSet() + " - doesn't match filter: " + filterSkillSet);
                 continue;
             }
-            
-            System.out.println("[MATCHING] Processing skill: " + skillReq.getSkillSet() + " with " + skillReq.getPositions().size() + " positions");
             
             for (com.benchreadiness.interview.entity.PositionRequirement posReq : skillReq.getPositions()) {
                 // If specific YOE filter provided, skip non-matching positions
                 if (filterMinYoe != null && !filterMinYoe.equals(posReq.getMinYoeRequired())) {
-                    System.out.println("[MATCHING] Skipping position with minYOE " + posReq.getMinYoeRequired() + " - doesn't match filter: " + filterMinYoe);
                     continue;
                 }
                 
-                System.out.println("[MATCHING] Position requirement - Source: " + posReq.getSource() + ", MinYOE: " + posReq.getMinYoeRequired() + ", Candidates needed: " + posReq.getCandidatesNeeded());
-                
                 // Skip if source doesn't match
                 if (!source.equals(posReq.getSource())) {
-                    System.out.println("[MATCHING] Skipping position - source mismatch (requested: " + source + ", position: " + posReq.getSource() + ")");
                     continue;
                 }
                 
                 // Filter candidates by skill set, YOE, and eligibility
                 List<Map<String, Object>> filteredCandidates = allCandidates.stream()
                     .filter(candidate -> {
-                        String candidateName = (String) candidate.get("name");
-                        
                         // Check skill set match
                         String candidateSkill = (String) candidate.get("skillSet");
                         if (!skillReq.getSkillSet().name().equals(candidateSkill)) {
-                            System.out.println("[MATCHING] " + candidateName + " filtered out - skill mismatch (has: " + candidateSkill + ", needs: " + skillReq.getSkillSet() + ")");
                             return false;
                         }
                         
@@ -141,7 +129,6 @@ public class MatchingService {
                         Double yoePortrayed = candidate.get("yoePortrayed") != null ? 
                             ((Number) candidate.get("yoePortrayed")).doubleValue() : 0.0;
                         if (yoePortrayed < posReq.getMinYoeRequired()) {
-                            System.out.println("[MATCHING] " + candidateName + " filtered out - insufficient YOE portrayed (has: " + yoePortrayed + ", needs: " + posReq.getMinYoeRequired() + ")");
                             return false;
                         }
                         
@@ -155,7 +142,6 @@ public class MatchingService {
                         }
                         
                         if (!sourceMatch) {
-                            System.out.println("[MATCHING] " + candidateName + " filtered out - source mismatch (has: " + candidateSource + ", needs: " + source + ")");
                             return false;
                         }
                         
@@ -165,24 +151,18 @@ public class MatchingService {
                             ((Number) candidate.get("systemInterviewCount")).intValue() : 0;
                         
                         if (!"RFD".equals(candidateStatus)) {
-                            System.out.println("[MATCHING] " + candidateName + " filtered out - not RFD (status: " + candidateStatus + ")");
                             return false;
                         }
                         
                         if (systemInterviewCount < 1) {
-                            System.out.println("[MATCHING] " + candidateName + " filtered out - no completed interviews (count: " + systemInterviewCount + ")");
                             return false;
                         }
                         
-                        System.out.println("[MATCHING] " + candidateName + " PASSED all filters - eligible for matching");
                         return true;
                     })
                     .collect(java.util.stream.Collectors.toList());
                 
-                System.out.println("[MATCHING] Filtered candidates for this position: " + filteredCandidates.size());
-                
                 if (filteredCandidates.isEmpty()) {
-                    System.out.println("[MATCHING] No candidates match the criteria for skill: " + skillReq.getSkillSet() + ", minYOE: " + posReq.getMinYoeRequired() + ", source: " + source);
                     continue;
                 }
                 // Use existing AI matching on filtered candidates

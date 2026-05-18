@@ -17,6 +17,8 @@ public class NextQuestionRequest {
     private String candidateProfileJson;
     private String interviewMode;
     private String interviewId;
+    private String questionBankQuestionsJson;
+    private String usedQuestionIds;
 
     public record Utterance(String speaker, String text) {}
 
@@ -46,4 +48,8 @@ public class NextQuestionRequest {
     public void setInterviewMode(String interviewMode) { this.interviewMode = interviewMode; }
     public String getInterviewId() { return interviewId; }
     public void setInterviewId(String interviewId) { this.interviewId = interviewId; }
+    public String getQuestionBankQuestionsJson() { return questionBankQuestionsJson; }
+    public void setQuestionBankQuestionsJson(String questionBankQuestionsJson) { this.questionBankQuestionsJson = questionBankQuestionsJson; }
+    public String getUsedQuestionIds() { return usedQuestionIds; }
+    public void setUsedQuestionIds(String usedQuestionIds) { this.usedQuestionIds = usedQuestionIds; }
 }

@@ -41,7 +41,8 @@ public class CacheConfig {
                 build("tags",            tagsTtl,        50),
                 build("sessions",        sessionsTtl,   100),
                 build("categories",      3600,           50),
-                build("admin-dashboard", 3600,           10)
+                build("admin-dashboard", 3600,           10),
+                build("questionsByCompanyMode", 1800,    100)
         ));
         return manager;
     }
