@@ -68,4 +68,17 @@ public class QuestionController {
         questionService.deleteQuestion(id);
         return ResponseEntity.ok(ApiResponse.ok(null, "Question deleted"));
     }
+
+    /**
+     * GET /api/questions/interview-mode?company=rebit&mode=L1
+     * Fetches ALL questions for a specific company and interview mode
+     */
+    @GetMapping("/interview-mode")
+    public ResponseEntity<ApiResponse<List<QuestionDTO>>> getByCompanyAndMode(
+            @RequestParam String company,
+            @RequestParam String mode
+    ) {
+        List<QuestionDTO> questions = questionService.getQuestionsByCompanyAndMode(company, mode);
+        return ResponseEntity.ok(ApiResponse.ok(questions));
+    }
 }

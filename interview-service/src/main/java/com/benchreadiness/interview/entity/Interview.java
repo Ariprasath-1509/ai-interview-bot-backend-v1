@@ -72,6 +72,12 @@ public class Interview {
     @Column(name = "signed_off_at")
     private Instant signedOffAt;
 
+    @Column(name = "question_bank_questions_json", columnDefinition = "TEXT")
+    private String questionBankQuestionsJson;
+
+    @Column(name = "used_question_ids", columnDefinition = "TEXT")
+    private String usedQuestionIds = "";
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -121,6 +127,10 @@ public class Interview {
     public void setSignOffNote(String signOffNote) { this.signOffNote = signOffNote; }
     public Instant getSignedOffAt() { return signedOffAt; }
     public void setSignedOffAt(Instant signedOffAt) { this.signedOffAt = signedOffAt; }
+    public String getQuestionBankQuestionsJson() { return questionBankQuestionsJson; }
+    public void setQuestionBankQuestionsJson(String questionBankQuestionsJson) { this.questionBankQuestionsJson = questionBankQuestionsJson; }
+    public String getUsedQuestionIds() { return usedQuestionIds; }
+    public void setUsedQuestionIds(String usedQuestionIds) { this.usedQuestionIds = usedQuestionIds; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

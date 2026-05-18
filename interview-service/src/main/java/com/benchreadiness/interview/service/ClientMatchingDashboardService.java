@@ -32,27 +32,22 @@ public class ClientMatchingDashboardService {
     }
 
     /**
-     * Get all clients with matching summary
+     * Get all clients with matching summary (cached for 5 minutes)
      */
+    @Cacheable(value = "clientOverviews", key = "'all-clients'")
     public List<ClientMatchingOverview> getAllClientsWithMatchingSummary(String userId, String userRole) {
         // Fetch all clients in a separate transaction to avoid holding DB connection
         List<Client> allClients = fetchAllClients();
-        System.out.println("Found " + allClients.size() + " total clients in database");
         
         List<Client> activeClients = allClients.stream()
             .filter(client -> client.getStatus() == Client.ClientStatus.ACTIVE)
             .collect(Collectors.toList());
-        System.out.println("Found " + activeClients.size() + " active clients");
         
         // Build overviews without holding DB transaction
         List<ClientMatchingOverview> overviews = activeClients.stream()
-            .map(client -> {
-                System.out.println("Building overview for client: " + client.getClientName());
-                return buildClientOverview(client, userId, userRole);
-            })
+            .map(client -> buildClientOverview(client, userId, userRole))
             .collect(Collectors.toList());
         
-        System.out.println("Built " + overviews.size() + " client overviews");
         return overviews;
     }
     

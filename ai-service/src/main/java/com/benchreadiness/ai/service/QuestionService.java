@@ -16,7 +16,7 @@ public class QuestionService {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(QuestionService.class);
 
-    public record QuestionResult(String question, boolean manipulationDetected, boolean terminateInterview) {}
+    public record QuestionResult(String question, boolean manipulationDetected, boolean terminateInterview, String questionBankId, String source) {}
 
     private static final int MANIPULATION_WARN_THRESHOLD = 1;
     private static final int MANIPULATION_TERMINATE_THRESHOLD = 5;
@@ -111,7 +111,7 @@ public class QuestionService {
         if (check.terminate()) {
             QuestionResult result = new QuestionResult(
                 "This interview is being terminated. Multiple attempts to manipulate the AI interviewer have been detected and flagged for review.",
-                true, true
+                true, true, null, "AI_GENERATED"
             );
             cacheResult(requestCacheKey, result);
             return result;
@@ -120,10 +120,23 @@ public class QuestionService {
         if (check.warn()) {
             QuestionResult result = new QuestionResult(
                 "Please answer the interview questions directly. Attempts to influence the AI or manipulate scores are not allowed and have been noted.",
-                true, false
+                true, false, null, "AI_GENERATED"
             );
             cacheResult(requestCacheKey, result);
             return result;
+        }
+
+        // Check if question bank questions are available
+        if (req.getQuestionBankQuestionsJson() != null && !req.getQuestionBankQuestionsJson().isBlank()) {
+            try {
+                QuestionResult questionBankResult = selectFromQuestionBank(req, userId);
+                if (questionBankResult != null) {
+                    cacheResult(requestCacheKey, questionBankResult);
+                    return questionBankResult;
+                }
+            } catch (Exception e) {
+                log.warn("Failed to select from question bank, falling back to AI generation: {}", e.getMessage());
+            }
         }
 
         // Normal flow
@@ -137,12 +150,14 @@ public class QuestionService {
                         QuestionResult result = new QuestionResult(
                             deterministicProgressQuestion(req),
                             false,
-                            false
+                            false,
+                            null,
+                            "AI_GENERATED"
                         );
                         cacheResult(requestCacheKey, result);
                         return result;
                     }
-                    QuestionResult result = new QuestionResult(getVagueAnswerProbe(), false, false);
+                    QuestionResult result = new QuestionResult(getVagueAnswerProbe(), false, false, null, "AI_GENERATED");
                     cacheResult(requestCacheKey, result);
                     return result;
                 }
@@ -152,7 +167,7 @@ public class QuestionService {
                     String firstQuestionCacheHit = cacheService.getCachedFirstQuestion(
                         req.getJdTitle(), req.getJdText(), req.getFocusAreas(), req.getInterviewMode());
                     if (firstQuestionCacheHit != null) {
-                        QuestionResult result = new QuestionResult(firstQuestionCacheHit, false, false);
+                        QuestionResult result = new QuestionResult(firstQuestionCacheHit, false, false, null, "CACHED");
                         cacheResult(requestCacheKey, result);
                         return result;
                     }
@@ -166,7 +181,7 @@ public class QuestionService {
                         req.getJdTitle(), req.getJdText(), req.getFocusAreas(), req.getInterviewMode(), question);
                 }
                 
-                QuestionResult result = new QuestionResult(question, false, false);
+                QuestionResult result = new QuestionResult(question, false, false, null, "AI_GENERATED");
                 cacheResult(requestCacheKey, result);
                 return result;
             } catch (Exception e) {
@@ -175,7 +190,7 @@ public class QuestionService {
         } else {
             log.warn("LLM provider not configured — falling back to heuristic");
         }
-        QuestionResult fallback = new QuestionResult(fallbackQuestion(req), false, false);
+        QuestionResult fallback = new QuestionResult(fallbackQuestion(req), false, false, null, "FALLBACK");
         cacheResult(requestCacheKey, fallback);
         return fallback;
     }
@@ -539,4 +554,111 @@ public class QuestionService {
         }
         return base + " Please answer with one concrete production example, actions, and measurable outcome.";
     }
+
+    private QuestionResult selectFromQuestionBank(NextQuestionRequest req, String userId) throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.JsonNode questionsArray = mapper.readTree(req.getQuestionBankQuestionsJson());
+        
+        if (!questionsArray.isArray() || questionsArray.size() == 0) {
+            return null;
+        }
+
+        // Parse used question IDs
+        Set<String> usedIds = new java.util.HashSet<>();
+        if (req.getUsedQuestionIds() != null && !req.getUsedQuestionIds().isBlank()) {
+            usedIds.addAll(java.util.Arrays.asList(req.getUsedQuestionIds().split(",")));
+        }
+
+        // Filter unused questions
+        List<com.fasterxml.jackson.databind.JsonNode> unusedQuestions = new ArrayList<>();
+        for (com.fasterxml.jackson.databind.JsonNode q : questionsArray) {
+            String qId = q.path("id").asText();
+            if (!usedIds.contains(qId)) {
+                unusedQuestions.add(q);
+            }
+        }
+
+        if (unusedQuestions.isEmpty()) {
+            log.info("All question bank questions have been used, falling back to AI generation");
+            return null;
+        }
+
+        // Let AI select the best question from question bank
+        String selectedQuestionJson = llmSelectQuestionFromBank(req, unusedQuestions, userId);
+        com.fasterxml.jackson.databind.JsonNode selectedQuestion = mapper.readTree(selectedQuestionJson);
+        
+        String questionText = selectedQuestion.path("question").asText();
+        String questionBankId = selectedQuestion.path("questionBankId").asText();
+        
+        log.info("Selected question from question bank: ID={}", questionBankId);
+        return new QuestionResult(questionText, false, false, questionBankId, "QUESTION_BANK");
+    }
+
+    private String llmSelectQuestionFromBank(NextQuestionRequest req, List<com.fasterxml.jackson.databind.JsonNode> unusedQuestions, String userId) throws Exception {
+        String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";
+        Map<Integer, String> slotThemes = MODE_SLOT_THEMES.getOrDefault(mode, MODE_SLOT_THEMES.get("L3"));
+        String slotTheme = slotThemes.getOrDefault(req.getSlot(),
+            "Continue probing technical depth and communication quality relevant to the role.");
+
+        // Build question bank context
+        StringBuilder questionBankContext = new StringBuilder("Available Question Bank Questions:\n");
+        for (int i = 0; i < unusedQuestions.size(); i++) {
+            com.fasterxml.jackson.databind.JsonNode q = unusedQuestions.get(i);
+            questionBankContext.append(i + 1).append(". ")
+                .append("[ID: ").append(q.path("id").asText()).append("] ")
+                .append(q.path("text").asText())
+                .append(" (Relevancy: ").append(q.path("relevancyLabel").asText("MEDIUM")).append(")\n");
+        }
+
+        String system = String.join("\n",
+            "You are an expert technical interviewer.",
+            "Your job is to select ONLY ONE question from the question bank.",
+            "React naturally to the candidate's previous answer and reference specific details when available.",
+            "",
+            "Question Bank Available:",
+            questionBankContext.toString(),
+            "",
+            "Rules:",
+            "1. Select the most relevant question from the question bank based on:",
+            "   - Conversation flow and candidate's previous answers",
+            "   - Question relevancy score (prefer HIGH > MEDIUM > LOW)",
+            "   - Natural progression of topics",
+            "2. You can ask cross-questions (not from question bank) when:",
+            "   - Candidate's answer needs clarification",
+            "   - You want to probe deeper into their response",
+            "   - Natural follow-up is needed",
+            "3. If you decide to ask a cross-question instead, return {\"source\": \"AI_CROSS_QUESTION\"}",
+            "4. Track used question IDs to avoid repetition",
+            "",
+            "Interview Context:",
+            "Slot: " + slotTheme,
+            "Mode: " + mode,
+            "",
+            "Return format (JSON only):",
+            "{",
+            "  \"question\": \"selected question text or your cross-question\",",
+            "  \"questionBankId\": \"uuid or null\",",
+            "  \"source\": \"QUESTION_BANK or AI_CROSS_QUESTION\"",
+            "}"
+        );
+
+        String lastAnswer = req.getLastAnswer() != null ? req.getLastAnswer().trim() : "";
+        String recent = buildTranscriptContext(req.getUtterances());
+
+        StringBuilder user = new StringBuilder();
+        if (!lastAnswer.isEmpty()) {
+            user.append("Last answer:\n").append(lastAnswer, 0, Math.min(800, lastAnswer.length())).append("\n\n");
+        }
+        if (!recent.isEmpty()) user.append("Recent dialogue:\n").append(recent).append("\n\n");
+        user.append("Select the best question from the question bank or decide to ask a cross-question.\n");
+        user.append("Return ONLY valid JSON, no markdown fences.");
+
+        String result = llmClient.chatQuestionWithSlotAndTracking(system, user.toString(), req.getSlot(), req.getInterviewId(), userId);
+        
+        // Strip markdown fences if present
+        result = result.replaceAll("```json\\s*", "").replaceAll("```\\s*", "").trim();
+        
+        return result;
+    }
 }
+

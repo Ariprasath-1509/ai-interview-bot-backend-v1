@@ -21,29 +21,35 @@ public class InterviewService {
     private final EngineerRepository engineerRepository;
     private final JobDescriptionRepository jdRepository;
     private final InterviewPlanRepository planRepository;
+    private final ClientRepository clientRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     private final AiServiceClient aiServiceClient;
     private final ObserverServiceClient observerServiceClient;
     private final ComplianceServiceClient complianceServiceClient;
     private final AuthServiceClient authServiceClient;
+    private final QuestionBankClient questionBankClient;
 
     public InterviewService(InterviewRepository interviewRepository,
                             EngineerRepository engineerRepository,
                             JobDescriptionRepository jdRepository,
                             InterviewPlanRepository planRepository,
+                            ClientRepository clientRepository,
                             AiServiceClient aiServiceClient,
                             ObserverServiceClient observerServiceClient,
                             ComplianceServiceClient complianceServiceClient,
-                            AuthServiceClient authServiceClient) {
+                            AuthServiceClient authServiceClient,
+                            QuestionBankClient questionBankClient) {
         this.interviewRepository = interviewRepository;
         this.engineerRepository = engineerRepository;
         this.jdRepository = jdRepository;
         this.planRepository = planRepository;
+        this.clientRepository = clientRepository;
         this.aiServiceClient = aiServiceClient;
         this.observerServiceClient = observerServiceClient;
         this.complianceServiceClient = complianceServiceClient;
         this.authServiceClient = authServiceClient;
+        this.questionBankClient = questionBankClient;
     }
 
     @Transactional
@@ -126,6 +132,44 @@ public class InterviewService {
         interview.setCreatedByUserId(createdByUserId);
         interview.setStatus(InterviewStatus.SCHEDULED);
         interview.setScheduledAt(Instant.now());
+        
+        // Fetch questions from question bank if clientId is provided
+        if (req.getClientId() != null && !req.getClientId().isBlank()) {
+            log.info("ClientId provided: {}, attempting to fetch questions from question bank", req.getClientId());
+            try {
+                UUID clientUuid = UUID.fromString(req.getClientId());
+                Optional<Client> clientOpt = clientRepository.findById(clientUuid);
+                if (clientOpt.isPresent()) {
+                    String clientName = clientOpt.get().getClientName();
+                    String clientSlug = clientName.toLowerCase().replaceAll("\\s+", "-");
+                    String mode = req.getInterviewMode().name();
+                    log.info("Fetching questions for client: {} (slug: {}), mode: {}", clientName, clientSlug, mode);
+                    
+                    com.fasterxml.jackson.databind.JsonNode questionsResponse = 
+                        questionBankClient.fetchQuestionsByCompanyAndMode(clientSlug, mode);
+                    
+                    if (questionsResponse != null && questionsResponse.has("data") && 
+                        questionsResponse.get("data").isArray() && 
+                        questionsResponse.get("data").size() > 0) {
+                        interview.setQuestionBankQuestionsJson(
+                            objectMapper.writeValueAsString(questionsResponse.get("data"))
+                        );
+                        interview.setUsedQuestionIds("");
+                        log.info("Fetched {} questions from question bank for client {} and mode {}", 
+                            questionsResponse.get("data").size(), clientName, mode);
+                    } else {
+                        log.info("No questions found in question bank for client {} and mode {}", clientName, mode);
+                    }
+                } else {
+                    log.warn("Client not found with ID: {}", req.getClientId());
+                }
+            } catch (Exception e) {
+                log.warn("Failed to fetch questions from question bank: {}", e.getMessage());
+            }
+        } else {
+            log.info("No clientId provided, skipping question bank fetch");
+        }
+        
         Interview saved = interviewRepository.save(interview);
 
         // Notify observer-service to send invite email (fire-and-forget)
@@ -378,6 +422,10 @@ public class InterviewService {
             try { 
                 interview.setProposedVerdict(ReadinessVerdict.valueOf(updates.get("proposedVerdict")));
             } catch (Exception ignored) {}
+        }
+        if (updates.containsKey("usedQuestionIds")) {
+            interview.setUsedQuestionIds(updates.get("usedQuestionIds"));
+            log.info("Updated usedQuestionIds for interview {}: {}", id, updates.get("usedQuestionIds"));
         }
         
         Interview saved = interviewRepository.save(interview);

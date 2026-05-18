@@ -95,6 +95,21 @@ public interface QuestionRepository extends JpaRepository<Question, UUID> {
     List<Question> findByCompanySlug(@Param("companySlug") String companySlug);
 
     /**
+     * Get questions by company and interview round/mode.
+     */
+    @Query("""
+            SELECT DISTINCT q FROM Question q
+            JOIN QuestionOccurrence qo ON qo.question = q
+            JOIN qo.session s
+            JOIN s.company c
+            WHERE c.slug = :companySlug
+              AND LOWER(s.round) = LOWER(:round)
+            ORDER BY q.relevancyScore DESC, q.occurrenceCount DESC
+            """)
+    List<Question> findByCompanyAndRound(@Param("companySlug") String companySlug,
+                                         @Param("round") String round);
+
+    /**
      * Bulk update relevancy score and label for a question.
      */
     @Modifying

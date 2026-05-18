@@ -114,7 +114,9 @@ public class AiController {
         return ResponseEntity.ok(Map.of(
             "question", result.question(),
             "manipulationDetected", result.manipulationDetected(),
-            "terminateInterview", result.terminateInterview()
+            "terminateInterview", result.terminateInterview(),
+            "questionBankId", result.questionBankId() != null ? result.questionBankId() : "",
+            "source", result.source() != null ? result.source() : "AI_GENERATED"
         ));
     }
 
