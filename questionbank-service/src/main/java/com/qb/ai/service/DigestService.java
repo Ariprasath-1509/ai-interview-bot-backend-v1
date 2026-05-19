@@ -1,12 +1,12 @@
 package com.qb.ai.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qb.ai.dto.*;
 import com.qb.ai.dto.DigestCommitRequest.CommitQuestion;
 import com.qb.ai.dto.DigestCommitRequest.CommitSession;
 import com.qb.ai.dto.DigestParseResponse.*;
 import com.qb.ai.llm.PromptTemplates;
+import com.qb.config.LlmConfig;
 import com.qb.core.entity.*;
 import com.qb.core.repository.OccurrenceRepository;
 import com.qb.core.repository.QuestionRepository;
@@ -17,13 +17,10 @@ import com.qb.core.service.TagService;
 import com.qb.core.repository.SessionRepository;
 import org.springframework.ai.converter.BeanOutputConverter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Caching;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestTemplate;
 import jakarta.annotation.PostConstruct;
 
 import java.time.LocalDate;
@@ -33,25 +30,56 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Orchestrates the two-step digest workflow:
- * 1. PARSE: Raw text → Gemini AI → Structured sessions + fuzzy match
+ * 1. PARSE: Raw text → LLM (Claude or Ollama with fallback) → Structured sessions + fuzzy match
  * 2. COMMIT: Admin-approved data → Database insert/link
  */
 @Slf4j
 @Service
 public class DigestService {
 
-    @Value("${app.claude.api-key:}")
-    private String claudeApiKey;
-
-    @Value("${app.claude.model:claude-3-5-haiku-20241022}")
-    private String claudeModel;
-
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final LlmConfig config;
+    private final ClaudeService claudeService;
+    private final OllamaService ollamaService;
+    private final FuzzyMatchService fuzzyMatchService;
+    private final CompanyService companyService;
+    private final CategoryService categoryService;
+    private final TagService tagService;
+    private final QuestionRepository questionRepo;
+    private final SessionRepository sessionRepo;
+    private final OccurrenceRepository occurrenceRepo;
+    private final RelevancyScoreService relevancyScoreService;
+
+    public DigestService(
+            LlmConfig config,
+            ClaudeService claudeService,
+            OllamaService ollamaService,
+            FuzzyMatchService fuzzyMatchService,
+            CompanyService companyService,
+            CategoryService categoryService,
+            TagService tagService,
+            QuestionRepository questionRepo,
+            SessionRepository sessionRepo,
+            OccurrenceRepository occurrenceRepo,
+            RelevancyScoreService relevancyScoreService
+    ) {
+        this.config = config;
+        this.claudeService = claudeService;
+        this.ollamaService = ollamaService;
+        this.fuzzyMatchService = fuzzyMatchService;
+        this.companyService = companyService;
+        this.categoryService = categoryService;
+        this.tagService = tagService;
+        this.questionRepo = questionRepo;
+        this.sessionRepo = sessionRepo;
+        this.occurrenceRepo = occurrenceRepo;
+        this.relevancyScoreService = relevancyScoreService;
+    }
 
     @PostConstruct
     public void init() {
-        log.info("Initialized DigestService with Claude model: {}", claudeModel);
+        log.info("Initialized DigestService with LLM provider: {} (fallback enabled)",
+                config.getLlm().getProvider());
     }
 
     private LocalDate parseDate(String dateStr) {
@@ -82,51 +110,21 @@ public class DigestService {
         }
     }
 
-    private final FuzzyMatchService fuzzyMatchService;
-    private final CompanyService companyService;
-    private final CategoryService categoryService;
-    private final TagService tagService;
-    private final QuestionRepository questionRepo;
-    private final SessionRepository sessionRepo;
-    private final OccurrenceRepository occurrenceRepo;
-    private final RelevancyScoreService relevancyScoreService;
-
-    public DigestService(
-            FuzzyMatchService fuzzyMatchService,
-            CompanyService companyService,
-            CategoryService categoryService,
-            TagService tagService,
-            QuestionRepository questionRepo,
-            SessionRepository sessionRepo,
-            OccurrenceRepository occurrenceRepo,
-            RelevancyScoreService relevancyScoreService
-    ) {
-        this.fuzzyMatchService = fuzzyMatchService;
-        this.companyService = companyService;
-        this.categoryService = categoryService;
-        this.tagService = tagService;
-        this.questionRepo = questionRepo;
-        this.sessionRepo = sessionRepo;
-        this.occurrenceRepo = occurrenceRepo;
-        this.relevancyScoreService = relevancyScoreService;
-    }
-
     // ─── STEP 1: PARSE ───────────────────────────────────────────────
 
     /**
-     * Parse raw interview text using AI and enhance with fuzzy matching.
+     * Parse raw interview text using AI (with fallback) and enhance with fuzzy matching.
      * This is Step 1 of the digest flow — returns preview data for admin review.
      */
     public DigestParseResponse parse(String rawText) {
         // 1. Fetch category list from DB for constrained classification
         String categoryList = String.join(", ", categoryService.getAllCategoryNames());
 
-        // 2. Call Claude AI to extract structured data
-        log.info("Calling Claude AI to parse interview text ({} chars)", rawText.length());
+        // 2. Call LLM (Claude or Ollama) with fallback
+        log.info("Calling LLM to parse interview text ({} chars)", rawText.length());
 
         BeanOutputConverter<DigestAiResponse> converter = new BeanOutputConverter<>(DigestAiResponse.class);
-
-        DigestAiResponse aiResult = callClaude(rawText, categoryList, converter);
+        DigestAiResponse aiResult = callLLMWithFallback(rawText, categoryList, converter);
 
         // 3. Convert AI output to response DTOs + run fuzzy matching
         List<ParsedSession> sessions = new ArrayList<>();
@@ -165,33 +163,37 @@ public class DigestService {
         return new DigestParseResponse(sessions);
     }
 
-    private DigestAiResponse callClaude(String rawText, String categoryList, BeanOutputConverter<DigestAiResponse> converter) {
-        String systemPrompt = PromptTemplates.DIGEST_SYSTEM_PROMPT.replace("{categoryList}", categoryList);
-        String fullPrompt = systemPrompt + "\n\nHere is the interview text to parse. Respond ONLY with valid JSON matching the required schema:\n" + rawText
-                + "\n\n" + converter.getFormat();
+    /**
+     * Call LLM with primary provider and automatic fallback.
+     * If primary (Claude or Ollama) fails, automatically tries the other.
+     */
+    private DigestAiResponse callLLMWithFallback(String rawText, String categoryList,
+                                                 BeanOutputConverter<DigestAiResponse> converter) {
+        String primaryProvider = config.getLlm().getProvider().toLowerCase();
+        String fallbackProvider = "claude".equals(primaryProvider) ? "ollama" : "claude";
 
-        Map<String, Object> body = Map.of(
-                "model", claudeModel,
-                "max_tokens", 8000,
-                "messages", List.of(Map.of("role", "user", "content", fullPrompt))
-        );
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("x-api-key", claudeApiKey);
-        headers.set("anthropic-version", "2023-06-01");
-
-        ResponseEntity<JsonNode> response = restTemplate.exchange(
-                "https://api.anthropic.com/v1/messages",
-                HttpMethod.POST,
-                new HttpEntity<>(body, headers),
-                JsonNode.class
-        );
-
-        String content = response.getBody().path("content").get(0).path("text").asText();
-        // Strip markdown fences if present
-        content = content.replaceAll("(?s)```json\\s*", "").replaceAll("```", "").trim();
-        return converter.convert(content);
+        try {
+            log.info("Attempting primary LLM provider: {}", primaryProvider);
+            if ("ollama".equals(primaryProvider)) {
+                return ollamaService.parse(rawText, categoryList, converter);
+            } else {
+                return claudeService.parse(rawText, categoryList, converter);
+            }
+        } catch (Exception e) {
+            log.warn("Primary provider ({}) failed: {}. Attempting fallback: {}",
+                    primaryProvider, e.getMessage(), fallbackProvider);
+            try {
+                if ("ollama".equals(fallbackProvider)) {
+                    return ollamaService.parse(rawText, categoryList, converter);
+                } else {
+                    return claudeService.parse(rawText, categoryList, converter);
+                }
+            } catch (Exception fallbackError) {
+                log.error("Both LLM providers failed. Primary: {}, Fallback: {}",
+                        e.getMessage(), fallbackError.getMessage());
+                throw new RuntimeException("All LLM providers failed: " + fallbackError.getMessage(), fallbackError);
+            }
+        }
     }
 
     // ─── STEP 2: COMMIT ──────────────────────────────────────────────

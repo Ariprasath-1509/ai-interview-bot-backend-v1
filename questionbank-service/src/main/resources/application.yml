@@ -97,9 +97,17 @@ app:
   jwt:
     secret: dev-jwt-secret-change-in-production-min-32-chars
     expiry-ms: 86400000
+
+  llm:
+    provider: claude  # Use "claude" or "ollama" - other will be fallback
   claude:
     api-key: ${APP_CLAUDE_API_KEY:}
-    model: ${CLAUDE_MODEL:claude-haiku-4-5}
+    model: ${APP_CLAUDE_MODEL:claude-haiku-4-5}
+  ollama:
+    base-url: ${APP_OLLAMA_BASE_URL:http://103.182.211.219:11434}
+    model: ${APP_OLLAMA_MODEL:qwen2.5:32b}
+    temperature: ${APP_OLLAMA_TEMPERATURE:0.3}
+    timeout-seconds: ${APP_OLLAMA_TIMEOUT_SECONDS:600}
 
 eureka:
   client:

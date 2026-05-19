@@ -28,11 +28,23 @@ public class OllamaAiClient implements LlmClient {
     @Value("${app.ollama.base-url:http://127.0.0.1:11434}")
     private String baseUrl;
 
-    @Value("${app.ollama.model:qwen2.5:7b}")
-    private String model;
+    @Value("${app.ollama.question-model:qwen2.5:7b}")
+    private String questionModel;
 
-    @Value("${app.ollama.temperature:0.55}")
-    private double temperature;
+    @Value("${app.ollama.assessment-model:qwen2.5:32b}")
+    private String assessmentModel;
+
+    @Value("${app.ollama.rubric-model:qwen2.5:14b}")
+    private String rubricModel;
+
+    @Value("${app.ollama.matching-model:qwen2.5:32b}")
+    private String matchingModel;
+
+    @Value("${app.ollama.question-temperature:0.55}")
+    private double questionTemperature;
+
+    @Value("${app.ollama.assessment-temperature:0.3}")
+    private double assessmentTemperature;
 
     @Value("${app.ollama.timeout-seconds:600}")
     private int timeoutSeconds;
@@ -50,35 +62,36 @@ public class OllamaAiClient implements LlmClient {
 
     @Override
     public boolean isConfigured() {
-        boolean configured = baseUrl != null && !baseUrl.isBlank() && model != null && !model.isBlank();
-        log.info("Ollama configured: {}, baseUrl={}, model={}", configured, baseUrl, model);
+        boolean configured = baseUrl != null && !baseUrl.isBlank() 
+                && questionModel != null && !questionModel.isBlank();
+        log.info("Ollama configured: {}, baseUrl={}, questionModel={}, assessmentModel={}, rubricModel={}, matchingModel={}", 
+                configured, baseUrl, questionModel, assessmentModel, rubricModel, matchingModel);
         return configured;
     }
 
     @Override
     public String chatQuestion(String systemPrompt, String userPrompt) throws Exception {
-        return chat(systemPrompt, userPrompt, model, temperature, null, null, null);
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, null, null, null);
     }
 
     @Override
     public String chatQuestionWithSlotAndTracking(String systemPrompt, String userPrompt, int slot, String interviewId, String userId) throws Exception {
-        // Keep one model for now; slot can be used later for per-slot model routing.
-        return chat(systemPrompt, userPrompt, model, temperature, interviewId, "question", userId);
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, interviewId, "question", userId);
     }
 
     @Override
     public String chatAssessmentWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        return chat(systemPrompt, userPrompt, model, 0.25, interviewId, "assessment", userId);
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, interviewId, "assessment", userId);
     }
 
     @Override
     public String chatRubricWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        return chat(systemPrompt, userPrompt, model, temperature, interviewId, "rubric", userId);
+        return chat(systemPrompt, userPrompt, rubricModel, questionTemperature, interviewId, "rubric", userId);
     }
 
     @Override
     public String chatMatching(String systemPrompt, String userPrompt) throws Exception {
-        return chat(systemPrompt, userPrompt, model, 0.25, null, null, null);
+        return chat(systemPrompt, userPrompt, matchingModel, assessmentTemperature, null, null, null);
     }
 
     private String chat(String systemPrompt, String userPrompt, String model,
