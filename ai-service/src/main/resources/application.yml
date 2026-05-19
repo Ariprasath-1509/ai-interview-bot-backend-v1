@@ -24,16 +24,18 @@ app:
   jwt:
     secret: dev-jwt-secret-change-in-production-min-32-chars
   claude:
-    api-key: ${APP_CLAUDE_API_KEY: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}
+    api-key: ${APP_CLAUDE_API_KEY:}
     model: ${APP_CLAUDE_MODEL:claude-haiku-4-5}
     assessment-model: ${APP_CLAUDE_ASSESSMENT_MODEL:claude-sonnet-4-5}
     question-temperature: ${APP_CLAUDE_QUESTION_TEMPERATURE:0.55}
     assessment-temperature: ${APP_CLAUDE_ASSESSMENT_TEMPERATURE:0.25}
   ollama:
-    base-url: http://103.182.211.219:11434
-    model: qwen2.5:1.5b
-    temperature: 0.55
-    timeout-seconds: 600
+    base-url: ${APP_OLLAMA_BASE_URL:http://103.182.211.219:11434}
+    model: ${APP_OLLAMA_MODEL:qwen2.5:1.5b}
+    assessment-model: ${APP_OLLAMA_ASSESSMENT_MODEL:qwen2.5:7b}
+    question-temperature: ${APP_OLLAMA_QUESTION_TEMPERATURE:0.55}
+    assessment-temperature: ${APP_OLLAMA_ASSESSMENT_TEMPERATURE:0.3}
+    timeout-seconds: ${APP_OLLAMA_TIMEOUT_SECONDS:600}
   assessment:
     async-enabled: true
     thread-pool-size: 10
