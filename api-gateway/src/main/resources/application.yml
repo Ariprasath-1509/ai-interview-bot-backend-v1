@@ -69,13 +69,13 @@ spring:
         - id: compliance-service
           uri: lb://compliance-service
           predicates:
-            - Path=/api/compliance/**,/api/tokens/**
+            - Path=/api/compliance/**,/api/tokens/**,/api/admin/llm/**
           filters:
             - RewritePath=/api/(?<segment>.*), /$\{segment}
         - id: compliance-service-direct
           uri: lb://compliance-service
           predicates:
-            - Path=/compliance/**,/tokens/**
+            - Path=/compliance/**,/tokens/**,/admin/llm/**
         - id: questionbank-service
           uri: lb://questionbank-service
           predicates:

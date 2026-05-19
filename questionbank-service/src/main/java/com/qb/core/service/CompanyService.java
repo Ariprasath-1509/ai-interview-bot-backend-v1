@@ -59,9 +59,8 @@ public class CompanyService {
     public void deleteCompany(String slug) {
         Company company = companyRepo.findBySlug(slug)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", slug));
-        if (!sessionRepo.findByCompanyId(company.getId()).isEmpty()) {
-            throw new IllegalStateException("Cannot delete company with existing sessions.");
-        }
+        // Delete associated sessions first
+        sessionRepo.deleteAll(sessionRepo.findByCompanyId(company.getId()));
         companyRepo.delete(company);
     }
 

@@ -18,7 +18,6 @@ import java.util.Map;
 import java.util.LinkedHashMap;
 
 @Component
-@ConditionalOnProperty(name = "app.llm.provider", havingValue = "claude", matchIfMissing = true)
 public class ClaudeAiClient implements LlmClient {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ClaudeAiClient.class);
@@ -39,6 +38,7 @@ public class ClaudeAiClient implements LlmClient {
     private double assessmentTemperature;
 
     private final ComplianceServiceClient complianceServiceClient;
+    private final LlmConfigService llmConfigService;
 
     private static final String CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
     private static final String ANTHROPIC_VERSION = "2023-06-01";
@@ -47,8 +47,9 @@ public class ClaudeAiClient implements LlmClient {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private volatile boolean authFailed = false;
 
-    public ClaudeAiClient(ComplianceServiceClient complianceServiceClient) {
+    public ClaudeAiClient(ComplianceServiceClient complianceServiceClient, LlmConfigService llmConfigService) {
         this.complianceServiceClient = complianceServiceClient;
+        this.llmConfigService = llmConfigService;
     }
 
     private volatile Boolean configuredCache = null;
@@ -92,7 +93,7 @@ public class ClaudeAiClient implements LlmClient {
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatQuestionWithSlot(String systemPrompt, String userPrompt, int slot) throws Exception {
-        String model = slot <= 5 ? questionModel : assessmentModel;
+        String model = getDynamicModel("question");
         return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForOperation("question"));
     }
 
@@ -236,22 +237,37 @@ public class ClaudeAiClient implements LlmClient {
     }
 
     public String chatQuestionWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForOperation("question"), interviewId, "question", userId);
+        String model = getDynamicModel("question");
+        return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForOperation("question"), interviewId, "question", userId);
     }
 
     @Override
     public String chatQuestionWithSlotAndTracking(String systemPrompt, String userPrompt, int slot, String interviewId, String userId) throws Exception {
-        String model = slot <= 5 ? questionModel : assessmentModel;
+        String model = getDynamicModel("question");
         return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForOperation("question"), interviewId, "question", userId);
     }
 
     @Override
     public String chatAssessmentWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForOperation("assessment"), interviewId, "assessment", userId);
+        String model = getDynamicModel("assessment");
+        return chat(systemPrompt, userPrompt, model, assessmentTemperature, getMaxTokensForOperation("assessment"), interviewId, "assessment", userId);
     }
 
     @Override
     public String chatRubricWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForOperation("rubric"), interviewId, "rubric", userId);
+        String model = getDynamicModel("rubric");
+        return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForOperation("rubric"), interviewId, "rubric", userId);
+    }
+
+    private String getDynamicModel(String operation) {
+        try {
+            String model = llmConfigService.getModelForOperation(operation);
+            if (model != null && !model.isBlank()) {
+                return model;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get dynamic model for {}, using default", operation);
+        }
+        return operation.equals("assessment") || operation.equals("matching") ? assessmentModel : questionModel;
     }
 }

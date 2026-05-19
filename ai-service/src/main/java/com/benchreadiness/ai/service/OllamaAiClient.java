@@ -20,7 +20,6 @@ import java.util.Map;
  * Ollama-backed implementation. Uses POST {baseUrl}/api/chat.
  */
 @Component
-@ConditionalOnProperty(name = "app.llm.provider", havingValue = "ollama")
 public class OllamaAiClient implements LlmClient {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(OllamaAiClient.class);
@@ -38,14 +37,16 @@ public class OllamaAiClient implements LlmClient {
     private int timeoutSeconds;
 
     private final ComplianceServiceClient complianceServiceClient;
+    private final LlmConfigService llmConfigService;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public OllamaAiClient(ComplianceServiceClient complianceServiceClient) {
+    public OllamaAiClient(ComplianceServiceClient complianceServiceClient, LlmConfigService llmConfigService) {
         this.complianceServiceClient = complianceServiceClient;
+        this.llmConfigService = llmConfigService;
     }
 
     @Override
@@ -57,28 +58,44 @@ public class OllamaAiClient implements LlmClient {
 
     @Override
     public String chatQuestion(String systemPrompt, String userPrompt) throws Exception {
+        String model = getDynamicModel("question");
         return chat(systemPrompt, userPrompt, model, temperature, null, null, null);
     }
 
     @Override
     public String chatQuestionWithSlotAndTracking(String systemPrompt, String userPrompt, int slot, String interviewId, String userId) throws Exception {
-        // Keep one model for now; slot can be used later for per-slot model routing.
+        String model = getDynamicModel("question");
         return chat(systemPrompt, userPrompt, model, temperature, interviewId, "question", userId);
     }
 
     @Override
     public String chatAssessmentWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
+        String model = getDynamicModel("assessment");
         return chat(systemPrompt, userPrompt, model, 0.25, interviewId, "assessment", userId);
     }
 
     @Override
     public String chatRubricWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
+        String model = getDynamicModel("rubric");
         return chat(systemPrompt, userPrompt, model, temperature, interviewId, "rubric", userId);
     }
 
     @Override
     public String chatMatching(String systemPrompt, String userPrompt) throws Exception {
+        String model = getDynamicModel("matching");
         return chat(systemPrompt, userPrompt, model, 0.25, null, null, null);
+    }
+
+    private String getDynamicModel(String operation) {
+        try {
+            String dynamicModel = llmConfigService.getModelForOperation(operation);
+            if (dynamicModel != null && !dynamicModel.isBlank()) {
+                return dynamicModel;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get dynamic model for {}, using default", operation);
+        }
+        return model; // Fallback to configured default
     }
 
     private String chat(String systemPrompt, String userPrompt, String model,

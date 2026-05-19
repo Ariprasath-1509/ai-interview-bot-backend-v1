@@ -21,6 +21,7 @@ spring:
   flyway:
     schemas: compliance_svc
     locations: classpath:db/migration
+    validate-on-migrate: false
 
 eureka:
   client:

@@ -15,11 +15,17 @@ public class CacheConfig {
 
     @Bean
     public CacheManager cacheManager() {
-        CaffeineCacheManager cacheManager = new CaffeineCacheManager("rubrics");
-        cacheManager.setCaffeine(Caffeine.newBuilder()
+        CaffeineCacheManager cacheManager = new CaffeineCacheManager("rubrics", "llmConfig");
+        cacheManager.registerCustomCache("rubrics", Caffeine.newBuilder()
             .expireAfterWrite(24, TimeUnit.HOURS)
             .maximumSize(500)
-            .recordStats());
+            .recordStats()
+            .build());
+        cacheManager.registerCustomCache("llmConfig", Caffeine.newBuilder()
+            .expireAfterWrite(1, TimeUnit.MINUTES)
+            .maximumSize(1)
+            .recordStats()
+            .build());
         return cacheManager;
     }
 }
