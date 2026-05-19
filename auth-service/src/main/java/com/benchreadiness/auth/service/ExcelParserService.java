@@ -209,9 +209,13 @@ public class ExcelParserService {
         }
 
         // Skill set validation — optional, warn on unknown values
-        if (!isBlank(candidate.getSkillSet()) && !Arrays.asList("JAVA_SB", "JFSR", "REACT_JS").contains(candidate.getSkillSet())) {
-            errors.add(new BulkImportResponse.ValidationError(row, "skillSet",
-                "Unrecognized skill set, will be skipped: " + candidate.getSkillSet(), candidate.getSkillSet(), "WARNING"));
+        if (!isBlank(candidate.getSkillSet())) {
+            try {
+                com.benchreadiness.auth.entity.SkillSet.valueOf(candidate.getSkillSet());
+            } catch (IllegalArgumentException e) {
+                errors.add(new BulkImportResponse.ValidationError(row, "skillSet",
+                    "Unrecognized skill set, will be skipped: " + candidate.getSkillSet(), candidate.getSkillSet(), "WARNING"));
+            }
         }
 
         // YOE validation
@@ -424,7 +428,7 @@ public class ExcelParserService {
 
     private String normalizeSkillSet(String skillSet) {
         if (isBlank(skillSet)) return null;
-        String normalized = skillSet.trim().toUpperCase().replace(" ", "").replace("+", "_");
+        String normalized = skillSet.trim().toUpperCase().replace(" ", "_").replace("+", "_");
         switch (normalized) {
             case "JAVA_SB":
             case "JAVASB":
@@ -436,6 +440,18 @@ public class ExcelParserService {
             case "REACTJS":
             case "REACT":
                 return "REACT_JS";
+            case "ANGULAR":
+                return "ANGULAR";
+            case "PYTHON":
+                return "PYTHON";
+            case "QA_ENGINEER":
+            case "QA":
+            case "QAENGINEER":
+                return "QA_ENGINEER";
+            case "PLAYWRIGHT_AUTOMATION":
+            case "PLAYWRIGHT":
+            case "PLAYWRIGHTAUTOMATION":
+                return "PLAYWRIGHT_AUTOMATION";
             default:
                 return skillSet; // Return original for validation error
         }
