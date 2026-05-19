@@ -20,7 +20,7 @@ eureka:
 app:
   llm:
     # Switch LLM provider: 'claude' (default) or 'ollama'
-    provider: ${APP_LLM_PROVIDER:claude}
+    provider: ${APP_LLM_PROVIDER:ollama}
   jwt:
     secret: dev-jwt-secret-change-in-production-min-32-chars
   claude:
@@ -31,10 +31,10 @@ app:
     assessment-temperature: ${APP_CLAUDE_ASSESSMENT_TEMPERATURE:0.25}
   ollama:
     base-url: ${APP_OLLAMA_BASE_URL:http://103.182.211.219:11434}
-    question-model: ${APP_OLLAMA_QUESTION_MODEL:qwen2.5:7b}
-    assessment-model: ${APP_OLLAMA_ASSESSMENT_MODEL:qwen2.5:32b}
-    rubric-model: ${APP_OLLAMA_RUBRIC_MODEL:qwen2.5:14b}
-    matching-model: ${APP_OLLAMA_MATCHING_MODEL:qwen2.5:32b}
+    question-model: ${APP_OLLAMA_QUESTION_MODEL:qwen3:14b}
+    assessment-model: ${APP_OLLAMA_ASSESSMENT_MODEL:qwen3:32b}
+    rubric-model: ${APP_OLLAMA_RUBRIC_MODEL:qwen3:14b}
+    matching-model: ${APP_OLLAMA_MATCHING_MODEL:qwen3:32b}
     question-temperature: ${APP_OLLAMA_QUESTION_TEMPERATURE:0.55}
     assessment-temperature: ${APP_OLLAMA_ASSESSMENT_TEMPERATURE:0.3}
     timeout-seconds: ${APP_OLLAMA_TIMEOUT_SECONDS:600}
