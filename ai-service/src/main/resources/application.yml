@@ -32,9 +32,9 @@ app:
   ollama:
     base-url: ${APP_OLLAMA_BASE_URL:http://103.182.211.219:11434}
     question-model: ${APP_OLLAMA_QUESTION_MODEL:qwen3:14b}
-    assessment-model: ${APP_OLLAMA_ASSESSMENT_MODEL:qwen3:32b}
+    assessment-model: ${APP_OLLAMA_ASSESSMENT_MODEL:qwen3:14b}
     rubric-model: ${APP_OLLAMA_RUBRIC_MODEL:qwen3:14b}
-    matching-model: ${APP_OLLAMA_MATCHING_MODEL:qwen3:32b}
+    matching-model: ${APP_OLLAMA_MATCHING_MODEL:qwen3:14b}
     question-temperature: ${APP_OLLAMA_QUESTION_TEMPERATURE:0.55}
     assessment-temperature: ${APP_OLLAMA_ASSESSMENT_TEMPERATURE:0.3}
     timeout-seconds: ${APP_OLLAMA_TIMEOUT_SECONDS:600}
