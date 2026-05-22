@@ -34,6 +34,10 @@ public class ClaudeService {
      */
     public DigestAiResponse parse(String rawText, String categoryList,
                                   BeanOutputConverter<DigestAiResponse> converter) {
+        String apiKey = config.getClaude().getApiKey();
+        if (apiKey == null || apiKey.isBlank() || apiKey.startsWith("sk-ant-your")) {
+            throw new RuntimeException("Claude API key not configured");
+        }
         try {
             log.info("Calling Claude API with model: {}", config.getClaude().getModel());
 

@@ -81,7 +81,13 @@ spring:
           predicates:
             - Path=/api/qb/**,/api/questionbank/**
           filters:
-            - RewritePath=/api/(qb|questionbank)/(?<segment>.*), /api/$\{segment}
+            - RewritePath=/api/(qb|questionbank)/(?<segment>.*), /api/${segment}
+        - id: questionbank-service-direct
+          uri: lb://questionbank-service
+          predicates:
+            - Path=/questionbank/**
+          filters:
+            - RewritePath=/questionbank/(?<segment>.*), /${segment}
 
 eureka:
   client:

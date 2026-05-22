@@ -30,7 +30,8 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         "/auth/reset-password", 
         "/actuator",
         "/api/qb",
-        "/api/questionbank"
+        "/api/questionbank",
+        "/questionbank"
     );
 
     @Value("${app.jwt.secret}")

@@ -19,6 +19,11 @@ public record DigestAiResponse(List<AiSession> sessions) {
     public record AiQuestion(
             String text,
             String category,
-            List<String> suggestedTags
-    ) {}
+            List<String> suggestedTags,
+            Double confidence
+    ) {
+        public AiQuestion {
+            if (confidence == null) confidence = 1.0;
+        }
+    }
 }

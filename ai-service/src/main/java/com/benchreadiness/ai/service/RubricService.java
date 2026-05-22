@@ -37,28 +37,31 @@ public class RubricService {
 
     private Map<String, Object> llmRubric(RubricRequest req, String userId) throws Exception {
         String system =
-            "You are a technical hiring expert. Given a JD and candidate resume, return ONLY valid JSON:\n" +
+            "You are a master technical hiring architect. Analyze the provided Job Description (JD) and Candidate Resume to construct a granular, high-fidelity assessment framework.\n" +
+            "\n" +
+            "CORE CONSTRAINTS:\n" +
+            "1. Extract a maximum of 4-6 distinct evaluation categories derived directly from explicit JD text.\n" +
+            "2. Map weights strictly: 3 = Core absolute requirement, 2 = Important architectural/system knowledge, 1 = Nice-to-have or peripheral tools.\n" +
+            "3. Set questionDifficulty dynamically using Years of Experience (YOE): <2 years = easy, 2-5 years = medium, >5 years = hard.\n" +
+            "\n" +
+            "OUTPUT PROTOCAL:\n" +
+            "Your response must consist of your internal reasoning steps, followed directly by the final raw JSON payload. Ensure your JSON perfectly mirrors this schema layout with no trailing elements:\n" +
             "{\n" +
             "  \"rubric\": {\n" +
             "    \"categories\": [\n" +
-            "      {\"key\": \"camelCaseKey\", \"label\": \"Human Label\", \"description\": \"what to probe\", \"weight\": 1-3}\n" +
+            "      {\"key\": \"camelCaseKey\", \"label\": \"Human Label\", \"description\": \"What exact mechanism to probe\", \"weight\": 1}\n" +
             "    ],\n" +
             "    \"focusAreas\": [\"area1\", \"area2\"]\n" +
             "  },\n" +
             "  \"candidateProfile\": {\n" +
-            "    \"yearsOfExperience\": number,\n" +
-            "    \"level\": \"junior|mid|senior|staff\",\n" +
-            "    \"primarySkills\": [\"skill1\", \"skill2\"],\n" +
-            "    \"claimedExpertise\": [\"area1\", \"area2\"],\n" +
-            "    \"questionDifficulty\": \"easy|medium|hard\",\n" +
-            "    \"resumeSummary\": \"1 sentence summary\"\n" +
+            "    \"yearsOfExperience\": 0,\n" +
+            "    \"level\": \"junior\", \"mid\", \"senior\", or \"staff\",\n" +
+            "    \"primarySkills\": [\"skill1\"],\n" +
+            "    \"claimedExpertise\": [\"area1\"],\n" +
+            "    \"questionDifficulty\": \"easy\", \"medium\", or \"hard\",\n" +
+            "    \"resumeSummary\": \"A concise one-sentence description\"\n" +
             "  }\n" +
-            "}\n" +
-            "Rules:\n" +
-            "- 4-6 categories max, derived from actual JD requirements\n" +
-            "- weight: 3=core requirement, 2=important, 1=nice-to-have\n" +
-            "- questionDifficulty based on YOE: <2=easy, 2-5=medium, >5=hard\n" +
-            "- No markdown, no explanation, raw JSON only";
+            "}";
 
         String user = "JD Title: " + req.getJdTitle() + "\n" +
             "JD:\n" + req.getJdText().substring(0, Math.min(600, req.getJdText().length())) + "\n" +
@@ -67,7 +70,7 @@ public class RubricService {
                 ? "\nFocus areas: " + req.getFocusAreas() : "");
 
         String raw = llmClient.chatRubricWithTracking(system, user, req.getInterviewId(), userId);
-        JsonNode json = objectMapper.readTree(raw);
+        JsonNode json = objectMapper.readTree(JsonRepairUtil.repair(raw));
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("rubric", objectMapper.convertValue(json.path("rubric"), Object.class));

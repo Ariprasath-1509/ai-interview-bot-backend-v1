@@ -46,8 +46,14 @@ public class OllamaAiClient implements LlmClient {
     @Value("${app.ollama.assessment-temperature:0.3}")
     private double assessmentTemperature;
 
+    @Value("${app.ollama.rubric-temperature:0.1}")
+    private double rubricTemperature;
+
     @Value("${app.ollama.timeout-seconds:600}")
     private int timeoutSeconds;
+
+    @Value("${app.ollama.num-parallel-threads:4}")
+    private int numParallelThreads;
 
     private final ComplianceServiceClient complianceServiceClient;
 
@@ -86,7 +92,7 @@ public class OllamaAiClient implements LlmClient {
 
     @Override
     public String chatRubricWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        return chat(systemPrompt, userPrompt, rubricModel, questionTemperature, interviewId, "rubric", userId);
+        return chat(systemPrompt, userPrompt, rubricModel, rubricTemperature, interviewId, "rubric", userId);
     }
 
     @Override
@@ -99,7 +105,11 @@ public class OllamaAiClient implements LlmClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model);
         body.put("stream", false);
-        body.put("options", Map.of("temperature", Math.max(0.0, Math.min(2.0, temperature))));
+        body.put("options", Map.of(
+                "temperature", Math.max(0.0, Math.min(2.0, temperature)),
+                "num_thread", numParallelThreads,
+                "stop", List.of("```", "<think>", "</think>")
+        ));
         body.put("messages", List.of(
                 Map.of("role", "system", "content", systemPrompt),
                 Map.of("role", "user", "content", userPrompt)

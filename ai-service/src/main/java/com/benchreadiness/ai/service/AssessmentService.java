@@ -161,15 +161,19 @@ public class AssessmentService {
             .reduce("", (a, b) -> a + "\n" + b);
 
         String system =
-            "Extract evidence from the interview transcript for each category.\n" +
-            "Return ONLY valid JSON: {\"categoryKey\": [\"evidence1\", \"evidence2\"], ...}\n" +
-            "Each item is a direct quote or close paraphrase (max 25 words).\n" +
-            "If nothing was said about a category, return an empty array.\n" +
-            "Categories:\n" + categoryList;
+            "Act as a literal text parser. Extract concrete technical evidence from the candidate interview transcript for each provided category definition.\n" +
+            "\n" +
+            "TARGET CATEGORIES LOG:\n" + categoryList + "\n" +
+            "\n" +
+            "EXECUTION CONSTRAINTS:\n" +
+            "1. Each item within the category array MUST be a direct quote or a tight paraphrase capped at a maximum of 25 words.\n" +
+            "2. Do NOT infer, extrapolate, or assume technical competence. If the transcript contains zero matching validation for a specific category key, return an empty array `[]`.\n" +
+            "3. Output a single raw JSON block. No introductory prose, no markdown formatting.\n" +
+            "{\"categoryKey\": [\"extracted evidence quote 1\", \"extracted evidence quote 2\"]}";
 
         String transcript = buildEfficientTranscript(utterances);
         String raw = llmClient.chatAssessmentWithTracking(system, "Transcript:\n" + transcript, interviewId, userId);
-        JsonNode json = objectMapper.readTree(raw);
+        JsonNode json = objectMapper.readTree(JsonRepairUtil.repair(raw));
 
         Map<String, List<String>> evidence = new LinkedHashMap<>();
         categories.forEach(c -> {
@@ -187,7 +191,19 @@ public class AssessmentService {
             AssessmentRequest req, List<Map<String, String>> utterances, String userId) throws Exception {
 
         log.info("Starting two-pass assessment for interview: {}", req.getInterviewId());
-        
+
+        // Java-side injection pre-filter — scan full transcript before any LLM call
+        int injectionCount = InjectionGuard.countTranscriptInjections(utterances);
+        if (injectionCount >= InjectionGuard.TERMINATE_THRESHOLD) {
+            log.warn("Transcript injection pre-filter triggered for interview {} ({} injections detected)",
+                    req.getInterviewId(), injectionCount);
+            Map<String, Object> result = withdrawnResult(
+                "Interview terminated: " + injectionCount + " prompt injection attempts detected in transcript.");
+            storeAssessmentResponse(req.getInterviewId(),
+                    objectMapper.writeValueAsString(result), 0, "injection-terminated", userId);
+            return result;
+        }
+
         List<Map<String, Object>> categories;
         if (req.getRubricJson() == null || req.getRubricJson().isBlank()) {
             log.warn("rubricJson not provided for interview {} — this should have been generated at creation time", req.getInterviewId());
@@ -224,17 +240,6 @@ public class AssessmentService {
             throw e;
         }
 
-        String categoryScoreSchema = categories.stream()
-            .map(c -> "    \"" + c.get("key") + "\": {\n" +
-                "      \"score\": 1-5 or null,\n" +
-                "      \"strengths\": [\"specific thing they did well\"],\n" +
-                "      \"weaknesses\": [\"specific thing they got wrong or missed\"],\n" +
-                "      \"evidence\": \"direct quote or paraphrase\",\n" +
-                "      \"gap\": \"specific topics missing\",\n" +
-                "      \"confidence\": \"low|medium|high\"\n" +
-                "    }")
-            .reduce("", (a, b) -> a + "\n" + b);
-
         String evidenceSummary = evidence.entrySet().stream()
             .map(e -> e.getKey() + ": " + (e.getValue().isEmpty() ? "no evidence" : String.join("; ", e.getValue())))
             .reduce("", (a, b) -> a + "\n" + b);
@@ -243,103 +248,216 @@ public class AssessmentService {
         String yoe = String.valueOf(candidateProfile.getOrDefault("yearsOfExperience", "unknown"));
         Object claimedRaw = candidateProfile.get("claimedExpertise");
         String claimed = claimedRaw != null ? claimedRaw.toString() : "[]";
+        String jdSnippet = req.getJdText().substring(0, Math.min(400, req.getJdText().length()));
+        String resumeSnippet = req.getResumeSummary() != null
+            ? req.getResumeSummary().substring(0, Math.min(400, req.getResumeSummary().length())) : "";
 
-        String system =
-            "You are an expert technical hiring assessor. Produce a thorough, evidence-based evaluation.\n" +
-            "Candidate: " + level + " level, " + yoe + " years experience.\n\n" +
-            "SCORING: 5=expert, 4=solid, 3=surface-level, 2=partial, 1=none, null=not discussed. confidence: low/medium/high.\n" +
-            "VERDICT: " + getVerdictRulesForMode(req.getInterviewMode()) + "\n\n" +
-            "Return ONLY valid JSON with ALL sections populated (no empty arrays):\n" +
-            "{\n" +
-            "  \"categoryScores\": {\n" + categoryScoreSchema + "\n  },\n" +
-            "  \"communication\": {\"score\": 1-5, \"rationale\": \"\"},\n" +
-            "  \"proposedVerdict\": \"READY|NEEDS_1_WEEK_PREP|NEEDS_RESKILLING|MISMATCH_WITH_JD\",\n" +
-            "  \"summary\": \"2-3 sentences for manager\",\n" +
-            "  \"resumeConsistency\": {\"claimed\": [], \"demonstrated\": [], \"notDemonstrated\": [], \"consistencyScore\": 1-5, \"flags\": []},\n" +
-            "  \"behavioralSignals\": {\"ownershipLevel\": \"low|medium|high\", \"learningAgility\": \"low|medium|high\", \"communicationStructure\": \"low|medium|high\", \"confidenceCalibration\": \"low|medium|high\", \"summary\": \"\"},\n" +
-            "  \"interviewQuality\": {\"coverageScore\": 1-5, \"categoriesCovered\": [], \"categoriesMissed\": [], \"note\": \"\"},\n" +
-            "  \"candidateFeedback\": {\n" +
-            "    \"summary\": \"2-3 sentences for candidate\",\n" +
-            "    \"prosAndCons\": [{\"category\": \"name\", \"pros\": [\"...\"], \"cons\": [\"...\"]}],\n" +
-            "    \"resumeConsistencyForCandidate\": [{\"claim\": \"skill\", \"demonstrated\": true, \"note\": \"...\"}],\n" +
-            "    \"roadmap\": [{\"day\": 1, \"category\": \"name\", \"gap\": \"gap\", \"focus\": \"topic\", \"whyItMatters\": \"reason\", \"resource\": \"name\", \"resourceUrl\": \"https://url\", \"exercise\": \"task\", \"estimatedHours\": 2}],\n" +
-            "    \"estimatedReadiness\": \"\"\n" +
-            "  }\n" +
-            "}\n\n" +
-            "CRITICAL RULES:\n" +
-            "- prosAndCons: ONE entry per scored category (NEVER empty)\n" +
-            "- roadmap: 3-7 days for any category with score < 5. If all 5, provide advanced topics\n" +
-            "- resumeConsistencyForCandidate: 3-5 key JD skills, mark demonstrated true/false\n" +
-            "- Use real resource URLs (official docs preferred)\n";
+        // ── Stage 1: Category scoring (small, deterministic JSON) ─────────────
+        log.info("Stage 1: category scoring for interview {}", req.getInterviewId());
+        JsonNode scoresJson = runStage1Scoring(categories, evidenceSummary, level, yoe, req);
 
-        String user = "Role: " + req.getJdTitle() + "\n" +
-            "JD:\n" + req.getJdText().substring(0, Math.min(500, req.getJdText().length())) + "\n" +
-            "Resume (claimed skills):\n" + (req.getResumeSummary() != null
-                ? req.getResumeSummary().substring(0, Math.min(500, req.getResumeSummary().length())) : "") + "\n" +
-            "Claimed expertise from profile: " + claimed + "\n" +
-            "\nExtracted evidence per category:\n" + evidenceSummary;
+        // ── Stage 2: Behavioral signals + resume consistency ──────────────────
+        log.info("Stage 2: behavioral + resume consistency for interview {}", req.getInterviewId());
+        JsonNode behavioralJson = runStage2Behavioral(evidenceSummary, resumeSnippet, claimed, jdSnippet, req);
 
-        log.info("Starting final assessment pass with system prompt length: {}, user prompt length: {}", 
-                system.length(), user.length());
-        
-        String raw;
-        try {
-            raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
-            log.info("Final assessment completed, response length: {}", raw.length());
-        } catch (Exception e) {
-            log.error("Final assessment API call failed: {}", e.getMessage(), e);
-            throw e;
-        }
-        
-        JsonNode json;
-        try {
-            json = objectMapper.readTree(raw);
-            log.info("Assessment JSON parsed successfully");
-        } catch (com.fasterxml.jackson.core.io.JsonEOFException e) {
-            log.error("Failed to parse assessment JSON response - likely truncated: {}", e.getMessage());
-            log.error("Raw response (first 1000 chars): {}", raw.substring(0, Math.min(1000, raw.length())));
-            
-            // If JSON is truncated, try a shorter assessment
-            if (raw.length() > 500 && (raw.contains("categoryScores") || raw.contains("springBootProficiency"))) {
-                log.info("Attempting recovery with shorter assessment prompt...");
-                try {
-                    String shorterSystem = createShorterAssessmentPrompt(categories, req.getInterviewMode());
-                    String shorterUser = "Role: " + req.getJdTitle() + "\n" +
-                        "Evidence:\n" + evidenceSummary.substring(0, Math.min(800, evidenceSummary.length()));
-                    
-                    String retryRaw = llmClient.chatAssessmentWithTracking(shorterSystem, shorterUser, req.getInterviewId(), userId);
-                    json = objectMapper.readTree(retryRaw);
-                    log.info("Recovery assessment successful");
-                } catch (Exception retryE) {
-                    log.error("Recovery assessment also failed: {}", retryE.getMessage());
-                    throw e; // Throw original exception
-                }
-            } else {
-                throw e;
-            }
-        } catch (com.fasterxml.jackson.core.JsonParseException e) {
-            log.error("Failed to parse assessment JSON response - parse error: {}", e.getMessage());
-            log.error("Raw response (first 1000 chars): {}", raw.substring(0, Math.min(1000, raw.length())));
-            throw e;
-        } catch (Exception e) {
-            log.error("Failed to parse assessment JSON response: {}", e.getMessage());
-            log.error("Raw response (first 500 chars): {}", raw.substring(0, Math.min(500, raw.length())));
-            throw e;
-        }
-        
-        Map<String, Object> result = buildResult(json, categories, evidence, req, userId);
+        // ── Stage 3: Candidate feedback (pros/cons + roadmap) ─────────────────
+        log.info("Stage 3: candidate feedback for interview {}", req.getInterviewId());
+        JsonNode feedbackJson = runStage3Feedback(scoresJson, categories, jdSnippet, req);
+
+        // ── Stage 4: Java aggregator — merge all stages, no LLM call ──────────
+        log.info("Stage 4: aggregating results for interview {}", req.getInterviewId());
+        Map<String, Object> result = aggregateStages(scoresJson, behavioralJson, feedbackJson, categories, evidence, req, userId);
         applyReadinessGates(result, categories, evidence, req.getInterviewMode());
-        
-        // Store assessment response and finalize token summary
+
         try {
             String assessmentJson = objectMapper.writeValueAsString(result);
-            int totalTokens = calculateTotalTokensUsed(req.getInterviewId());
-            storeAssessmentResponse(req.getInterviewId(), assessmentJson, totalTokens, "claude-two-pass", userId);
+            storeAssessmentResponse(req.getInterviewId(), assessmentJson, 0, "ollama-four-stage", userId);
             finalizeInterviewTokens(req.getInterviewId(), userId);
         } catch (Exception e) {
             log.warn("Failed to store assessment response for interview {}: {}", req.getInterviewId(), e.getMessage());
         }
-        
+
+        return result;
+    }
+
+    // ── Stage 1: category scores + verdict + summary ──────────────────────────
+    private JsonNode runStage1Scoring(List<Map<String, Object>> categories, String evidenceSummary,
+                                      String level, String yoe, AssessmentRequest req) throws Exception {
+        String categoryScoreSchema = categories.stream()
+            .map(c -> "  \"" + c.get("key") + "\": {\"score\": 1-5 or null, \"strengths\": [\"...\"], \"weaknesses\": [\"...\"], \"evidence\": \"direct quote\", \"gap\": \"missing topics\", \"confidence\": \"low|medium|high\"}")
+            .collect(java.util.stream.Collectors.joining(",\n"));
+
+        String system =
+            "You are an expert technical hiring assessor generating an audit-ready evaluation report.\n" +
+            "Profile Target: " + level + " level candidate with " + yoe + " years of professional experience.\n" +
+            "\n" +
+            "SCORING CALCULATOR MATRIX:\n" +
+            "- 5 = Expert: Proficiently explains distributed scale, trade-offs, and internals.\n" +
+            "- 4 = Solid: Strong practical implementation and structural knowledge.\n" +
+            "- 3 = Surface-Level: Basic understanding but lacks deep production configuration knowledge.\n" +
+            "- 2 = Partial: Knows the name/keyword but fails simple conceptual implementation checks.\n" +
+            "- 1 = None: Completely incorrect answer or explicitly stated lack of knowledge.\n" +
+            "- null = Category was never discussed during the conversation loop.\n" +
+            "\n" +
+            "VERDICT LOGIC MATRICES FOR ACTIVE MODE:\n" +
+            getVerdictRulesForMode(req.getInterviewMode()) + "\n" +
+            "\n" +
+            "Output ONLY raw JSON. No markdown. No prose.\n" +
+            "{\n" +
+            "  \"categoryScores\": {\n" + categoryScoreSchema + "\n  },\n" +
+            "  \"communication\": {\"score\": 1-5, \"rationale\": \"Detailed explanation of structure and clarity\"},\n" +
+            "  \"proposedVerdict\": \"READY|NEEDS_1_WEEK_PREP|NEEDS_RESKILLING|MISMATCH_WITH_JD\",\n" +
+            "  \"summary\": \"2-3 sentence overview for an engineering manager\"\n" +
+            "}";
+
+        String user = "Role: " + req.getJdTitle() + "\nEvidence per category:\n" + evidenceSummary;
+        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), "stage1");
+        log.info("Stage 1 response length: {}", raw.length());
+        return objectMapper.readTree(JsonRepairUtil.repair(raw));
+    }
+
+    // ── Stage 2: behavioral signals + resume consistency ──────────────────────
+    private JsonNode runStage2Behavioral(String evidenceSummary, String resumeSnippet,
+                                         String claimed, String jdSnippet, AssessmentRequest req) throws Exception {
+        String system =
+            "You are a behavioral interview analyst. Analyze the evidence and return ONLY raw JSON. No markdown.\n" +
+            "{\n" +
+            "  \"behavioralSignals\": {\n" +
+            "    \"ownershipLevel\": \"low|medium|high\",\n" +
+            "    \"learningAgility\": \"low|medium|high\",\n" +
+            "    \"communicationStructure\": \"low|medium|high\",\n" +
+            "    \"confidenceCalibration\": \"low|medium|high\",\n" +
+            "    \"summary\": \"2 sentence behavioral overview\"\n" +
+            "  },\n" +
+            "  \"resumeConsistency\": {\n" +
+            "    \"claimed\": [\"skill1\"],\n" +
+            "    \"demonstrated\": [\"skill1\"],\n" +
+            "    \"notDemonstrated\": [\"skill2\"],\n" +
+            "    \"consistencyScore\": 1-5,\n" +
+            "    \"flags\": [\"flag1\"]\n" +
+            "  },\n" +
+            "  \"interviewQuality\": {\n" +
+            "    \"coverageScore\": 1-5,\n" +
+            "    \"categoriesCovered\": [],\n" +
+            "    \"categoriesMissed\": [],\n" +
+            "    \"note\": \"coverage summary\"\n" +
+            "  }\n" +
+            "}";
+
+        String user = "Role: " + req.getJdTitle() + "\n" +
+            "JD: " + jdSnippet + "\n" +
+            "Resume claimed: " + claimed + "\n" +
+            "Resume summary: " + resumeSnippet + "\n" +
+            "Evidence: " + evidenceSummary;
+        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), "stage2");
+        log.info("Stage 2 response length: {}", raw.length());
+        return objectMapper.readTree(JsonRepairUtil.repair(raw));
+    }
+
+    // ── Stage 3: pros/cons + roadmap + resume consistency for candidate ────────
+    private JsonNode runStage3Feedback(JsonNode scoresJson, List<Map<String, Object>> categories,
+                                       String jdSnippet, AssessmentRequest req) throws Exception {
+        StringBuilder scoresInfo = new StringBuilder();
+        JsonNode catScores = scoresJson.path("categoryScores");
+        for (Map<String, Object> cat : categories) {
+            String key = (String) cat.get("key");
+            JsonNode s = catScores.path(key);
+            if (!s.isMissingNode()) {
+                scoresInfo.append(key).append(": ").append(s.path("score").asText("null"))
+                    .append("/5 gap: ").append(s.path("gap").asText("none")).append("\n");
+            }
+        }
+
+        String system =
+            "You are generating candidate feedback for a completed technical interview.\n" +
+            "Return ONLY raw JSON. No markdown. No prose.\n" +
+            "{\n" +
+            "  \"summary\": \"2-3 sentences of constructive feedback directly addressed to the candidate\",\n" +
+            "  \"prosAndCons\": [{\"category\": \"Category Key\", \"pros\": [\"Pro 1\"], \"cons\": [\"Con 1\"]}],\n" +
+            "  \"resumeConsistencyForCandidate\": [{\"claim\": \"Skill Name\", \"demonstrated\": true, \"note\": \"Verification explanation\"}],\n" +
+            "  \"roadmap\": [{\"day\": 1, \"category\": \"Category Key\", \"gap\": \"Identified gap\", \"focus\": \"Target framework topic\", \"whyItMatters\": \"Architectural dependency rationale\", \"resource\": \"Official Documentation Name\", \"resourceUrl\": \"https://documentation-link.org\", \"exercise\": \"Practical coding exercise requirement\", \"estimatedHours\": 2}],\n" +
+            "  \"estimatedReadiness\": \"Explicit preparation timeline estimate string\"\n" +
+            "}\n" +
+            "RULES:\n" +
+            "- prosAndCons MUST include exactly ONE entry per scored category.\n" +
+            "- roadmap MUST cover days 1-7 for any category score below 5. Use verified open-source documentation URLs.\n" +
+            "- resumeConsistencyForCandidate: list 3-5 key JD skills and whether demonstrated.";
+
+        String user = "Role: " + req.getJdTitle() + "\nJD: " + jdSnippet + "\nScores:\n" + scoresInfo;
+        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), "stage3");
+        log.info("Stage 3 response length: {}", raw.length());
+        return objectMapper.readTree(JsonRepairUtil.repair(raw));
+    }
+
+    // ── Stage 4: Java aggregator — no LLM call ────────────────────────────────
+    private Map<String, Object> aggregateStages(JsonNode scoresJson, JsonNode behavioralJson,
+                                                 JsonNode feedbackJson, List<Map<String, Object>> categories,
+                                                 Map<String, List<String>> evidence,
+                                                 AssessmentRequest req, String userId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        // Category scores from Stage 1
+        List<Map<String, Object>> scoreRows = new ArrayList<>();
+        JsonNode catScores = scoresJson.path("categoryScores");
+        for (Map<String, Object> cat : categories) {
+            String key = (String) cat.get("key");
+            JsonNode s = catScores.path(key);
+            if (!s.path("score").isNull() && !s.path("score").isMissingNode()) {
+                scoreRows.add(Map.of(
+                    "dimension", key,
+                    "value", s.path("score").asInt(),
+                    "rationale", s.path("evidence").asText(""),
+                    "evidence", String.join("; ", evidence.getOrDefault(key, List.of())),
+                    "gap", s.path("gap").asText(""),
+                    "strengths", toStringList(s.path("strengths")).toString(),
+                    "weaknesses", toStringList(s.path("weaknesses")).toString(),
+                    "confidence", s.path("confidence").asText("medium")
+                ));
+            }
+        }
+        JsonNode comm = scoresJson.path("communication");
+        scoreRows.add(Map.of(
+            "dimension", "communication",
+            "value", comm.path("score").asInt(3),
+            "rationale", comm.path("rationale").asText(""),
+            "evidence", "", "gap", "",
+            "strengths", "[]", "weaknesses", "[]", "confidence", "medium"
+        ));
+        result.put("categoryScores", scoreRows);
+        result.put("proposedVerdict", scoresJson.path("proposedVerdict").asText("NEEDS_1_WEEK_PREP"));
+        result.put("summary", scoresJson.path("summary").asText(""));
+
+        // Behavioral + resume consistency from Stage 2
+        JsonNode behavioralSignals = behavioralJson.path("behavioralSignals");
+        result.put("behavioralSignals", behavioralSignals.isMissingNode()
+            ? Map.of("ownershipLevel", "medium", "learningAgility", "medium",
+                     "communicationStructure", "medium", "confidenceCalibration", "medium", "summary", "")
+            : parseObject(behavioralSignals));
+
+        JsonNode resumeConsistency = behavioralJson.path("resumeConsistency");
+        result.put("resumeConsistency", resumeConsistency.isMissingNode()
+            ? Map.of("claimed", List.of(), "demonstrated", List.of(),
+                     "notDemonstrated", List.of(), "consistencyScore", 3, "flags", List.of())
+            : parseObject(resumeConsistency));
+
+        JsonNode interviewQuality = behavioralJson.path("interviewQuality");
+        result.put("interviewQuality", interviewQuality.isMissingNode()
+            ? Map.of("coverageScore", 3, "categoriesCovered",
+                     categories.stream().map(c -> c.get("key")).toList(),
+                     "categoriesMissed", List.of(), "note", "Standard coverage")
+            : parseObject(interviewQuality));
+
+        // Candidate feedback from Stage 3
+        Map<String, Object> feedback = parseCandidateFeedback(feedbackJson);
+        List<?> roadmap = (List<?>) feedback.get("roadmap");
+        List<?> prosAndCons = (List<?>) feedback.get("prosAndCons");
+        if ((roadmap == null || roadmap.isEmpty()) && (prosAndCons == null || prosAndCons.isEmpty())) {
+            log.warn("Stage 3 feedback empty for interview {} — using fallback", req.getInterviewId());
+            feedback = generateCandidateFeedbackSeparately(scoreRows, categories, evidence,
+                result.get("summary").toString(), req, userId);
+        }
+        result.put("candidateFeedback", feedback);
+        result.put("source", "ollama-four-stage");
         return result;
     }
 
@@ -418,89 +536,6 @@ public class AssessmentService {
             case "L4" -> 4;
             default -> 3;
         };
-    }
-
-    private Map<String, Object> buildResult(JsonNode json, List<Map<String, Object>> categories,
-                                             Map<String, List<String>> evidence, AssessmentRequest req, String userId) {
-        Map<String, Object> result = new LinkedHashMap<>();
-
-        List<Map<String, Object>> scoreRows = new ArrayList<>();
-        JsonNode catScores = json.path("categoryScores");
-        for (Map<String, Object> cat : categories) {
-            String key = (String) cat.get("key");
-            JsonNode s = catScores.path(key);
-            if (!s.path("score").isNull() && !s.path("score").isMissingNode()) {
-                scoreRows.add(Map.of(
-                    "dimension", key,
-                    "value", s.path("score").asInt(),
-                    "rationale", s.path("evidence").asText(""),
-                    "evidence", String.join("; ", evidence.getOrDefault(key, List.of())),
-                    "gap", s.path("gap").asText(""),
-                    "strengths", toStringList(s.path("strengths")).toString(),
-                    "weaknesses", toStringList(s.path("weaknesses")).toString(),
-                    "confidence", s.path("confidence").asText("medium")
-                ));
-            }
-        }
-        JsonNode comm = json.path("communication");
-        scoreRows.add(Map.of(
-            "dimension", "communication",
-            "value", comm.path("score").asInt(3),
-            "rationale", comm.path("rationale").asText(""),
-            "evidence", "", "gap", "",
-            "strengths", toStringList(comm.path("strengths")).toString(),
-            "weaknesses", toStringList(comm.path("weaknesses")).toString(),
-            "confidence", "medium"
-        ));
-
-        result.put("categoryScores", scoreRows);
-        result.put("proposedVerdict", json.path("proposedVerdict").asText("NEEDS_1_WEEK_PREP"));
-        result.put("summary", json.path("summary").asText());
-        
-        // Handle optional fields that may not be present in shorter responses
-        JsonNode resumeConsistency = json.path("resumeConsistency");
-        if (!resumeConsistency.isMissingNode()) {
-            result.put("resumeConsistency", parseObject(resumeConsistency));
-        } else {
-            result.put("resumeConsistency", Map.of("claimed", List.of(), "demonstrated", List.of(), 
-                "notDemonstrated", List.of(), "consistencyScore", 3, "flags", List.of()));
-        }
-        
-        JsonNode behavioralSignals = json.path("behavioralSignals");
-        if (!behavioralSignals.isMissingNode()) {
-            result.put("behavioralSignals", parseObject(behavioralSignals));
-        } else {
-            result.put("behavioralSignals", Map.of("ownershipLevel", "medium", "learningAgility", "medium",
-                "communicationStructure", "medium", "confidenceCalibration", "medium", "summary", "Assessment abbreviated"));
-        }
-        
-        JsonNode interviewQuality = json.path("interviewQuality");
-        if (!interviewQuality.isMissingNode()) {
-            result.put("interviewQuality", parseObject(interviewQuality));
-        } else {
-            result.put("interviewQuality", Map.of("coverageScore", 3, "categoriesCovered", 
-                categories.stream().map(c -> c.get("key")).toList(), "categoriesMissed", List.of(), "note", "Standard coverage"));
-        }
-        
-        JsonNode candidateFeedback = json.path("candidateFeedback");
-        if (!candidateFeedback.isMissingNode()) {
-            Map<String, Object> feedback = parseCandidateFeedback(candidateFeedback);
-            // Check if feedback is actually populated
-            List<?> roadmap = (List<?>) feedback.get("roadmap");
-            List<?> prosAndCons = (List<?>) feedback.get("prosAndCons");
-            if ((roadmap == null || roadmap.isEmpty()) && (prosAndCons == null || prosAndCons.isEmpty())) {
-                log.warn("candidateFeedback returned empty from Claude - generating in separate call");
-                feedback = generateCandidateFeedbackSeparately(scoreRows, categories, evidence, result.get("summary").toString(), req, userId);
-            }
-            result.put("candidateFeedback", feedback);
-        } else {
-            log.warn("candidateFeedback missing from Claude response - generating separately");
-            Map<String, Object> feedback = generateCandidateFeedbackSeparately(scoreRows, categories, evidence, result.get("summary").toString(), req, userId);
-            result.put("candidateFeedback", feedback);
-        }
-        
-        result.put("source", "claude-two-pass");
-        return result;
     }
 
     private String buildEfficientTranscript(List<Map<String, String>> utterances) {
@@ -636,7 +671,7 @@ public class AssessmentService {
                 "JD (first 300 chars): " + (req.getJdText() != null ? req.getJdText().substring(0, Math.min(300, req.getJdText().length())) : "") + "\n";
 
             String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
-            JsonNode feedbackJson = objectMapper.readTree(raw);
+            JsonNode feedbackJson = objectMapper.readTree(JsonRepairUtil.repair(raw));
             return parseCandidateFeedback(feedbackJson);
         } catch (Exception e) {
             log.error("Failed to generate candidate feedback separately: {}", e.getMessage());
@@ -694,6 +729,26 @@ public class AssessmentService {
         if (node.isMissingNode()) return Map.of();
         try { return objectMapper.convertValue(node, Object.class); }
         catch (Exception e) { return Map.of(); }
+    }
+
+    private Map<String, Object> withdrawnResult(String reason) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("categoryScores", List.of());
+        result.put("proposedVerdict", "WITHDRAWN");
+        result.put("summary", reason);
+        result.put("candidateFeedback", Map.of(
+            "summary", reason,
+            "overallSummary", reason,
+            "prosAndCons", List.of(),
+            "strengths", List.of(),
+            "areasToImprove", List.of(),
+            "resumeConsistencyForCandidate", List.of(),
+            "roadmap", List.of(),
+            "estimatedReadiness", "N/A",
+            "estimatedReadinessTimeline", "N/A"
+        ));
+        result.put("source", "injection-terminated");
+        return result;
     }
 
     private Map<String, Object> thinTranscriptResult(String reason) {
@@ -883,23 +938,6 @@ public class AssessmentService {
         union.addAll(set2);
         
         return union.isEmpty() ? 0.0 : (double) intersection.size() / union.size();
-    }
-
-    private String createShorterAssessmentPrompt(List<Map<String, Object>> categories, String interviewMode) {
-        String categoryScoreSchema = categories.stream()
-            .map(c -> "    \"" + c.get("key") + "\": {\"score\": 1-5, \"evidence\": \"brief quote\", \"gap\": \"missing topics\"}")
-            .reduce("", (a, b) -> a + "\n" + b);
-
-        return "You are a technical assessor. Score each category 1-5 based on evidence.\n" +
-            "SCORING: 5=expert, 4=solid, 3=basic, 2=weak, 1=none\n" +
-            "VERDICT: " + getVerdictRulesForMode(interviewMode) + "\n" +
-            "Return ONLY valid JSON:\n" +
-            "{\n" +
-            "  \"categoryScores\": {\n" + categoryScoreSchema + "\n  },\n" +
-            "  \"communication\": {\"score\": 1-5, \"rationale\": \"\"},\n" +
-            "  \"proposedVerdict\": \"READY|NEEDS_1_WEEK_PREP|NEEDS_RESKILLING|MISMATCH_WITH_JD\",\n" +
-            "  \"summary\": \"brief summary for manager\"\n" +
-            "}";
     }
 
     private String getVerdictRulesForMode(String mode) {

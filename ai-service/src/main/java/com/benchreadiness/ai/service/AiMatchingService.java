@@ -55,118 +55,36 @@ public class AiMatchingService {
 
     private String buildMatchingPrompt(MatchingRequest request) {
         return """
-            You are a highly strict technical recruiter and engineering evaluator ranking candidates against a JD.
+            You are a highly strict technical recruitment filter ranking candidate text packages against a target Client Job Description.
+            You must base your deductions exclusively on the candidate JSON properties provided. Do NOT assume, infer, or hallucinate skills.
             
-            Use ONLY the candidate JSON provided in the user message.
-            Do NOT assume missing skills or inflate scores.
+            TARGET SYSTEM SCOPE:
+            - Client Target Name: %s
+            - Target Profile Designation: %s
+            - Client Platform Source: %s
+            - Complete JD Profile Text: %s
+            - Maximum Allowed Output Count: %d
             
-            CLIENT:
-            - Name: %s
-            - Role: %s
-            - Source: %s
-            - JD requirements: %s
+            STRICT ALGORITHM EVALUATION RULESET:
+            1. Skill Weight (30%% Max Value): Prioritize 'interviewEvidence' metrics over raw resume claims. Deduct heavily if modern structural frameworks (e.g., distributed architectures, microservices) are reduced down to simple basic CRUD interactions.
+            2. Experience Weight (25%% Max Value): Evaluate the 'yoeForMatching' metric. If it sits 20-30%% below requirements, enforce a strong penalty. If it falls greater than 30%% below, implement a severe score reduction.
+            3. Ownership Weight (20%% Max Value): Lower scores if the candidate profile reflects only maintenance or support tasks rather than feature design ownership.
+            4. Stability Weight (15%% Max Value): Apply a strong penalty if 'systemInterviewCount' is greater than or equal to 8, or if 'noOfInterviews' is greater than or equal to 12.
+            5. Performance Weight (10%% Max Value): Extract 'avgInterviewScore'. Strong communication skills must NOT mask technical gaps.
             
-            EVALUATION OBJECTIVE:
-            Generate a REALISTIC hiring-fit score, not a resume keyword similarity score.
-            A candidate with critical gaps MUST NOT receive a high score even if partial skills match.
+            SCORE ALIGNMENT LIMITATIONS:
+            - Score >= 0.85: HIGHLY_RECOMMENDED (Exceptional match with minimal gaps).
+            - Score 0.70 - 0.84: RECOMMENDED (Strong fit with manageable gaps).
+            - Score 0.55 - 0.69: CONSIDER (Partial fit).
+            - Score < 0.55: NOT_SUITABLE (Weak fit or major structural discrepancies).
             
-            MANDATORY RULES:
-            - Use yoePortrayed (yoeForMatching field) for experience comparison.
-            - Use interviewEvidence as PRIMARY source of truth.
-            - Resume data is secondary and only supportive.
-            - Prefer depth over keyword presence.
-            - Penalize shallow exposure to complex architecture topics.
-            - Penalize missing mandatory skills heavily.
-            - Penalize weak interviewEvidence even if resume looks strong.
-            - Penalize inconsistent or exaggerated profiles.
-            - Penalize insufficient production-level experience.
-            - Penalize high systemInterviewCount (internal platform interviews): >=5 moderate, >=8 strong, >=12 severe.
-            - Penalize high noOfInterviews (external client interviews): >=7 moderate, >=12 strong, >=20 severe.
-            - Return at most maxCandidates in best-first order.
+            CRITICAL MATCH SAFETY BARRIERS:
+            - If a candidate falls below the required YOE and lacks system architecture depth, their total final score CANNOT cross a maximum of 0.60.
+            - Missing 2 or more core JD requirements automatically caps the final score at a maximum of 0.55.
+            - Resume claims alone cannot produce a score above 0.70 unless interview evidence validates the claim.
             
-            SCORING MODEL (STRICT):
-            1. Skill Alignment -> 30%%
-               - Evaluate ONLY relevant production-ready skills.
-               - Mandatory/core JD skills missing = major penalty.
-               - Mere awareness/basic exposure should score low.
-               - Architecture/design ownership matters more than tool exposure.
-               - If microservices/event-driven/distributed systems are required:
-                 - basic CRUD experience is NOT sufficient.
-                 - low architecture depth should significantly reduce score.
-            
-            2. Experience Alignment -> 25%%
-               - Use yoeForMatching strictly.
-               - If candidate experience is below required:
-                   - subtract aggressively.
-                   - 20-30%% below requirement = strong penalty.
-                   - >30%% below requirement = severe penalty.
-               - Do NOT compensate low experience using other categories.
-               - Experience quality matters more than total years.
-            
-            3. Role Complexity / Ownership -> 20%%
-               - Evaluate:
-                 - system design exposure
-                 - scalability ownership
-                 - debugging complexity
-                 - distributed systems handling
-                 - production responsibility
-                 - leadership/mentoring
-               - Candidates with only maintenance/support work should score lower.
-            
-            4. Quality / Stability -> 15%%
-               - Penalize high systemInterviewCount progressively:
-                 - >=5 moderate concern
-                 - >=8 strong penalty
-                 - >=12 severe penalty
-               - Penalize high noOfInterviews progressively:
-                 - >=7 moderate penalty
-                 - >=12 strong penalty
-                 - >=20 severe penalty
-               - Penalize unstable tenure patterns.
-               - Reward strong readiness and consistency.
-            
-            5. Interview Performance -> 10%%
-               - Use avgInterviewScore and interviewEvidence quality.
-               - Strong communication alone should NOT inflate technical score.
-               - Weak technical rounds must reduce final score significantly.
-            
-            STRICT MATCH SCORE NORMALIZATION:
-            - 0.85 - 1.00 = Exceptional fit with minimal concerns
-            - 0.70 - 0.84 = Strong fit with manageable gaps
-            - 0.55 - 0.69 = Partial fit / needs evaluation
-            - 0.40 - 0.54 = Weak fit with major concerns
-            - Below 0.40 = Not suitable
-            
-            CRITICAL SCORING GUARDRAILS:
-            - Candidate below required YOE AND lacking architecture depth:
-              final score SHOULD NOT exceed 0.60
-            - Missing 2 or more core JD skills:
-              final score SHOULD NOT exceed 0.55
-            - Weak interviewEvidence:
-              final score SHOULD NOT exceed 0.50
-            - Strong resume but weak interview performance:
-              downgrade recommendation.
-            - Do NOT give inflated scores because of keyword overlap.
-            
-            RECOMMENDATION RULES:
-            - HIGHLY_RECOMMENDED:
-                score >= 0.85
-                AND no major concern
-            - RECOMMENDED:
-                score >= 0.70
-                AND manageable concerns only
-            - CONSIDER:
-                score between 0.55 and 0.69
-            - NOT_SUITABLE:
-                score < 0.55
-            
-            ANALYSIS RULES:
-            - Concerns MUST directly impact scoring.
-            - If concerns are major, score must visibly reflect that.
-            - Avoid generic praise.
-            - Be concise but evidence-based.
-            
-            Return ONLY valid JSON with this structure:
+            OUTPUT SPECIFICATION:
+            Generate ONLY the raw JSON format string containing the 'matches' collection array mapped in best-first descending order, alongside the system numerical match summary block. No markdown enclosing frames.
             
             {
               "matches": [
@@ -211,57 +129,22 @@ public class AiMatchingService {
                 "averageMatchScore": 0.62
               }
             }
-            
-            IMPORTANT:
-            - No markdown.
-            - No explanation outside JSON.
-            - No hallucinated data.
-            - No score inflation.
-            - Ensure concern severity matches final score realistically.
             """.formatted(
                 request.getClientName(),
-                request.getJdTitle(), 
+                request.getJdTitle(),
                 request.getSource(),
-                request.getJdDescription()
+                request.getJdDescription(),
+                request.getMaxCandidates()
             );
     }
 
     private Map<String, Object> parseMatchingResponse(String response, MatchingRequest request) {
         try {
-            // Clean response
-            response = response.trim();
-            
-            // Remove markdown code blocks
-            if (response.startsWith("```json")) {
-                response = response.substring(7);
-            }
-            if (response.endsWith("```")) {
-                response = response.substring(0, response.length() - 3);
-            }
-            
-            // Find JSON content if response contains explanatory text
-            int jsonStart = response.indexOf('{');
-            int jsonEnd = response.lastIndexOf('}');
-            
-            if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
-                response = response.substring(jsonStart, jsonEnd + 1);
-            }
-            
-            response = response.trim();
-            
-            // Validate it looks like JSON
-            if (!response.startsWith("{") || !response.endsWith("}")) {
-                System.err.println("Response doesn't look like JSON, using fallback. Response starts with: " + 
-                    response.substring(0, Math.min(100, response.length())));
-                return fallbackMatching(request);
-            }
-
+            response = JsonRepairUtil.repair(response);
             Map<String, Object> result = objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {});
-            result.put("source", "ai-claude");
+            result.put("source", "ai-ollama");
             result.put("clientId", request.getClientId());
-            
             return result;
-            
         } catch (Exception e) {
             System.err.println("Failed to parse AI matching response: " + e.getMessage());
             System.err.println("Response preview: " + response.substring(0, Math.min(200, response.length())));

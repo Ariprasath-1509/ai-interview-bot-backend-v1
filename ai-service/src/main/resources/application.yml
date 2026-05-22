@@ -31,13 +31,15 @@ app:
     assessment-temperature: ${APP_CLAUDE_ASSESSMENT_TEMPERATURE:0.25}
   ollama:
     base-url: ${APP_OLLAMA_BASE_URL:http://103.182.211.219:11434}
-    question-model: ${APP_OLLAMA_QUESTION_MODEL:qwen3:14b}
+    question-model: ${APP_OLLAMA_QUESTION_MODEL:qwen3:8b}
     assessment-model: ${APP_OLLAMA_ASSESSMENT_MODEL:qwen3:14b}
-    rubric-model: ${APP_OLLAMA_RUBRIC_MODEL:qwen3:14b}
-    matching-model: ${APP_OLLAMA_MATCHING_MODEL:qwen3:14b}
-    question-temperature: ${APP_OLLAMA_QUESTION_TEMPERATURE:0.55}
-    assessment-temperature: ${APP_OLLAMA_ASSESSMENT_TEMPERATURE:0.3}
+    rubric-model: ${APP_OLLAMA_RUBRIC_MODEL:deepseek-r1:14b}
+    matching-model: ${APP_OLLAMA_MATCHING_MODEL:qwen3:8b}
+    question-temperature: ${APP_OLLAMA_QUESTION_TEMPERATURE:0.0}
+    assessment-temperature: ${APP_OLLAMA_ASSESSMENT_TEMPERATURE:0.2}
+    rubric-temperature: ${APP_OLLAMA_RUBRIC_TEMPERATURE:0.1}
     timeout-seconds: ${APP_OLLAMA_TIMEOUT_SECONDS:600}
+    num-parallel-threads: ${APP_OLLAMA_NUM_PARALLEL_THREADS:4}
   assessment:
     async-enabled: true
     thread-pool-size: 10
