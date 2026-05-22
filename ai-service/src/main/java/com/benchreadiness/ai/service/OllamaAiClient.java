@@ -105,10 +105,10 @@ public class OllamaAiClient implements LlmClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model);
         body.put("stream", false);
+        body.put("think", false); // top-level field — disables qwen3 thinking mode
         body.put("options", Map.of(
                 "temperature", Math.max(0.0, Math.min(2.0, temperature)),
-                "num_thread", numParallelThreads,
-                "stop", List.of("```", "<think>", "</think>")
+                "num_thread", numParallelThreads
         ));
         body.put("messages", List.of(
                 Map.of("role", "system", "content", systemPrompt),
@@ -132,8 +132,10 @@ public class OllamaAiClient implements LlmClient {
         JsonNode root = objectMapper.readTree(response.body());
         String text = root.path("message").path("content").asText("").trim();
 
+        // Strip any residual <think>...</think> blocks that leaked through
+        text = text.replaceAll("(?s)<think>.*?</think>", "").trim();
+
         if (interviewId != null && operationType != null) {
-            // Ollama doesn't provide token counts in this response format; track 0s to keep the pipeline consistent.
             trackTokenUsage(interviewId, operationType, model, 0, 0, userId);
         }
         return stripMarkdownFences(text);
