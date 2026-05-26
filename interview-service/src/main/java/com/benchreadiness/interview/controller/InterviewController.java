@@ -12,14 +12,23 @@ import com.benchreadiness.interview.service.InterviewService;
 import com.benchreadiness.interview.service.EnhancedInterviewService;
 import com.benchreadiness.interview.service.PdfGenerationService;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/interviews")
@@ -30,6 +39,9 @@ public class InterviewController {
     private final CandidateMatchingService candidateMatchingService;
     private final CandidateReviewService candidateReviewService;
     private final PdfGenerationService pdfGenerationService;
+
+    @Value("${app.recording.upload-dir:${java.io.tmpdir}/br-recordings}")
+    private String uploadDir;
 
     public InterviewController(InterviewService interviewService,
                               EnhancedInterviewService enhancedInterviewService,
@@ -227,6 +239,58 @@ public class InterviewController {
             return ResponseEntity.badRequest()
                     .header("X-Error-Message", e.getMessage())
                     .build();
+        }
+    }
+
+    /** Upload session recording (candidate calls this after interview). */
+    @PostMapping(value = "/{id}/recording", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> uploadRecording(@PathVariable String id,
+                                             @RequestParam("recording") MultipartFile file) {
+        try {
+            Interview interview = interviewService.findById(id)
+                    .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
+
+            Path dir = Paths.get(uploadDir);
+            Files.createDirectories(dir);
+
+            String ext = ".webm";
+            String orig = file.getOriginalFilename();
+            if (orig != null && orig.contains(".")) ext = orig.substring(orig.lastIndexOf('.'));
+
+            Path dest = dir.resolve("rec_" + id + "_" + UUID.randomUUID() + ext);
+            file.transferTo(dest.toFile());
+
+            interview.setRecordingPath(dest.toAbsolutePath().toString());
+            interviewService.saveInterview(interview);
+
+            return ResponseEntity.ok(Map.of("ok", true, "path", dest.getFileName().toString()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /** Download / stream session recording (admin/recruiter only). */
+    @GetMapping("/{id}/recording")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<Resource> downloadRecording(@PathVariable String id) {
+        try {
+            Interview interview = interviewService.findById(id)
+                    .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
+
+            if (interview.getRecordingPath() == null) {
+                return ResponseEntity.notFound().build();
+            }
+
+            File file = new File(interview.getRecordingPath());
+            if (!file.exists()) return ResponseEntity.notFound().build();
+
+            Resource resource = new FileSystemResource(file);
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType("audio/webm"))
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"recording_" + id + ".webm\"")
+                    .body(resource);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().build();
         }
     }
 }

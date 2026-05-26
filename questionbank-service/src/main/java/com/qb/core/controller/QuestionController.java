@@ -81,4 +81,20 @@ public class QuestionController {
         List<QuestionDTO> questions = questionService.getQuestionsByCompanyAndMode(company, mode);
         return ResponseEntity.ok(ApiResponse.ok(questions));
     }
+
+    /**
+     * GET /api/questions/for-interview?search=kafka&category=Spring&size=100
+     * Lightweight endpoint for interview creation question picker.
+     * Returns a flat list (no pagination) with only fields needed for selection UI.
+     */
+    @GetMapping("/for-interview")
+    public ResponseEntity<ApiResponse<List<QuestionDTO>>> getForInterview(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String importance,
+            @RequestParam(defaultValue = "100") int size
+    ) {
+        List<QuestionDTO> questions = questionService.getQuestionsForInterview(search, category, importance, size);
+        return ResponseEntity.ok(ApiResponse.ok(questions));
+    }
 }

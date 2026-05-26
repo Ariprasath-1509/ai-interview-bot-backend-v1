@@ -22,6 +22,9 @@ public class CreateInterviewRequest {
     private String interviewType;
     private String scheduledDate;
     private String notes;
+
+    // Optional: admin-selected question IDs from question bank (comma-separated UUIDs)
+    private String selectedQuestionIds;
     
     // Constructors
     public CreateInterviewRequest() {}
@@ -107,6 +110,10 @@ public class CreateInterviewRequest {
     public String getNotes() {
         return notes;
     }
+
+    public String getSelectedQuestionIds() {
+        return selectedQuestionIds;
+    }
     
     // Setters
     public void setEngineerEmail(String engineerEmail) {
@@ -167,5 +174,9 @@ public class CreateInterviewRequest {
     
     public void setNotes(String notes) {
         this.notes = notes;
+    }
+
+    public void setSelectedQuestionIds(String selectedQuestionIds) {
+        this.selectedQuestionIds = selectedQuestionIds;
     }
 }

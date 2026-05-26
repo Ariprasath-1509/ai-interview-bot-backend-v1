@@ -35,6 +35,7 @@ app:
     assessment-model: ${APP_OLLAMA_ASSESSMENT_MODEL:qwen3:14b}
     rubric-model: ${APP_OLLAMA_RUBRIC_MODEL:deepseek-r1:14b}
     matching-model: ${APP_OLLAMA_MATCHING_MODEL:qwen3:8b}
+    transcribe-model: ${APP_OLLAMA_TRANSCRIBE_MODEL:whisper}
     question-temperature: ${APP_OLLAMA_QUESTION_TEMPERATURE:0.0}
     assessment-temperature: ${APP_OLLAMA_ASSESSMENT_TEMPERATURE:0.2}
     rubric-temperature: ${APP_OLLAMA_RUBRIC_TEMPERATURE:0.1}

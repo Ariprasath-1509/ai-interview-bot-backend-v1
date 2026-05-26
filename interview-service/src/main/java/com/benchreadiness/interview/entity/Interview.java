@@ -78,6 +78,9 @@ public class Interview {
     @Column(name = "used_question_ids", columnDefinition = "TEXT")
     private String usedQuestionIds = "";
 
+    @Column(name = "recording_path", columnDefinition = "TEXT")
+    private String recordingPath;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -131,6 +134,8 @@ public class Interview {
     public void setQuestionBankQuestionsJson(String questionBankQuestionsJson) { this.questionBankQuestionsJson = questionBankQuestionsJson; }
     public String getUsedQuestionIds() { return usedQuestionIds; }
     public void setUsedQuestionIds(String usedQuestionIds) { this.usedQuestionIds = usedQuestionIds; }
+    public String getRecordingPath() { return recordingPath; }
+    public void setRecordingPath(String recordingPath) { this.recordingPath = recordingPath; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

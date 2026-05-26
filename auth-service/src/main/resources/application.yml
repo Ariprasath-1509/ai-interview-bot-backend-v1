@@ -5,13 +5,19 @@ spring:
   application:
     name: auth-service
   datasource:
-    url: jdbc:postgresql://103.182.211.219:5434/aibot
+    url: jdbc:postgresql://103.182.211.219:5434/aibot?tcpKeepAlive=true&connectTimeout=10
     username: aibot
     password: aibot!@#$%
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 3
       minimum-idle: 1
+      connection-timeout: 60000
+      idle-timeout: 120000
+      max-lifetime: 300000
+      keepalive-time: 30000
+      connection-test-query: SELECT 1
+      leak-detection-threshold: 60000
   jpa:
     hibernate:
       ddl-auto: validate

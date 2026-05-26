@@ -158,6 +158,26 @@ public class QuestionService {
                 .toList();
     }
 
+    /**
+     * Lightweight flat list for interview creation question picker.
+     * Reuses the existing search query but returns a simple list capped at `size`.
+     */
+    @Transactional(readOnly = true)
+    public List<QuestionDTO> getQuestionsForInterview(String search, String category, String importance, int size) {
+        int cappedSize = Math.min(size, 200);
+        PageRequest pageable = PageRequest.of(0, cappedSize);
+        Page<Question> page = questionRepo.searchQuestions(
+                blankToNull(search), null, blankToNull(category),
+                null, null, null, blankToNull(importance), pageable
+        );
+        List<UUID> ids = page.getContent().stream().map(Question::getId).toList();
+        Map<UUID, List<String>> companies = batchLoadCompanies(ids);
+        Map<UUID, List<QuestionDTO.SessionInfo>> sessions = batchLoadSessionInfo(ids, null, null);
+        return page.getContent().stream()
+                .map(q -> toDTOBatched(q, companies, sessions))
+                .toList();
+    }
+
     // ── Batch loading helpers (N+1 elimination) ──
 
     /**

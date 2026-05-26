@@ -8,13 +8,20 @@ import org.springframework.web.bind.annotation.RequestParam;
 @FeignClient(name = "questionbank-service", path = "/api/questions")
 public interface QuestionBankClient {
 
-    /**
-     * Fetch questions by company and interview mode.
-     * Example: GET /api/questions/interview-mode?company=rebit&mode=L1
-     */
     @GetMapping("/interview-mode")
     JsonNode fetchQuestionsByCompanyAndMode(
             @RequestParam("company") String company,
             @RequestParam("mode") String mode
+    );
+
+    /**
+     * Fetch questions for interview creation picker.
+     * GET /api/questions/for-interview?search=&category=&size=100
+     */
+    @GetMapping("/for-interview")
+    JsonNode fetchQuestionsForInterview(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String category,
+            @RequestParam(defaultValue = "100") int size
     );
 }

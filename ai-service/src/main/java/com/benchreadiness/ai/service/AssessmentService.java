@@ -55,6 +55,7 @@ public class AssessmentService {
             log.warn("Insufficient responses for interview {}: {} words, {} turns", 
                     req.getInterviewId(), candidateWords, candidateTurns);
             Map<String, Object> result = thinTranscriptResult("Insufficient responses — candidate answered fewer than 3 questions or provided less than 50 words total.");
+            result.put("speechAnalytics", computeSpeechAnalytics(utterances));
             cacheAssessment(cacheKey, result);
             return result;
         }
@@ -77,12 +78,15 @@ public class AssessmentService {
         if (!llmClient.isConfigured()) {
             log.warn("LLM provider not configured - falling back to heuristic assessment");
             Map<String, Object> result = heuristicAssessment(utterances);
+            result.put("speechAnalytics", computeSpeechAnalytics(utterances));
             cacheAssessment(cacheKey, result);
             return result;
         }
         try {
             log.info("Starting two-pass LLM assessment for interview: {}", req.getInterviewId());
             Map<String, Object> result = twoPassAssessment(req, utterances, userId);
+            // Inject speech analytics computed from transcript
+            result.put("speechAnalytics", computeSpeechAnalytics(utterances));
             cacheAssessment(cacheKey, result);
             return result;
         } catch (Exception e) {
@@ -91,6 +95,66 @@ public class AssessmentService {
             cacheAssessment(cacheKey, result);
             return result;
         }
+    }
+
+    private Map<String, Object> computeSpeechAnalytics(List<Map<String, String>> utterances) {
+        List<String> candidateLines = utterances.stream()
+            .filter(u -> "CANDIDATE".equals(u.get("speaker")))
+            .map(u -> u.getOrDefault("text", "").trim())
+            .filter(t -> !t.isEmpty())
+            .toList();
+
+        String fullText = String.join(" ", candidateLines);
+        String[] words = fullText.isBlank() ? new String[0] : fullText.split("\\s+");
+
+        // Filler word detection
+        java.util.regex.Pattern fillerPattern = java.util.regex.Pattern.compile(
+            "\\b(um|uh|like|you know|sort of|kind of|basically|literally|actually|right|okay|so)\\b",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+        int fillers = 0;
+        java.util.regex.Matcher m = fillerPattern.matcher(fullText);
+        while (m.find()) fillers++;
+
+        // Duration estimate from timestamps
+        long durationMs = 0;
+        try {
+            List<Long> timestamps = utterances.stream()
+                .map(u -> u.getOrDefault("at", ""))
+                .filter(t -> !t.isEmpty())
+                .map(t -> java.time.Instant.parse(t).toEpochMilli())
+                .toList();
+            if (timestamps.size() >= 2) {
+                durationMs = timestamps.stream().mapToLong(Long::longValue).max().orElse(0)
+                           - timestamps.stream().mapToLong(Long::longValue).min().orElse(0);
+            }
+        } catch (Exception ignored) {}
+
+        double durationMin = durationMs > 0 ? durationMs / 60000.0 : Math.max(1, candidateLines.size() * 1.5);
+        int wpm = words.length > 0 ? (int) Math.round(words.length / durationMin) : 0;
+
+        // Long silences: gaps between consecutive candidate turns > 30s
+        int longSilences = 0;
+        try {
+            List<Long> candidateTimestamps = utterances.stream()
+                .filter(u -> "CANDIDATE".equals(u.get("speaker")))
+                .map(u -> u.getOrDefault("at", ""))
+                .filter(t -> !t.isEmpty())
+                .map(t -> java.time.Instant.parse(t).toEpochMilli())
+                .sorted()
+                .toList();
+            for (int i = 1; i < candidateTimestamps.size(); i++) {
+                if (candidateTimestamps.get(i) - candidateTimestamps.get(i - 1) > 30_000) longSilences++;
+            }
+        } catch (Exception ignored) {}
+
+        Map<String, Object> analytics = new java.util.LinkedHashMap<>();
+        analytics.put("wpm", wpm);
+        analytics.put("fillers", fillers);
+        analytics.put("longSilences", longSilences);
+        analytics.put("wordCount", words.length);
+        analytics.put("candidateTurns", candidateLines.size());
+        return analytics;
     }
 
     private String buildAssessmentCacheKey(AssessmentRequest req) {

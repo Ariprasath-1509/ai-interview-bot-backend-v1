@@ -40,26 +40,50 @@ public class ClientController {
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
     public ResponseEntity<Map<String, Object>> getClientsForInterview(
             @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole) {
+            @RequestHeader("X-User-Role") String userRole,
+            @RequestParam(required = false) String candidateSkillSet,
+            @RequestParam(required = false) Double candidateYoe) {
         
         List<ClientDTO> allClients = clientService.getAllClients();
+
+        // If a specific candidate's skill+YOE is provided, filter and rank for that candidate
+        if (candidateSkillSet != null && !candidateSkillSet.isBlank()) {
+            double yoe = candidateYoe != null ? candidateYoe : 0.0;
+            List<ClientDTO> matched = new ArrayList<>();
+            List<ClientDTO> partial = new ArrayList<>();
+
+            for (ClientDTO client : allClients) {
+                MatchResult result = matchClientToCandidate(client, candidateSkillSet, yoe);
+                if (result == MatchResult.MATCHED) matched.add(client);
+                else if (result == MatchResult.YOE_SHORT) partial.add(client);
+                // SKILL_MISMATCH clients are excluded entirely
+            }
+
+            // matched (skill + yoe) first, then partial (skill matches but yoe short)
+            List<ClientDTO> clientsToReturn = new ArrayList<>();
+            clientsToReturn.addAll(matched);
+            clientsToReturn.addAll(partial);
+
+            return ResponseEntity.ok(Map.of(
+                "clients", clientsToReturn,
+                "hasMatchingClients", !matched.isEmpty(),
+                "message", matched.isEmpty() && partial.isEmpty()
+                    ? "No client positions found matching " + candidateSkillSet + " skill set."
+                    : matched.size() + " position(s) match skill + YOE" + (partial.isEmpty() ? "" : ", " + partial.size() + " match skill only"),
+                "totalClients", clientsToReturn.size()
+            ));
+        }
         
-        // Quick rule-based check: does client have ANY matching candidates?
-        // No AI calls - just skill + YOE + status filtering
+        // No candidate context — original behaviour: show clients that have any eligible candidates
         List<ClientDTO> clientsWithMatches = new ArrayList<>();
         List<ClientDTO> clientsWithoutMatches = new ArrayList<>();
         
         for (ClientDTO client : allClients) {
             boolean hasMatches = quickCheckForMatches(client);
-            
-            if (hasMatches) {
-                clientsWithMatches.add(client);
-            } else {
-                clientsWithoutMatches.add(client);
-            }
+            if (hasMatches) clientsWithMatches.add(client);
+            else clientsWithoutMatches.add(client);
         }
         
-        // Return clients with matches first, or all if none have matches
         List<ClientDTO> clientsToReturn;
         String message;
         boolean hasMatchingClients = !clientsWithMatches.isEmpty();
@@ -72,16 +96,46 @@ public class ClientController {
             message = "No matching candidates found. Showing all clients.";
         }
         
-        Map<String, Object> response = Map.of(
+        return ResponseEntity.ok(Map.of(
             "clients", clientsToReturn,
             "hasMatchingClients", hasMatchingClients,
             "message", message,
             "totalClients", clientsToReturn.size(),
             "totalClientsWithMatches", clientsWithMatches.size(),
             "totalClientsWithoutMatches", clientsWithoutMatches.size()
-        );
-        
-        return ResponseEntity.ok(response);
+        ));
+    }
+
+    private enum MatchResult { MATCHED, YOE_SHORT, SKILL_MISMATCH }
+
+    /**
+     * Match a client against a specific candidate's skillSet + YOE.
+     * MATCHED   = client has a skill requirement matching candidateSkillSet AND yoe >= minYoeRequired
+     * YOE_SHORT = skill matches but candidate yoe is below minimum (still show, ranked lower)
+     * SKILL_MISMATCH = no skill requirement matches — exclude entirely
+     */
+    private MatchResult matchClientToCandidate(ClientDTO client, String candidateSkillSet, double candidateYoe) {
+        if (client.getSkillRequirements() == null || client.getSkillRequirements().isEmpty()) {
+            // Legacy client with no skill requirements — include as partial
+            return MatchResult.YOE_SHORT;
+        }
+        boolean skillFound = false;
+        boolean yoeMet = false;
+        for (var skillReq : client.getSkillRequirements()) {
+            if (skillReq.getSkillSet() != null && skillReq.getSkillSet().name().equals(candidateSkillSet)) {
+                skillFound = true;
+                for (var pos : skillReq.getPositions()) {
+                    double minYoe = pos.getMinYoeRequired() != null ? pos.getMinYoeRequired() : 0.0;
+                    if (candidateYoe >= minYoe) {
+                        yoeMet = true;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        if (!skillFound) return MatchResult.SKILL_MISMATCH;
+        return yoeMet ? MatchResult.MATCHED : MatchResult.YOE_SHORT;
     }
     
     /**

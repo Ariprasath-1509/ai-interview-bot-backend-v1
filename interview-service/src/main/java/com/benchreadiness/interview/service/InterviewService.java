@@ -52,13 +52,89 @@ public class InterviewService {
         this.questionBankClient = questionBankClient;
     }
 
-    @Transactional
     public Interview createInterview(CreateInterviewRequest req, String createdByUserId) throws Exception {
-        // Check daily token limit before creating interview
+        // Step 1: Do all external HTTP calls BEFORE opening the DB transaction
+        // This prevents holding a DB connection open while waiting for slow external services
+
+        // Check token limit (fast, compliance-service)
         if (!checkTokenLimit(createdByUserId)) {
             throw new IllegalStateException("Daily token limit reached. No more interviews can be created today.");
         }
-        // Upsert engineer by email
+
+        // Generate rubric from ai-service (slow — can take 30-60s, must be outside transaction)
+        String rubricJson = null;
+        String candidateProfileJson = null;
+        try {
+            Map<String, String> rubricRequest = Map.of(
+                "jdTitle", req.getJdTitle(),
+                "jdText", req.getJdText() != null ? req.getJdText() : "",
+                "resumeSummary", req.getResumeSummary() != null ? req.getResumeSummary() : "",
+                "focusAreas", req.getFocusAreas() != null ? req.getFocusAreas() : ""
+            );
+            String rubricResponse = aiServiceClient.generateRubric(rubricRequest);
+            if (rubricResponse != null) {
+                com.fasterxml.jackson.databind.JsonNode rubricNode = objectMapper.readTree(rubricResponse);
+                rubricJson = objectMapper.writeValueAsString(rubricNode.path("rubric"));
+                candidateProfileJson = objectMapper.writeValueAsString(rubricNode.path("candidateProfile"));
+            }
+        } catch (Exception e) {
+            log.warn("Failed to generate rubric (will proceed without it): {}", e.getMessage());
+        }
+
+        // Fetch question bank questions (slow — can time out, must be outside transaction)
+        String questionBankQuestionsJson = null;
+        if (req.getSelectedQuestionIds() != null && !req.getSelectedQuestionIds().isBlank()) {
+            log.info("selectedQuestionIds provided, resolving questions from question bank");
+            try {
+                Set<String> selectedIdSet = java.util.Arrays.stream(
+                    req.getSelectedQuestionIds().split(","))
+                    .map(String::trim).filter(s -> !s.isBlank())
+                    .collect(java.util.stream.Collectors.toSet());
+                com.fasterxml.jackson.databind.JsonNode resp =
+                    questionBankClient.fetchQuestionsForInterview(null, null, 200);
+                if (resp != null && resp.has("data") && resp.get("data").isArray()) {
+                    List<com.fasterxml.jackson.databind.JsonNode> filtered = new ArrayList<>();
+                    for (com.fasterxml.jackson.databind.JsonNode q : resp.get("data")) {
+                        if (selectedIdSet.contains(q.path("id").asText())) filtered.add(q);
+                    }
+                    if (!filtered.isEmpty()) {
+                        questionBankQuestionsJson = objectMapper.writeValueAsString(filtered);
+                        log.info("Resolved {} admin-selected questions", filtered.size());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to resolve selectedQuestionIds: {}", e.getMessage());
+            }
+        } else if (req.getClientId() != null && !req.getClientId().isBlank()) {
+            try {
+                UUID clientUuid = UUID.fromString(req.getClientId());
+                Optional<Client> clientOpt = clientRepository.findById(clientUuid);
+                if (clientOpt.isPresent()) {
+                    String clientSlug = clientOpt.get().getClientName().toLowerCase().replaceAll("\\s+", "-");
+                    String mode = req.getInterviewMode().name();
+                    com.fasterxml.jackson.databind.JsonNode questionsResponse =
+                        questionBankClient.fetchQuestionsByCompanyAndMode(clientSlug, mode);
+                    if (questionsResponse != null && questionsResponse.has("data")
+                            && questionsResponse.get("data").isArray()
+                            && questionsResponse.get("data").size() > 0) {
+                        questionBankQuestionsJson = objectMapper.writeValueAsString(questionsResponse.get("data"));
+                        log.info("Fetched {} questions from question bank", questionsResponse.get("data").size());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to fetch questions from question bank: {}", e.getMessage());
+            }
+        }
+
+        // Step 2: Now do all DB work in a single short transaction
+        return persistInterview(req, createdByUserId, rubricJson, candidateProfileJson, questionBankQuestionsJson);
+    }
+
+    @Transactional
+    protected Interview persistInterview(CreateInterviewRequest req, String createdByUserId,
+                                         String rubricJson, String candidateProfileJson,
+                                         String questionBankQuestionsJson) throws Exception {
+        // Upsert engineer
         Engineer engineer = engineerRepository.findByEmail(req.getEngineerEmail()).orElseGet(() -> {
             Engineer e = new Engineer();
             e.setUserId(req.getEngineerEmail());
@@ -75,21 +151,17 @@ public class InterviewService {
         jd.setText(req.getJdText());
         jd = jdRepository.save(jd);
 
-        // Build slot plan based on interview mode
-        List<Map<String, Object>> slots = buildSlotsForMode(req.getInterviewMode());
-
+        // Build plan
         Map<String, Object> slotsDoc = new LinkedHashMap<>();
-        slotsDoc.put("slots", slots);
-        if (req.getFocusAreas() != null && !req.getFocusAreas().isBlank()) {
+        slotsDoc.put("slots", buildSlotsForMode(req.getInterviewMode()));
+        if (req.getFocusAreas() != null && !req.getFocusAreas().isBlank())
             slotsDoc.put("focusAreas", req.getFocusAreas().trim());
-        }
 
         Map<String, Object> gapDoc = new LinkedHashMap<>();
         gapDoc.put("jdTitle", req.getJdTitle());
         gapDoc.put("inferredGaps", List.of());
-        if (req.getResumeSummary() != null && !req.getResumeSummary().isBlank()) {
+        if (req.getResumeSummary() != null && !req.getResumeSummary().isBlank())
             gapDoc.put("resumeSummary", req.getResumeSummary().trim());
-        }
 
         InterviewPlan plan = new InterviewPlan();
         plan.setEngineerId(engineer.getId());
@@ -97,30 +169,9 @@ public class InterviewService {
         plan.setSlotsJson(objectMapper.writeValueAsString(slotsDoc));
         plan.setGapMapJson(objectMapper.writeValueAsString(gapDoc));
         plan.setCreatedByUserId(createdByUserId);
+        if (rubricJson != null) plan.setRubricJson(rubricJson);
+        if (candidateProfileJson != null) plan.setCandidateProfileJson(candidateProfileJson);
         plan = planRepository.save(plan);
-
-        // Generate JD-driven rubric + candidate profile from ai-service
-        try {
-            Map<String, String> rubricRequest = Map.of(
-                "jdTitle", req.getJdTitle(),
-                "jdText", req.getJdText(),
-                "resumeSummary", req.getResumeSummary() != null ? req.getResumeSummary() : "",
-                "focusAreas", req.getFocusAreas() != null ? req.getFocusAreas() : ""
-            );
-            
-            String rubricResponse = aiServiceClient.generateRubric(rubricRequest);
-            
-            if (rubricResponse != null) {
-                // Parse and store rubricJson and candidateProfileJson separately
-                com.fasterxml.jackson.databind.JsonNode rubricNode =
-                    objectMapper.readTree(rubricResponse);
-                plan.setRubricJson(objectMapper.writeValueAsString(rubricNode.path("rubric")));
-                plan.setCandidateProfileJson(objectMapper.writeValueAsString(rubricNode.path("candidateProfile")));
-                plan = planRepository.save(plan);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to generate rubric for plan {}: {}", plan.getId(), e.getMessage());
-        }
 
         // Create interview
         Interview interview = new Interview();
@@ -132,64 +183,32 @@ public class InterviewService {
         interview.setCreatedByUserId(createdByUserId);
         interview.setStatus(InterviewStatus.SCHEDULED);
         interview.setScheduledAt(Instant.now());
-        
-        // Fetch questions from question bank if clientId is provided
-        if (req.getClientId() != null && !req.getClientId().isBlank()) {
-            log.info("ClientId provided: {}, attempting to fetch questions from question bank", req.getClientId());
-            try {
-                UUID clientUuid = UUID.fromString(req.getClientId());
-                Optional<Client> clientOpt = clientRepository.findById(clientUuid);
-                if (clientOpt.isPresent()) {
-                    String clientName = clientOpt.get().getClientName();
-                    String clientSlug = clientName.toLowerCase().replaceAll("\\s+", "-");
-                    String mode = req.getInterviewMode().name();
-                    log.info("Fetching questions for client: {} (slug: {}), mode: {}", clientName, clientSlug, mode);
-                    
-                    com.fasterxml.jackson.databind.JsonNode questionsResponse = 
-                        questionBankClient.fetchQuestionsByCompanyAndMode(clientSlug, mode);
-                    
-                    if (questionsResponse != null && questionsResponse.has("data") && 
-                        questionsResponse.get("data").isArray() && 
-                        questionsResponse.get("data").size() > 0) {
-                        interview.setQuestionBankQuestionsJson(
-                            objectMapper.writeValueAsString(questionsResponse.get("data"))
-                        );
-                        interview.setUsedQuestionIds("");
-                        log.info("Fetched {} questions from question bank for client {} and mode {}", 
-                            questionsResponse.get("data").size(), clientName, mode);
-                    } else {
-                        log.info("No questions found in question bank for client {} and mode {}", clientName, mode);
-                    }
-                } else {
-                    log.warn("Client not found with ID: {}", req.getClientId());
-                }
-            } catch (Exception e) {
-                log.warn("Failed to fetch questions from question bank: {}", e.getMessage());
-            }
-        } else {
-            log.info("No clientId provided, skipping question bank fetch");
+        if (questionBankQuestionsJson != null) {
+            interview.setQuestionBankQuestionsJson(questionBankQuestionsJson);
+            interview.setUsedQuestionIds("");
         }
-        
         Interview saved = interviewRepository.save(interview);
 
-        // Notify observer-service to send invite email (fire-and-forget)
+        // Fire-and-forget: invite email
         try {
-            Map<String, String> notificationRequest = Map.of(
+            observerServiceClient.notifyInterviewCreated(Map.of(
                 "interviewId", saved.getId(),
                 "engineerEmail", req.getEngineerEmail(),
                 "engineerName", req.getEngineerName() != null ? req.getEngineerName() : ""
-            );
-            observerServiceClient.notifyInterviewCreated(notificationRequest);
+            ));
         } catch (Exception e) {
             log.warn("Failed to send interview invite email for {}: {}", saved.getId(), e.getMessage());
         }
 
-        // Log audit trail
-        String actorName = getUserName(createdByUserId);
-        logAudit(createdByUserId, actorName, "ADMIN", "INTERVIEW_CREATED", saved.getId(),
-            String.format("Created %s interview for %s - %s", 
-                req.getInterviewMode(), req.getEngineerName(), req.getJdTitle()),
-            null, null);
+        // Audit log (fire-and-forget)
+        try {
+            String actorName = getUserName(createdByUserId);
+            logAudit(createdByUserId, actorName, "ADMIN", "INTERVIEW_CREATED", saved.getId(),
+                String.format("Created %s interview for %s - %s",
+                    req.getInterviewMode(), req.getEngineerName(), req.getJdTitle()), null, null);
+        } catch (Exception e) {
+            log.warn("Failed to log audit for interview {}: {}", saved.getId(), e.getMessage());
+        }
 
         return saved;
     }
@@ -289,6 +308,11 @@ public class InterviewService {
 
     public Optional<Interview> findById(String id) {
         return interviewRepository.findById(id);
+    }
+
+    @Transactional
+    public Interview saveInterview(Interview interview) {
+        return interviewRepository.save(interview);
     }
 
     public List<Interview> findAll() {

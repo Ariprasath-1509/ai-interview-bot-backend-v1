@@ -162,39 +162,39 @@ AiInterviewBot/   (6001) — Next.js 15, App Router, server actions
 - Registers with Eureka as `INTERVIEW-SERVICE`
 
 ### ai-service (6003)
-- **Claude API** (`claude-haiku-4-5` for questions/rubric, `claude-sonnet-4-5` for assessment and matching)
-- **Token limits** — 4000 tokens for assessment (prevents JSON truncation), 1000 for rubric, 300 for questions
-- **Rubric generation** (`POST /ai/generate-rubric`) — extracts 4–6 JD-specific categories + candidate profile (YOE, level, difficulty) at interview creation. Uses dedicated `rubric-max-tokens` to prevent JSON truncation.
-- **Question generation** (`POST /ai/next-question`) — mode-specific themed questions with difficulty calibration (easy to hard based on interview mode)
-- **AI-powered candidate matching** (`POST /ai/match-candidates`) — uses Claude Sonnet to intelligently match candidates to client requirements:
-  - **Eligibility filtering**: Only matches RFD candidates with 3+ completed interviews (reduces AI calls by ~90%)
-  - **Interview evidence integration**: Uses pros/cons and category scores from recent 3 interviews for evidence-based matching
-  - Analyzes 6 weighted criteria: skill alignment (30%), experience level (25%), role complexity (20%), quality indicators (15%), interview performance (10%), frequency concerns (penalty)
-  - Provides detailed strengths, concerns, and recommendations (HIGHLY_RECOMMENDED / RECOMMENDED / CONSIDER / NOT_SUITABLE)
-  - Considers skill evolution potential, cultural fit indicators, and red flags
-  - Returns ranked matches with match scores, rationale, and actionable insights
-  - Fallback to rule-based matching when AI unavailable
-- **Skip/Next detection** — recognizes "next question", "skip", "pass", "move on" to allow candidates to skip questions they're not prepared for
-- **Claude optimizations**:
-  - First question caching (24h TTL) — saves ~800 tokens per interview
-  - Vague answer detection — skips Claude for answers <15 words or containing "I don't know", "maybe", etc.
-  - Slot-based model switching — haiku for slots 1-5, sonnet for slots 6-10
-  - Compressed system prompts — reduced from ~200 to ~60 tokens
-  - Transcript deduplication — removes similar consecutive answers
-- **Mode-specific slot themes** — different question focus areas for SCREENING, L1, L2, L3, L4 modes
-- **Manipulation detection** — 8 regex patterns detect prompt injection / score manipulation. Warn on first detection, terminate at 5th attempt
-- **Two-pass assessment** (`POST /ai/assess`):
-  - Pass 1 (sonnet) — evidence extraction per category from transcript
-  - Pass 2 (sonnet) — scoring with evidence, resume consistency, behavioral signals, confidence per category, interview quality, 7-day roadmap
+- **Local Ollama LLM** — `qwen3:8b` for questions/matching/rubric, `qwen3:14b` for assessment, `deepseek-r1:14b` for rubric generation
+- **LLM provider switchable** — set `app.llm.provider=ollama` or `app.llm.provider=claude` in `application.yml`
+- **Thinking mode disabled** — `think: false` sent as top-level body field on every Ollama request to prevent `qwen3` from outputting empty `message.content`
+- **JSON repair layer** — `JsonRepairUtil` strips `<think>` blocks, markdown fences, trailing commas, and balances truncated brackets before Jackson parsing on all LLM responses
+- **Injection guard** — `InjectionGuard` centralises all manipulation/injection detection (8 regex patterns). Used by both `QuestionService` (per-answer) and `AssessmentService` (full-transcript pre-filter before any LLM call)
+- **Rubric generation** (`POST /ai/generate-rubric`) — `deepseek-r1:14b` extracts 4–6 JD-specific categories + candidate profile (YOE, level, difficulty) at interview creation. Cached by JD title + content hash.
+- **Question generation** (`POST /ai/next-question`) — `qwen3:8b` generates mode-specific themed questions with difficulty calibration:
+  - CURRENT INTERVIEW MATRIX CONTEXT prompt: slot theme, target skill priority, coverage strategy, seniority guardrails, rubric focus, covered topics, difficulty level
+  - CRITICAL EXECUTION RULES: probe technical implementation, peer-level tone, no pleasantries, raw question string only
+  - Vague answer detection — probes answers <15 words or containing "I don't know", "maybe", etc. Max 1 probe before deterministic progression
+  - Skip/next detection — recognises "next question", "skip", "pass", "move on" and progresses without probe
+  - First question caching (30min TTL per slot+JD+mode key)
+  - Question bank selection — if `questionBankQuestionsJson` provided, uses separate prompt to select from bank (HIGH > MEDIUM > LOW relevancy) or generate AI cross-question
+- **AI-powered candidate matching** (`POST /ai/match-candidates`) — `qwen3:8b` ranks candidates against JD:
+  - 5-weight scoring: Skill (30%), Experience (25%), Ownership (20%), Stability (15%), Performance (10%)
+  - Safety barriers: YOE gap caps score at 0.60, missing 2+ core skills caps at 0.55, resume-only claims cap at 0.70
+  - Recommendations: HIGHLY_RECOMMENDED (≥0.85), RECOMMENDED (0.70–0.84), CONSIDER (0.55–0.69), NOT_SUITABLE (<0.55)
+  - Fallback to rule-based matching when Ollama unavailable
+- **Manipulation detection** — 8 regex patterns detect prompt injection / score manipulation. Warn on 1st detection, terminate at 5th attempt. Java-side transcript pre-filter in `AssessmentService` terminates before LLM call if ≥5 injections found
+- **Four-stage assessment** (`POST /ai/assess`) — `qwen3:14b` with `think: false`:
+  - Evidence extraction (Pass 1, `qwen3:14b`) — literal text parser, direct quotes ≤25 words per category, no inference
+  - Stage 1 — category scoring only: scores 1–5 per rubric category + communication + verdict + manager summary
+  - Stage 2 — behavioral signals + resume consistency + interview quality coverage
+  - Stage 3 — candidate feedback: pros/cons per category, 7-day roadmap with verified URLs, resume consistency for candidate
+  - Stage 4 — Java aggregator: merges all 3 stage outputs, no LLM call
   - Mode-specific verdict thresholds (SCREENING: 3.0, L1: 3.5, L2: 4.0, L3: 4.0, L4: 4.5 for READY)
-  - Skips Claude for transcripts <50 words or <3 candidate turns
-  - If `rubricJson` not provided — generates rubric on-the-fly from JD before scoring
-  - Automatic assessment response storage in compliance-service after successful completion
-  - Recovery mechanism for truncated JSON responses with shorter prompts
-- **Token tracking** — uses Feign client to call compliance-service for token tracking
-- **Markdown fence stripping** — Claude responses wrapped in ` ```json ``` ` are automatically cleaned before parsing
-- **Fallback** — heuristic scoring when Claude unavailable
-- Spring Retry — 3 attempts with exponential backoff
+  - Deterministic readiness gates applied after LLM scoring — downgrade verdict if core categories uncovered or below floor score
+  - Skips LLM for transcripts <50 words or <3 candidate turns
+  - Transcription quality check — skips LLM if quality score <0.5
+  - Assessment cached 24h by SHA-256 of transcript+rubric+profile+mode
+  - Automatic assessment response storage in compliance-service after completion
+- **Token tracking** — Feign client to compliance-service tracks per-operation usage (0 tokens reported for Ollama since counts unavailable)
+- **Fallback** — heuristic scoring (word count / turn count) when Ollama unavailable
 - **Feign client**: ComplianceServiceClient
 - Registers with Eureka as `AI-SERVICE`
 
@@ -274,7 +274,7 @@ SCHEDULED → IN_PROGRESS → COMPLETED → REVIEW_PENDING → SIGNED_OFF
 - Maven 3.9+
 - PostgreSQL 12+ on `localhost:3308`
 - Node.js 18+ (frontend)
-- Claude API key (`sk-ant-...`)
+- Ollama (https://ollama.com/download) with `qwen3:8b`, `qwen3:14b`, `deepseek-r1:14b` pulled
 - Gmail account with App Password (for email notifications)
 
 ---
@@ -311,13 +311,23 @@ DB_PASSWORD=<your-password>
 # Auth
 JWT_SECRET=dev-jwt-secret-change-in-production-min-32-chars
 
-# AI (Claude)
-CLAUDE_API_KEY=sk-ant-...
-CLAUDE_MODEL=claude-haiku-4-5
-CLAUDE_ASSESSMENT_MODEL=claude-sonnet-4-5
-CLAUDE_ASSESSMENT_MAX_TOKENS=4000
-CLAUDE_RUBRIC_MAX_TOKENS=1000
-CLAUDE_QUESTION_MAX_TOKENS=300
+# AI (Ollama — primary)
+APP_LLM_PROVIDER=ollama
+APP_OLLAMA_BASE_URL=http://localhost:11434
+APP_OLLAMA_QUESTION_MODEL=qwen3:8b
+APP_OLLAMA_ASSESSMENT_MODEL=qwen3:14b
+APP_OLLAMA_RUBRIC_MODEL=deepseek-r1:14b
+APP_OLLAMA_MATCHING_MODEL=qwen3:8b
+APP_OLLAMA_QUESTION_TEMPERATURE=0.0
+APP_OLLAMA_ASSESSMENT_TEMPERATURE=0.2
+APP_OLLAMA_RUBRIC_TEMPERATURE=0.1
+APP_OLLAMA_NUM_PARALLEL_THREADS=4
+APP_OLLAMA_TIMEOUT_SECONDS=600
+
+# AI (Claude — optional fallback, leave blank if not using)
+APP_CLAUDE_API_KEY=
+APP_CLAUDE_MODEL=claude-haiku-4-5
+APP_CLAUDE_ASSESSMENT_MODEL=claude-sonnet-4-5
 
 # Email (Gmail SMTP)
 MAIL_HOST=smtp.gmail.com
@@ -790,7 +800,7 @@ curl -X POST http://localhost:6002/tokens/finalize-interview \
 
 ## Assessment Output
 
-The two-pass assessment returns:
+The four-stage assessment returns:
 
 ```json
 {
@@ -828,6 +838,7 @@ The two-pass assessment returns:
     "note": "All major categories covered"
   },
   "candidateFeedback": {
+    "summary": "You have solid Java and Spring fundamentals...",
     "overallSummary": "You have solid Java and Spring fundamentals...",
     "prosAndCons": [
       {
@@ -842,7 +853,7 @@ The two-pass assessment returns:
     ],
     "roadmap": [
       {
-        "day": "Day 1",
+        "day": 1,
         "category": "Spring & Spring Boot",
         "gap": "Transaction propagation",
         "focus": "Spring @Transactional — REQUIRED, REQUIRES_NEW, NESTED propagation",
@@ -853,9 +864,22 @@ The two-pass assessment returns:
         "estimatedHours": 2
       }
     ],
+    "estimatedReadiness": "Ready in 5-7 days with focused prep",
     "estimatedReadinessTimeline": "Ready in 5-7 days with focused prep"
   },
-  "source": "claude-two-pass"
+  "readinessGate": {
+    "gatePassed": false,
+    "mode": "L3",
+    "minCoreScoreFloor": 4,
+    "mustCoverCategories": ["coreJava", "spring", "microservices"],
+    "uncoveredCategories": [],
+    "weakDimensions": ["spring"],
+    "communicationWeak": false,
+    "originalVerdict": "NEEDS_1_WEEK_PREP",
+    "finalVerdict": "NEEDS_1_WEEK_PREP",
+    "note": "Readiness downgraded by deterministic gates due to missing coverage or weak core dimensions."
+  },
+  "source": "ollama-four-stage"
 }
 ```
 
@@ -863,7 +887,9 @@ The two-pass assessment returns:
 
 ## Manipulation Detection
 
-The AI question engine detects and handles prompt injection attempts:
+Prompt injection and score manipulation are detected at two layers:
+
+**Layer 1 — Per-answer (QuestionService, live interview):**
 
 | Attempt count | Action |
 |---|---|
@@ -871,7 +897,17 @@ The AI question engine detects and handles prompt injection attempts:
 | 2nd–4th | Warning repeated |
 | 5th+ | Interview terminated, status set to `COMPLETED` with verdict `WITHDRAWN`, admin notified |
 
-Detected patterns include: score manipulation requests, topic restriction commands, prompt injection, identity override attempts.
+**Layer 2 — Full-transcript pre-filter (AssessmentService, before any LLM call):**
+
+If 5 or more injection attempts are found across the entire transcript, the assessment is immediately returned as `WITHDRAWN` without calling the LLM.
+
+Both layers use the centralised `InjectionGuard` utility (8 regex patterns):
+- Score manipulation requests (`give me full marks`, `award me 5`)
+- Instruction override (`ignore previous instructions`)
+- Topic restriction (`only ask about Java`)
+- Identity override (`you are now a different interviewer`)
+- False completion claims (`I answered everything correctly`)
+- Roleplay attacks (`act as`, `pretend to be`)
 
 ---
 
@@ -922,15 +958,51 @@ SUPER_ADMIN sees all candidates regardless of source.
 
 ---
 
-## Local LLM Support
+## Local LLM Support (Ollama)
 
-The AI client can be switched to a local Ollama instance by:
+The platform runs on a local Ollama instance. The LLM provider is configured via `app.llm.provider` in `ai-service/application.yml`.
 
-1. Changing `app.claude.*` → `app.ollama.*` in `ai-service/application.yml`
-2. Rewriting the `chat()` method in `OpenAiClient.java` to use Ollama's `/api/chat` endpoint
-3. No other service changes required
+### Models Required
 
-See `MIGRATION.md` for the full local LLM migration guide including model recommendations and impact analysis per feature.
+| Model | Used for | Pull command |
+|---|---|---|
+| `qwen3:8b` | Question generation, question bank selection, candidate matching | `ollama pull qwen3:8b` |
+| `qwen3:14b` | Assessment (all 4 stages) | `ollama pull qwen3:14b` |
+| `deepseek-r1:14b` | Rubric generation | `ollama pull deepseek-r1:14b` |
+
+### Ollama Configuration (ai-service)
+
+```bash
+APP_LLM_PROVIDER=ollama
+APP_OLLAMA_BASE_URL=http://localhost:11434
+APP_OLLAMA_QUESTION_MODEL=qwen3:8b
+APP_OLLAMA_ASSESSMENT_MODEL=qwen3:14b
+APP_OLLAMA_RUBRIC_MODEL=deepseek-r1:14b
+APP_OLLAMA_MATCHING_MODEL=qwen3:8b
+APP_OLLAMA_QUESTION_TEMPERATURE=0.0
+APP_OLLAMA_ASSESSMENT_TEMPERATURE=0.2
+APP_OLLAMA_RUBRIC_TEMPERATURE=0.1
+APP_OLLAMA_NUM_PARALLEL_THREADS=4
+APP_OLLAMA_TIMEOUT_SECONDS=600
+```
+
+### Critical Ollama API Notes
+
+- `think: false` must be a **top-level body field** (not inside `options`) to disable qwen3 thinking mode
+- When thinking mode is active, `message.content` returns empty — this is the most common cause of empty responses
+- `JsonRepairUtil` handles `<think>...</think>` leakage, markdown fences, trailing commas, and bracket balancing
+- The `/api/chat` endpoint is used for all ai-service calls; `/api/generate` is used by questionbank-service
+
+### Switch to Claude
+
+To switch back to Claude, set `app.llm.provider=claude` and configure:
+
+```bash
+APP_LLM_PROVIDER=claude
+APP_CLAUDE_API_KEY=sk-ant-...
+APP_CLAUDE_MODEL=claude-haiku-4-5
+APP_CLAUDE_ASSESSMENT_MODEL=claude-sonnet-4-5
+```
 
 ---
 

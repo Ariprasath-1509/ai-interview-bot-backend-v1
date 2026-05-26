@@ -10,9 +10,12 @@ import com.benchreadiness.ai.service.AsyncAssessmentService;
 import com.benchreadiness.ai.service.LlmClient;
 import com.benchreadiness.ai.service.QuestionService;
 import com.benchreadiness.ai.service.RubricService;
+import com.benchreadiness.ai.service.TranscribeService;
+import com.benchreadiness.ai.service.JsonRepairUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
 
@@ -26,17 +29,20 @@ public class AiController {
     private final RubricService rubricService;
     private final AiMatchingService aiMatchingService;
     private final LlmClient llmClient;
+    private final TranscribeService transcribeService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AiController(QuestionService questionService, AssessmentService assessmentService,
                        AsyncAssessmentService asyncAssessmentService, RubricService rubricService, 
-                       AiMatchingService aiMatchingService, LlmClient llmClient) {
+                       AiMatchingService aiMatchingService, LlmClient llmClient,
+                       TranscribeService transcribeService) {
         this.questionService = questionService;
         this.assessmentService = assessmentService;
         this.asyncAssessmentService = asyncAssessmentService;
         this.rubricService = rubricService;
         this.aiMatchingService = aiMatchingService;
         this.llmClient = llmClient;
+        this.transcribeService = transcribeService;
     }
 
     @GetMapping("/health")
@@ -208,6 +214,89 @@ public class AiController {
         }
     }
 
+    /**
+     * POST /ai/analyze-code — AI review of candidate's code submission.
+     * Returns: correctness, timeComplexity, spaceComplexity, bugs, improvements, overallFeedback, score (1-5)
+     */
+    @PostMapping("/analyze-code")
+    public ResponseEntity<?> analyzeCode(@RequestBody Map<String, Object> req,
+                                         @RequestHeader(value = "X-User-Id", defaultValue = "system") String userId) {
+        try {
+            String code = (String) req.getOrDefault("code", "");
+            String language = (String) req.getOrDefault("language", "python");
+            String question = (String) req.getOrDefault("question", "");
+            String stdout = (String) req.getOrDefault("stdout", "");
+            String stderr = (String) req.getOrDefault("stderr", "");
+            boolean passed = Boolean.TRUE.equals(req.get("passed"));
+
+            if (code == null || code.isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "code is required"));
+            }
+
+            String system =
+                "You are a senior software engineer conducting a technical interview code review.\n" +
+                "Analyze the candidate's code submission and return ONLY a valid JSON object with this exact schema:\n" +
+                "{\n" +
+                "  \"correctness\": \"correct|partial|incorrect\",\n" +
+                "  \"timeComplexity\": \"e.g. O(n log n)\",\n" +
+                "  \"spaceComplexity\": \"e.g. O(n)\",\n" +
+                "  \"score\": 1-5,\n" +
+                "  \"bugs\": [\"bug description 1\", ...],\n" +
+                "  \"improvements\": [\"improvement 1\", ...],\n" +
+                "  \"overallFeedback\": \"2-3 sentence summary\"\n" +
+                "}\n" +
+                "Score rubric: 5=optimal+clean, 4=correct+minor issues, 3=mostly correct, 2=partial, 1=incorrect/incomplete.\n" +
+                "No markdown fences. No extra text. Raw JSON only.";
+
+            String user = "Language: " + language + "\n" +
+                (question.isBlank() ? "" : "Question: " + question.substring(0, Math.min(500, question.length())) + "\n") +
+                "Code:\n" + code.substring(0, Math.min(3000, code.length())) + "\n" +
+                (stdout.isBlank() ? "" : "Execution output: " + stdout.substring(0, Math.min(500, stdout.length())) + "\n") +
+                (stderr.isBlank() ? "" : "Errors: " + stderr.substring(0, Math.min(300, stderr.length())) + "\n") +
+                "Tests passed: " + passed + "\n" +
+                "Analyze this code submission.";
+
+            String raw = llmClient.chatQuestion(system, user);
+            raw = JsonRepairUtil.repair(raw);
+            com.fasterxml.jackson.databind.JsonNode result = objectMapper.readTree(raw);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            // Fallback heuristic if LLM fails
+            return ResponseEntity.ok(Map.of(
+                "correctness", "unknown",
+                "timeComplexity", "unknown",
+                "spaceComplexity", "unknown",
+                "score", 0,
+                "bugs", java.util.List.of(),
+                "improvements", java.util.List.of("LLM analysis unavailable: " + e.getMessage()),
+                "overallFeedback", "Automated analysis could not be completed. Please review manually."
+            ));
+        }
+    }
+
+    @PostMapping(name = "/transcribe", consumes = "multipart/form-data")
+    public ResponseEntity<?> transcribe(
+            @RequestParam("audio") MultipartFile audio,
+            @RequestParam(required = false) String language) {
+        if (!transcribeService.isConfigured()) {
+            return ResponseEntity.status(503).body(Map.of(
+                "error", "whisper_not_configured",
+                "detail", "Set APP_OPENAI_API_KEY to enable server-side Whisper STT."
+            ));
+        }
+        if (audio == null || audio.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "audio_required"));
+        }
+        try {
+            return ResponseEntity.ok(transcribeService.transcribe(audio, language));
+        } catch (Exception e) {
+            return ResponseEntity.status(502).body(Map.of(
+                "error", "transcribe_failed",
+                "detail", e.getMessage()
+            ));
+        }
+    }
+
     @PostMapping("/generate-rubric")
     public ResponseEntity<?> generateRubric(@RequestBody RubricRequest req,
                                            @RequestHeader("X-User-Id") String userId) {
@@ -248,6 +337,30 @@ public class AiController {
             return ResponseEntity.status(500).body(Map.of(
                 "success", false,
                 "error", "Failed to generate resume summary: " + e.getMessage()
+            ));
+        }
+    }
+
+    @PostMapping("/chat")
+    public ResponseEntity<?> chat(@RequestBody Map<String, Object> request) {
+        try {
+            String system = (String) request.getOrDefault("system", "You are a helpful assistant.");
+            String user = (String) request.getOrDefault("user", "");
+            
+            if (user.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "user message is required"));
+            }
+            
+            String response = llmClient.chatQuestion(system, user);
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "response", response
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                "success", false,
+                "error", e.getMessage()
             ));
         }
     }
