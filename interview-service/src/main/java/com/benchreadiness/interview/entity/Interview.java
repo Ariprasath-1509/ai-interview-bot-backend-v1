@@ -74,6 +74,9 @@ public class Interview {
 
     @Column(name = "question_bank_questions_json", columnDefinition = "TEXT")
     private String questionBankQuestionsJson;
+    
+    @Column(name = "custom_questions_json", columnDefinition = "TEXT")
+    private String customQuestionsJson;
 
     @Column(name = "used_question_ids", columnDefinition = "TEXT")
     private String usedQuestionIds = "";
@@ -132,6 +135,8 @@ public class Interview {
     public void setSignedOffAt(Instant signedOffAt) { this.signedOffAt = signedOffAt; }
     public String getQuestionBankQuestionsJson() { return questionBankQuestionsJson; }
     public void setQuestionBankQuestionsJson(String questionBankQuestionsJson) { this.questionBankQuestionsJson = questionBankQuestionsJson; }
+    public String getCustomQuestionsJson() { return customQuestionsJson; }
+    public void setCustomQuestionsJson(String customQuestionsJson) { this.customQuestionsJson = customQuestionsJson; }
     public String getUsedQuestionIds() { return usedQuestionIds; }
     public void setUsedQuestionIds(String usedQuestionIds) { this.usedQuestionIds = usedQuestionIds; }
     public String getRecordingPath() { return recordingPath; }

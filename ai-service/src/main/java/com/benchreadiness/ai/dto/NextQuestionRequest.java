@@ -18,6 +18,7 @@ public class NextQuestionRequest {
     private String interviewMode;
     private String interviewId;
     private String questionBankQuestionsJson;
+    private String customQuestionsJson;
     private String usedQuestionIds;
 
     public record Utterance(String speaker, String text) {}
@@ -50,6 +51,8 @@ public class NextQuestionRequest {
     public void setInterviewId(String interviewId) { this.interviewId = interviewId; }
     public String getQuestionBankQuestionsJson() { return questionBankQuestionsJson; }
     public void setQuestionBankQuestionsJson(String questionBankQuestionsJson) { this.questionBankQuestionsJson = questionBankQuestionsJson; }
+    public String getCustomQuestionsJson() { return customQuestionsJson; }
+    public void setCustomQuestionsJson(String customQuestionsJson) { this.customQuestionsJson = customQuestionsJson; }
     public String getUsedQuestionIds() { return usedQuestionIds; }
     public void setUsedQuestionIds(String usedQuestionIds) { this.usedQuestionIds = usedQuestionIds; }
 }

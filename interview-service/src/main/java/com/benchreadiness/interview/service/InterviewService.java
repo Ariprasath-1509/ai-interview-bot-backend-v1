@@ -187,6 +187,17 @@ public class InterviewService {
             interview.setQuestionBankQuestionsJson(questionBankQuestionsJson);
             interview.setUsedQuestionIds("");
         }
+        
+        // Store custom questions if provided
+        if (req.getCustomQuestions() != null && !req.getCustomQuestions().isEmpty()) {
+            try {
+                interview.setCustomQuestionsJson(objectMapper.writeValueAsString(req.getCustomQuestions()));
+                log.info("Stored {} custom questions for interview", req.getCustomQuestions().size());
+            } catch (Exception e) {
+                log.warn("Failed to serialize custom questions: {}", e.getMessage());
+            }
+        }
+        
         Interview saved = interviewRepository.save(interview);
 
         // Fire-and-forget: invite email

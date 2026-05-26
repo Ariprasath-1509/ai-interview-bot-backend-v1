@@ -26,6 +26,9 @@ public class CreateInterviewRequest {
     // Optional: admin-selected question IDs from question bank (comma-separated UUIDs)
     private String selectedQuestionIds;
     
+    // Optional: admin-provided custom questions (list of question texts)
+    private java.util.List<String> customQuestions;
+    
     // Constructors
     public CreateInterviewRequest() {}
     
@@ -115,6 +118,10 @@ public class CreateInterviewRequest {
         return selectedQuestionIds;
     }
     
+    public java.util.List<String> getCustomQuestions() {
+        return customQuestions;
+    }
+    
     // Setters
     public void setEngineerEmail(String engineerEmail) {
         this.engineerEmail = engineerEmail;
@@ -178,5 +185,9 @@ public class CreateInterviewRequest {
 
     public void setSelectedQuestionIds(String selectedQuestionIds) {
         this.selectedQuestionIds = selectedQuestionIds;
+    }
+    
+    public void setCustomQuestions(java.util.List<String> customQuestions) {
+        this.customQuestions = customQuestions;
     }
 }

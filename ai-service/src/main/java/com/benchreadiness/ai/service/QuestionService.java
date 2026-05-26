@@ -113,7 +113,20 @@ public class QuestionService {
             return result;
         }
 
-        // Check if question bank questions are available
+        // Priority 1: Check if custom questions are available
+        if (req.getCustomQuestionsJson() != null && !req.getCustomQuestionsJson().isBlank()) {
+            try {
+                QuestionResult customQuestionResult = selectFromCustomQuestions(req);
+                if (customQuestionResult != null) {
+                    cacheResult(requestCacheKey, customQuestionResult);
+                    return customQuestionResult;
+                }
+            } catch (Exception e) {
+                log.warn("Failed to select from custom questions, falling back to question bank or AI: {}", e.getMessage());
+            }
+        }
+
+        // Priority 2: Check if question bank questions are available
         if (req.getQuestionBankQuestionsJson() != null && !req.getQuestionBankQuestionsJson().isBlank()) {
             try {
                 QuestionResult questionBankResult = selectFromQuestionBank(req, userId);
@@ -126,7 +139,7 @@ public class QuestionService {
             }
         }
 
-        // Normal flow
+        // Priority 3: Normal AI generation flow
         if (llmClient.isConfigured()) {
             try {
                 // Check for vague/short answers first
@@ -643,6 +656,42 @@ public class QuestionService {
         result = JsonRepairUtil.repair(result);
         
         return result;
+    }
+
+    private QuestionResult selectFromCustomQuestions(NextQuestionRequest req) throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.JsonNode customQuestionsArray = mapper.readTree(req.getCustomQuestionsJson());
+        
+        if (!customQuestionsArray.isArray() || customQuestionsArray.size() == 0) {
+            return null;
+        }
+
+        // Parse used question indices (for custom questions, we track by index since they don't have IDs)
+        Set<Integer> usedIndices = new java.util.HashSet<>();
+        if (req.getUsedQuestionIds() != null && !req.getUsedQuestionIds().isBlank()) {
+            String[] parts = req.getUsedQuestionIds().split(",");
+            for (String part : parts) {
+                if (part.trim().startsWith("custom_")) {
+                    try {
+                        int idx = Integer.parseInt(part.trim().substring(7));
+                        usedIndices.add(idx);
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
+        }
+
+        // Find next unused custom question (in order)
+        for (int i = 0; i < customQuestionsArray.size(); i++) {
+            if (!usedIndices.contains(i)) {
+                String questionText = customQuestionsArray.get(i).asText();
+                String customQuestionId = "custom_" + i;
+                log.info("Selected custom question at index {}: {}", i, questionText.substring(0, Math.min(50, questionText.length())));
+                return new QuestionResult(questionText, false, false, customQuestionId, "CUSTOM_QUESTION");
+            }
+        }
+
+        log.info("All {} custom questions have been used, falling back to question bank or AI", customQuestionsArray.size());
+        return null;
     }
 }
 
