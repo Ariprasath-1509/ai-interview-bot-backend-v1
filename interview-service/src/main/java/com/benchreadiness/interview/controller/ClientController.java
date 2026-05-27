@@ -1,5 +1,6 @@
 package com.benchreadiness.interview.controller;
 
+import com.benchreadiness.interview.client.DocumentServiceClient;
 import com.benchreadiness.interview.dto.ClientDTO;
 import com.benchreadiness.interview.service.ClientService;
 import com.benchreadiness.interview.service.MatchingService;
@@ -29,11 +30,14 @@ public class ClientController {
     private final ClientService clientService;
     private final MatchingService matchingService;
     private final ObjectMapper objectMapper;
+    private final DocumentServiceClient documentServiceClient;
 
-    public ClientController(ClientService clientService, MatchingService matchingService, ObjectMapper objectMapper) {
+    public ClientController(ClientService clientService, MatchingService matchingService, 
+                           ObjectMapper objectMapper, DocumentServiceClient documentServiceClient) {
         this.clientService = clientService;
         this.matchingService = matchingService;
         this.objectMapper = objectMapper;
+        this.documentServiceClient = documentServiceClient;
     }
 
     @GetMapping("/for-interview")
@@ -328,6 +332,36 @@ public class ClientController {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(Map.of("docId", docId));
+    }
+    
+    @GetMapping("/{id}/doc-status")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<Map<String, Object>> getDocumentStatus(@PathVariable UUID id) {
+        String docId = clientService.getDocId(id);
+        if (docId == null) {
+            return ResponseEntity.ok(Map.of(
+                "error", "No docId stored for this client",
+                "hasJdFile", clientService.getJdFileDownload(id).isPresent()
+            ));
+        }
+        
+        try {
+            Map<String, Object> status = documentServiceClient.getDocumentStatus(docId);
+            if (status == null) {
+                return ResponseEntity.ok(Map.of(
+                    "docId", docId,
+                    "error", "Document not found in document service",
+                    "hasJdFile", clientService.getJdFileDownload(id).isPresent()
+                ));
+            }
+            return ResponseEntity.ok(status);
+        } catch (Exception e) {
+            return ResponseEntity.ok(Map.of(
+                "docId", docId,
+                "error", "Failed to check document service: " + e.getMessage(),
+                "hasJdFile", clientService.getJdFileDownload(id).isPresent()
+            ));
+        }
     }
 
     @GetMapping("/{id}/jd-file")

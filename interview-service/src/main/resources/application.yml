@@ -77,7 +77,7 @@ app:
       feedback: 0.20
       question-relevance: 0.20
   document-service:
-    url: http://localhost:8000
+    url: http://103.182.211.219:6565
 
 management:
   endpoints:

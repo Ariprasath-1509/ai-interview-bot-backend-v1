@@ -39,13 +39,28 @@ public class DocumentServiceClient {
 
         HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
 
-        restTemplate.postForEntity(
-                documentServiceUrl + "/documents/upload",
-                request,
-                Map.class
-        );
-
-        return docId;
+        try {
+            ResponseEntity<Map> response = restTemplate.postForEntity(
+                    documentServiceUrl + "/documents/upload",
+                    request,
+                    Map.class
+            );
+            
+            // Check if upload was accepted
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                throw new RuntimeException("Document service upload failed with status: " + response.getStatusCode());
+            }
+            
+            // Verify response contains docId
+            Map<String, Object> responseBody = response.getBody();
+            if (responseBody == null || !docId.equals(responseBody.get("docId"))) {
+                throw new RuntimeException("Document service did not confirm docId in response");
+            }
+            
+            return docId;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to upload document to document service: " + e.getMessage(), e);
+        }
     }
 
     public String queryDocument(String docId, String query, String systemPrompt) {
@@ -68,5 +83,27 @@ public class DocumentServiceClient {
         );
 
         return response.getBody() != null ? response.getBody() : "";
+    }
+    
+    /**
+     * Check if a document exists and get its ingestion status.
+     * @param docId the document identifier
+     * @return Map with status info, or null if document doesn't exist
+     */
+    public Map<String, Object> getDocumentStatus(String docId) {
+        try {
+            ResponseEntity<Map> response = restTemplate.getForEntity(
+                    documentServiceUrl + "/documents/status/" + docId,
+                    Map.class
+            );
+            
+            if (response.getStatusCode().is2xxSuccessful()) {
+                return response.getBody();
+            }
+            return null;
+        } catch (Exception e) {
+            // 404 or other errors mean document doesn't exist
+            return null;
+        }
     }
 }

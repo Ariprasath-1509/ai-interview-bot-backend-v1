@@ -175,14 +175,33 @@ public class ClientService {
             client.setJdFile(fileBytes);
             client.setJdFileName(jdFile.getOriginalFilename());
 
+            // Upload to document service with proper error handling
             String docId = documentServiceClient.uploadDocument(fileBytes, jdFile.getOriginalFilename());
             client.setDocId(docId);
-            log.info("JD file uploaded to document service. docId={}", docId);
+            log.info("JD file uploaded to document service. docId={}, fileName={}, size={} bytes", 
+                    docId, jdFile.getOriginalFilename(), fileBytes.length);
+            
+            // Verify upload by checking status (optional but recommended)
+            try {
+                Map<String, Object> status = documentServiceClient.getDocumentStatus(docId);
+                if (status != null) {
+                    log.info("Document service confirmed upload. docId={}, status={}", docId, status.get("status"));
+                } else {
+                    log.warn("Document service upload succeeded but status check returned null. docId={}", docId);
+                }
+            } catch (Exception statusEx) {
+                log.warn("Could not verify document upload status. docId={}, error={}", docId, statusEx.getMessage());
+            }
         } catch (Exception e) {
-            log.error("Failed to upload JD file to document service: {}", e.getMessage());
+            log.error("Failed to upload JD file to document service: {}", e.getMessage(), e);
+            // Fallback: still store in PostgreSQL even if document service fails
             try {
                 client.setJdFile(jdFile.getBytes());
                 client.setJdFileName(jdFile.getOriginalFilename());
+                // Clear docId since upload failed
+                client.setDocId(null);
+                log.warn("JD file stored in PostgreSQL only (document service upload failed). fileName={}", 
+                        jdFile.getOriginalFilename());
             } catch (Exception ex) {
                 log.error("Failed to read file bytes: {}", ex.getMessage());
             }
