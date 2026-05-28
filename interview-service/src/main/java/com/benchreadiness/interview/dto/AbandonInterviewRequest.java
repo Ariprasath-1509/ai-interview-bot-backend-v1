@@ -2,7 +2,7 @@ package com.benchreadiness.interview.dto;
 
 public class AbandonInterviewRequest {
     private String transcriptJson;
-    private String reason; // "not_prepared" | "time_expired"
+    private String reason; // "not_prepared" | "time_expired" | "ai_manipulation" | "tab_switch_violation"
     
     // Constructors
     public AbandonInterviewRequest() {}

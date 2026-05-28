@@ -83,9 +83,16 @@ public class EmailService {
             helper.setFrom(from);
             helper.setTo(managerEmail);
             
-            String subject = "not_prepared".equals(reason)
-                ? "Interview Ended Early - Candidate Not Prepared"
-                : "Interview Time Limit Reached";
+            String subject;
+            if ("tab_switch_violation".equals(reason)) {
+                subject = "Interview Terminated - Tab Switch Violation";
+            } else if ("not_prepared".equals(reason)) {
+                subject = "Interview Ended Early - Candidate Not Prepared";
+            } else if ("ai_manipulation".equals(reason)) {
+                subject = "Interview Terminated - AI Manipulation Detected";
+            } else {
+                subject = "Interview Time Limit Reached";
+            }
             helper.setSubject(subject);
             
             String htmlContent = buildInterviewAbandonedTemplate(managerName, interviewId, reason);
@@ -94,13 +101,23 @@ public class EmailService {
             mailSender.send(mimeMessage);
         } catch (MessagingException e) {
             // Fallback to plain text
-            String subject = "not_prepared".equals(reason)
-                ? "Interview ended early — candidate not prepared"
-                : "Interview ended — time limit reached";
-
-            String body = "not_prepared".equals(reason)
-                ? "A candidate has ended their interview early indicating they are not prepared.\n\n"
-                : "A candidate's interview has ended as the time limit was reached.\n\n";
+            String subject;
+            String body;
+            
+            if ("tab_switch_violation".equals(reason)) {
+                subject = "Interview terminated — tab switch violation";
+                body = "A candidate's interview was automatically terminated due to excessive tab switching (2+ times).\n\n" +
+                       "This indicates potential cheating or unauthorized resource access during the interview.\n\n";
+            } else if ("not_prepared".equals(reason)) {
+                subject = "Interview ended early — candidate not prepared";
+                body = "A candidate has ended their interview early indicating they are not prepared.\n\n";
+            } else if ("ai_manipulation".equals(reason)) {
+                subject = "Interview terminated — AI manipulation detected";
+                body = "A candidate's interview was automatically terminated due to detected manipulation attempts.\n\n";
+            } else {
+                subject = "Interview ended — time limit reached";
+                body = "A candidate's interview has ended as the time limit was reached.\n\n";
+            }
 
             body += "Interview ID: " + interviewId + "\n" +
                     "Review link: " + interviewBaseUrl.replace("/interview", "") + "/admin/interviews/" + interviewId + "/review\n\n" +
@@ -262,10 +279,22 @@ public class EmailService {
 
     private String buildInterviewAbandonedTemplate(String managerName, String interviewId, String reason) {
         String reviewLink = interviewBaseUrl.replace("/interview", "") + "/admin/interviews/" + interviewId + "/review";
-        String reasonText = "not_prepared".equals(reason) 
-            ? "Candidate indicated they are not prepared" 
-            : "Interview time limit reached";
-        String statusColor = "not_prepared".equals(reason) ? "#f59e0b" : "#ef4444";
+        String reasonText;
+        String statusColor;
+        
+        if ("tab_switch_violation".equals(reason)) {
+            reasonText = "Candidate switched tabs/windows 2+ times (automatic termination)";
+            statusColor = "#dc2626";
+        } else if ("not_prepared".equals(reason)) {
+            reasonText = "Candidate indicated they are not prepared";
+            statusColor = "#f59e0b";
+        } else if ("ai_manipulation".equals(reason)) {
+            reasonText = "AI manipulation detected (automatic termination)";
+            statusColor = "#dc2626";
+        } else {
+            reasonText = "Interview time limit reached";
+            statusColor = "#ef4444";
+        }
         
         return buildEmailTemplate(
             "Interview Ended Early",
@@ -274,7 +303,7 @@ public class EmailService {
             "An interview has ended before completion. Please review the transcript and provide feedback.",
             buildDetailsCard("Interview Details", Map.of(
                 "Interview ID", interviewId,
-                "Status", "Ended Early",
+                "Status", "Ended Early / WITHDRAWN",
                 "Reason", reasonText,
                 "Action Required", "Review & Sign-off"
             ), statusColor),
