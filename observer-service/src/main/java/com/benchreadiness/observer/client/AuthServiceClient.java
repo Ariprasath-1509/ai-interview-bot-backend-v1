@@ -18,4 +18,7 @@ public interface AuthServiceClient {
     
     @GetMapping("/auth/admins")
     List<Map<String, String>> getAdmins();
+    
+    @GetMapping("/auth/candidates/pipeline-status")
+    Map<String, Object> getCandidatePipelineStatus();
 }

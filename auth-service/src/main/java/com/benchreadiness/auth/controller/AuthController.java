@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -332,6 +333,56 @@ public class AuthController {
         return ResponseEntity.ok(admins.stream()
             .map(u -> Map.of("email", u.getEmail(), "name", u.getName() != null ? u.getName() : ""))
             .toList());
+    }
+
+    /** GET /auth/candidates/pipeline-status — candidate pipeline analytics for daily report */
+    @GetMapping("/candidates/pipeline-status")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<?> getCandidatePipelineStatus() {
+        List<User> candidates = userRepository.findByRole(UserRole.CANDIDATE);
+        
+        Map<String, Object> pipeline = new HashMap<>();
+        
+        // Count by status
+        long rfdCount = candidates.stream().filter(c -> c.getCandidateStatus() == CandidateStatus.RFD).count();
+        long wfdCount = candidates.stream().filter(c -> c.getCandidateStatus() == CandidateStatus.WFD).count();
+        long dobCount = candidates.stream().filter(c -> c.getCandidateStatus() == CandidateStatus.DOB).count();
+        long deployedCount = candidates.stream().filter(c -> c.getCandidateStatus() == CandidateStatus.DEPLOYED).count();
+        
+        pipeline.put("rfd", rfdCount);
+        pipeline.put("wfd", wfdCount);
+        pipeline.put("dob", dobCount);
+        pipeline.put("deployed", deployedCount);
+        
+        // Count by source
+        Map<String, Long> bySource = candidates.stream()
+            .filter(c -> c.getSource() != null)
+            .collect(Collectors.groupingBy(c -> c.getSource().name(), Collectors.counting()));
+        pipeline.put("bySource", bySource);
+        
+        // Count by rating
+        Map<String, Long> byRating = candidates.stream()
+            .filter(c -> c.getRating() != null)
+            .collect(Collectors.groupingBy(c -> c.getRating().name(), Collectors.counting()));
+        pipeline.put("byRating", byRating);
+        
+        // Count by skill set
+        Map<String, Long> bySkillSet = candidates.stream()
+            .filter(c -> c.getSkillSet() != null)
+            .collect(Collectors.groupingBy(c -> c.getSkillSet().name(), Collectors.counting()));
+        pipeline.put("bySkillSet", bySkillSet);
+        
+        // Today's registrations
+        Instant startOfToday = java.time.LocalDate.now().atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        long todayRegistrations = candidates.stream()
+            .filter(c -> c.getCreatedAt() != null)
+            .filter(c -> c.getCreatedAt().isAfter(startOfToday))
+            .count();
+        pipeline.put("todayRegistrations", todayRegistrations);
+        
+        pipeline.put("totalCandidates", candidates.size());
+        
+        return ResponseEntity.ok(pipeline);
     }
 
     /** DELETE /auth/staff/{id} — SUPER_ADMIN removes a staff account */

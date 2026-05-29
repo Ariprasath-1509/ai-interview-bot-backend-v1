@@ -15,4 +15,7 @@ public interface InterviewServiceClient {
     
     @GetMapping("/interviews/today")
     List<Map<String, Object>> getTodaysInterviews();
+    
+    @GetMapping("/analytics/daily-report")
+    Map<String, Object> getDailyReportData();
 }

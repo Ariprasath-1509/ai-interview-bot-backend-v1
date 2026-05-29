@@ -66,4 +66,12 @@ public class AnalyticsController {
             @RequestHeader("X-User-Role") String userRole) {
         return ResponseEntity.ok(analyticsService.getDebugInfo(userId, userRole));
     }
+
+    @GetMapping("/daily-report")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<Map<String, Object>> getDailyReportData(
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole) {
+        return ResponseEntity.ok(analyticsService.getDailyReportData(userId, userRole));
+    }
 }
