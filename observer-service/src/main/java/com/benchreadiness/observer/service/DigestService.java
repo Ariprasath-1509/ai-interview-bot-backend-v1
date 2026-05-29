@@ -72,9 +72,7 @@ public class DigestService {
 
     private List<Map<String, String>> fetchRecipients() {
         try {
-            // Note: This endpoint may need to be implemented in auth-service
-            // For now, return empty list to avoid errors
-            return List.of();
+            return authServiceClient.getAdmins();
         } catch (Exception e) {
             log.warn("Failed to fetch admin list: {}", e.getMessage());
             return List.of();
@@ -83,9 +81,7 @@ public class DigestService {
 
     private List<Map<String, Object>> fetchTodaysInterviews() {
         try {
-            // Note: This endpoint may need to be implemented in interview-service
-            // For now, return empty list to avoid errors
-            return List.of();
+            return interviewServiceClient.getTodaysInterviews();
         } catch (Exception e) {
             log.warn("Failed to fetch today's interviews: {}", e.getMessage());
             return List.of();
