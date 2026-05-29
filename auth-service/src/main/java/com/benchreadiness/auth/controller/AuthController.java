@@ -29,7 +29,7 @@ public class AuthController {
     private static final Set<UserRole> STAFF_ROLES =
         Set.of(UserRole.RECRUITER, UserRole.ADMIN, UserRole.SUPER_ADMIN);
 
-    private static final List<CandidateSource> BENCH_SOURCES = List.of(CandidateSource.BENCH);
+    private static final List<CandidateSource> BENCH_SOURCES = List.of(CandidateSource.BENCH, CandidateSource.B2B);
     private static final List<CandidateSource> BD_SOURCES = List.of(CandidateSource.B2B);
     private static final List<CandidateSource> RECRUITMENT_SOURCES = List.of(CandidateSource.MARKET);
 
