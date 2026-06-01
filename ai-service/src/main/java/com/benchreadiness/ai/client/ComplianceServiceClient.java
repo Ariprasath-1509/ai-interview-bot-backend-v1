@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-@FeignClient(name = "compliance-service")
+@FeignClient(name = "ops-service")
 public interface ComplianceServiceClient {
 
     @PostMapping("/tokens/track")

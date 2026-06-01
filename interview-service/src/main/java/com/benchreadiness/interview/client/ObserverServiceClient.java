@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-@FeignClient(name = "observer-service", configuration = com.benchreadiness.interview.config.FeignConfig.class)
+@FeignClient(name = "ops-service", contextId = "observerServiceClient", configuration = com.benchreadiness.interview.config.FeignConfig.class)
 public interface ObserverServiceClient {
 
     @PostMapping("/observer/notify/interview-created")

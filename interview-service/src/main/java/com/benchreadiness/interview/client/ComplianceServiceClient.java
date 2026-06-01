@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-@FeignClient(name = "compliance-service", configuration = com.benchreadiness.interview.config.FeignConfig.class)
+@FeignClient(name = "ops-service", contextId = "complianceServiceClient", configuration = com.benchreadiness.interview.config.FeignConfig.class)
 public interface ComplianceServiceClient {
 
     @GetMapping("/tokens/check-limit")

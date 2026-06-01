@@ -46,14 +46,14 @@ spring:
           uri: lb://ai-service
           predicates:
             - Path=/ai/**
-        - id: observer-service
-          uri: lb://observer-service
+        - id: ops-service-observer
+          uri: lb://ops-service
           predicates:
             - Path=/api/observer/**,/api/ws/**
           filters:
             - RewritePath=/api/(?<segment>.*), /$\{segment}
-        - id: observer-service-direct
-          uri: lb://observer-service
+        - id: ops-service-observer-direct
+          uri: lb://ops-service
           predicates:
             - Path=/observer/**,/ws/**
         - id: review-service
@@ -66,14 +66,14 @@ spring:
           uri: lb://review-service
           predicates:
             - Path=/reviews/**,/scores/**
-        - id: compliance-service
-          uri: lb://compliance-service
+        - id: ops-service-compliance
+          uri: lb://ops-service
           predicates:
             - Path=/api/compliance/**,/api/tokens/**
           filters:
             - RewritePath=/api/(?<segment>.*), /$\{segment}
-        - id: compliance-service-direct
-          uri: lb://compliance-service
+        - id: ops-service-compliance-direct
+          uri: lb://ops-service
           predicates:
             - Path=/compliance/**,/tokens/**
         - id: questionbank-service

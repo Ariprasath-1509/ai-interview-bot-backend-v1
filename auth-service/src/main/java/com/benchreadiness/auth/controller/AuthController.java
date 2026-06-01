@@ -975,7 +975,7 @@ public class AuthController {
         return map;
     }
 
-    private void logAudit(String actorId, String actorName, String actorRole, String action, 
+    private void logAudit(String actorId, String actorName, String actorRole, String action,
                          String resourceId, String detail, String oldValue, String newValue) {
         try {
             Map<String, Object> auditLog = new HashMap<>();
@@ -988,10 +988,27 @@ public class AuthController {
             if (detail != null) auditLog.put("detail", detail);
             if (oldValue != null) auditLog.put("oldValue", oldValue);
             if (newValue != null) auditLog.put("newValue", newValue);
-            auditLog.put("ipAddress", "system");
+            auditLog.put("ipAddress", resolveClientIp());
             complianceServiceClient.recordAuditLog(auditLog);
         } catch (Exception e) {
             logger.error("Failed to record audit log: {}", e.getMessage());
+        }
+    }
+
+    private String resolveClientIp() {
+        try {
+            org.springframework.web.context.request.ServletRequestAttributes attrs =
+                (org.springframework.web.context.request.ServletRequestAttributes)
+                org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+            if (attrs == null) return "internal";
+            jakarta.servlet.http.HttpServletRequest request = attrs.getRequest();
+            String ip = request.getHeader("X-Forwarded-For");
+            if (ip != null && !ip.isBlank()) return ip.split(",")[0].trim();
+            ip = request.getHeader("X-Real-IP");
+            if (ip != null && !ip.isBlank()) return ip.trim();
+            return request.getRemoteAddr();
+        } catch (Exception e) {
+            return "unknown";
         }
     }
 }

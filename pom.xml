@@ -16,9 +16,8 @@
     <module>auth-service</module>
     <module>interview-service</module>
     <module>ai-service</module>
-    <module>observer-service</module>
+    <module>ops-service</module>
     <module>review-service</module>
-    <module>compliance-service</module>
     <module>questionbank-service</module>
   </modules>
 
