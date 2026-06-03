@@ -381,7 +381,7 @@ services:
     ports:
       - "6014:5002"
     volumes:
-      - tts-models:/root/.local/share/tts
+      - tts-models:/home/ttsuser/.local/share/tts
     networks:
       - bench-network
     restart: unless-stopped
@@ -390,7 +390,7 @@ services:
       interval: 20s
       timeout: 10s
       retries: 10
-      start_period: 90s
+      start_period: 180s
     deploy:
       resources:
         limits:

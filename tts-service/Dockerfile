@@ -20,5 +20,5 @@ RUN pip install --no-cache-dir --user TTS==0.22.0
 
 EXPOSE 5002
 
-# Explicitly bind to 0.0.0.0 to ensure outer network packet routing works explicitly
-CMD ["/home/ttsuser/.local/bin/tts-server", "--model_name", "tts_models/en/ljspeech/tacotron2-DDC", "--host", "0.0.0.0", "--port", "5002"]
+# tts-server 0.22.0 has no --host flag; it listens on 0.0.0.0 by default
+CMD ["/home/ttsuser/.local/bin/tts-server", "--model_name", "tts_models/en/ljspeech/tacotron2-DDC", "--port", "5002"]
