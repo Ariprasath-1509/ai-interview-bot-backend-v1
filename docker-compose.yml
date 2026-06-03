@@ -359,8 +359,7 @@ services:
       - bench-network
     restart: unless-stopped
     healthcheck:
-      # Verifies the server natively acknowledges connection streams at the base route
-     disable: true
+      test: ["NONE"]
     deploy:
       resources:
         limits:
