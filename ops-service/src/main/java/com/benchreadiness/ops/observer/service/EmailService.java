@@ -88,6 +88,7 @@ public class EmailService {
             case "tab_switch_violation" -> "Interview Terminated - Tab Switch Violation";
             case "not_prepared" -> "Interview Ended Early - Candidate Not Prepared";
             case "ai_manipulation" -> "Interview Terminated - AI Manipulation Detected";
+            case "proctoring_violation" -> "Interview Terminated - Video Proctoring Violation";
             default -> "Interview Time Limit Reached";
         };
     }
@@ -196,6 +197,7 @@ public class EmailService {
             case "tab_switch_violation" -> "Candidate switched tabs/windows 2+ times (automatic termination)";
             case "not_prepared" -> "Candidate indicated they are not prepared";
             case "ai_manipulation" -> "AI manipulation detected (automatic termination)";
+            case "proctoring_violation" -> "Video proctoring violation detected (automatic termination)";
             default -> "Interview time limit reached";
         };
         String statusColor = "not_prepared".equals(reason) ? "#f59e0b" : "#dc2626";

@@ -96,6 +96,15 @@ public class Interview {
     @Column(name = "recording_bytes")
     private Long recordingBytes;
 
+    @Column(name = "proctoring_events_json", columnDefinition = "TEXT")
+    private String proctoringEventsJson;
+
+    @Column(name = "proctoring_score")
+    private Integer proctoringScore;
+
+    @Column(name = "proctoring_snapshots_json", columnDefinition = "TEXT")
+    private String proctoringSnapshotsJson;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -161,6 +170,12 @@ public class Interview {
     public void setAssessmentResultJson(String assessmentResultJson) { this.assessmentResultJson = assessmentResultJson; }
     public Long getRecordingBytes() { return recordingBytes; }
     public void setRecordingBytes(Long recordingBytes) { this.recordingBytes = recordingBytes; }
+    public String getProctoringEventsJson() { return proctoringEventsJson; }
+    public void setProctoringEventsJson(String proctoringEventsJson) { this.proctoringEventsJson = proctoringEventsJson; }
+    public Integer getProctoringScore() { return proctoringScore; }
+    public void setProctoringScore(Integer proctoringScore) { this.proctoringScore = proctoringScore; }
+    public String getProctoringSnapshotsJson() { return proctoringSnapshotsJson; }
+    public void setProctoringSnapshotsJson(String proctoringSnapshotsJson) { this.proctoringSnapshotsJson = proctoringSnapshotsJson; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

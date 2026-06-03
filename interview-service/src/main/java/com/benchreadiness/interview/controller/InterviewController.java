@@ -5,6 +5,7 @@ import com.benchreadiness.interview.dto.CandidateMatchingResult;
 import com.benchreadiness.interview.dto.CandidateReviewSummary;
 import com.benchreadiness.interview.dto.CompleteInterviewRequest;
 import com.benchreadiness.interview.dto.CreateInterviewRequest;
+import com.benchreadiness.interview.dto.ProctoringEventsRequest;
 import com.benchreadiness.interview.dto.RecordAnswerRequest;
 import com.benchreadiness.interview.dto.RecordQuestionRequest;
 import com.benchreadiness.interview.entity.Interview;
@@ -15,6 +16,7 @@ import com.benchreadiness.interview.service.InterviewService;
 import com.benchreadiness.interview.service.EnhancedInterviewService;
 import com.benchreadiness.interview.service.InterviewQuestionService;
 import com.benchreadiness.interview.service.PdfGenerationService;
+import com.benchreadiness.interview.service.ProctoringService;
 import com.benchreadiness.interview.service.RecordingService;
 import jakarta.validation.Valid;
 import org.springframework.core.io.FileSystemResource;
@@ -27,6 +29,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -41,6 +44,7 @@ public class InterviewController {
     private final PdfGenerationService pdfGenerationService;
     private final InterviewQuestionService interviewQuestionService;
     private final RecordingService recordingService;
+    private final ProctoringService proctoringService;
 
     public InterviewController(InterviewService interviewService,
                               EnhancedInterviewService enhancedInterviewService,
@@ -48,7 +52,8 @@ public class InterviewController {
                               CandidateReviewService candidateReviewService,
                               PdfGenerationService pdfGenerationService,
                               InterviewQuestionService interviewQuestionService,
-                              RecordingService recordingService) {
+                              RecordingService recordingService,
+                              ProctoringService proctoringService) {
         this.interviewService = interviewService;
         this.enhancedInterviewService = enhancedInterviewService;
         this.candidateMatchingService = candidateMatchingService;
@@ -56,6 +61,7 @@ public class InterviewController {
         this.pdfGenerationService = pdfGenerationService;
         this.interviewQuestionService = interviewQuestionService;
         this.recordingService = recordingService;
+        this.proctoringService = proctoringService;
     }
 
     @GetMapping("/auto-fill/preview")
@@ -356,6 +362,53 @@ public class InterviewController {
                     .body(resource);
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PostMapping("/{id}/proctoring/events")
+    public ResponseEntity<?> appendProctoringEvents(@PathVariable String id,
+                                                    @RequestBody ProctoringEventsRequest req) {
+        try {
+            return ResponseEntity.ok(proctoringService.appendEvents(id, req));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping(value = "/{id}/proctoring/snapshot", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> uploadProctoringSnapshot(@PathVariable String id,
+                                                      @RequestParam("snapshot") MultipartFile snapshot,
+                                                      @RequestParam(value = "eventType", required = false) String eventType) {
+        try {
+            return ResponseEntity.ok(proctoringService.saveSnapshot(id, snapshot, eventType));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/{id}/proctoring/timeline")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<?> getProctoringTimeline(@PathVariable String id) {
+        try {
+            return ResponseEntity.ok(proctoringService.getTimeline(id));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/{id}/proctoring/snapshots/{fileName}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    public ResponseEntity<Resource> downloadProctoringSnapshot(@PathVariable String id,
+                                                             @PathVariable String fileName) {
+        try {
+            Path file = proctoringService.resolveSnapshot(id, fileName);
+            Resource resource = new FileSystemResource(file);
+            return ResponseEntity.ok()
+                    .contentType(MediaType.IMAGE_JPEG)
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + fileName + "\"")
+                    .body(resource);
+        } catch (Exception e) {
+            return ResponseEntity.notFound().build();
         }
     }
 }
