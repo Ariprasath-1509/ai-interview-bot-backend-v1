@@ -11,8 +11,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-create model storage directory and hand permissions over to our non-root user
-RUN mkdir -p /home/ttsuser/.local/share/tts && chown -r ttsuser:ttsuser /home/ttsuser/
-
+RUN mkdir -p /home/ttsuser/.local/share/tts && chown -R ttsuser:ttsuser /home/ttsuser/
 USER ttsuser
 WORKDIR /home/ttsuser
 
