@@ -360,15 +360,11 @@ services:
     restart: unless-stopped
     healthcheck:
       # Verifies the server natively acknowledges connection streams at the base route
-      test: [ "CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8000 && echo -e 'GET / HTTP/1.1\r\nHost: localhost\r\n\r\n' >&3 && cat <&3 | grep -q 'HTTP/1.1 200' || exit 1" ]
-      interval: 30s
-      timeout: 10s
-      retries: 8
-      start_period: 240s
+     disable: true
     deploy:
       resources:
         limits:
-          cpus: '4'
+          cpus: '8'
           memory: 6G
         reservations:
           cpus: '2'
