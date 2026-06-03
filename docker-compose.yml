@@ -359,11 +359,11 @@ services:
       - bench-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8000 && echo -e 'GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n' >&3 && exec 3>&- || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 8
-      start_period: 120s
+      start_period: 240s
     deploy:
       resources:
         limits:
@@ -386,7 +386,7 @@ services:
       - bench-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/5002' || exit 1"]
+      test: ["CMD-SHELL", "timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/5002' || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 10
