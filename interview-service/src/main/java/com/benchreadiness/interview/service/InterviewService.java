@@ -498,6 +498,35 @@ public class InterviewService {
         return saved;
     }
 
+    @Transactional
+    public Interview startLiveInterview(String id) {
+        Interview interview = interviewRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
+        if (interview.getStatus() == InterviewStatus.DRAFT || interview.getStatus() == InterviewStatus.SCHEDULED) {
+            interview.setStatus(InterviewStatus.IN_PROGRESS);
+        }
+        if (interview.getStartedAt() == null) {
+            interview.setStartedAt(Instant.now());
+        }
+        return interviewRepository.save(interview);
+    }
+
+    @Transactional
+    public Interview updateAssessmentStatus(String id, String status, String error, String resultJson) {
+        Interview interview = interviewRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
+        if (status != null && !status.isBlank()) {
+            interview.setAssessmentStatus(status);
+        }
+        if (error != null) {
+            interview.setAssessmentError(error.isBlank() ? null : error);
+        }
+        if (resultJson != null) {
+            interview.setAssessmentResultJson(resultJson.isBlank() ? null : resultJson);
+        }
+        return interviewRepository.save(interview);
+    }
+
     private Map<String, Object> slot(int num, String theme, String difficulty, int minutes) {
         Map<String, Object> s = new LinkedHashMap<>();
         s.put("slot", num);

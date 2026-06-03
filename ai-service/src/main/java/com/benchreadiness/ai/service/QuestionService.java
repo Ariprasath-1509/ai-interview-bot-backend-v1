@@ -15,7 +15,21 @@ public class QuestionService {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(QuestionService.class);
 
-    public record QuestionResult(String question, boolean manipulationDetected, boolean terminateInterview, String questionBankId, String source) {}
+    public record QuestionResult(
+            String question,
+            boolean manipulationDetected,
+            boolean terminateInterview,
+            String questionBankId,
+            String source,
+            boolean isCoding,
+            String preferredLanguage,
+            String starterCode
+    ) {
+        public QuestionResult(String question, boolean manipulationDetected, boolean terminateInterview,
+                              String questionBankId, String source) {
+            this(question, manipulationDetected, terminateInterview, questionBankId, source, false, "python", null);
+        }
+    }
 
     private static final int MANIPULATION_WARN_THRESHOLD = 1;
     private static final int MANIPULATION_TERMINATE_THRESHOLD = InjectionGuard.TERMINATE_THRESHOLD;
@@ -74,6 +88,15 @@ public class QuestionService {
         )
     );
 
+    /** Designated slot for the single coding exercise per interview mode. */
+    private static final Map<String, Integer> CODING_SLOT_BY_MODE = Map.of(
+        "SCREENING", 3,
+        "L1", 3,
+        "L2", 8,
+        "L3", 8,
+        "L4", 8
+    );
+
     private final LlmClient llmClient;
     private final QuestionCacheService cacheService;
     private final ConcurrentHashMap<String, CachedQuestionResult> requestCache = new ConcurrentHashMap<>();
@@ -87,7 +110,7 @@ public class QuestionService {
 
     public QuestionResult getNextQuestion(NextQuestionRequest req, String userId) {
         String requestCacheKey = buildRequestCacheKey(req);
-        QuestionResult cachedResult = getCachedResult(requestCacheKey);
+        QuestionResult cachedResult = getCachedResult(requestCacheKey, req);
         if (cachedResult != null) {
             return cachedResult;
         }
@@ -100,8 +123,7 @@ public class QuestionService {
                 "This interview is being terminated. Multiple attempts to manipulate the AI interviewer have been detected and flagged for review.",
                 true, true, null, "AI_GENERATED"
             );
-            cacheResult(requestCacheKey, result);
-            return result;
+            return finalizeAndCache(requestCacheKey, req, result);
         }
 
         if (check.warn()) {
@@ -109,8 +131,7 @@ public class QuestionService {
                 "Please answer the interview questions directly. Attempts to influence the AI or manipulate scores are not allowed and have been noted.",
                 true, false, null, "AI_GENERATED"
             );
-            cacheResult(requestCacheKey, result);
-            return result;
+            return finalizeAndCache(requestCacheKey, req, result);
         }
 
         // Priority 1: Check if custom questions are available
@@ -118,8 +139,7 @@ public class QuestionService {
             try {
                 QuestionResult customQuestionResult = selectFromCustomQuestions(req);
                 if (customQuestionResult != null) {
-                    cacheResult(requestCacheKey, customQuestionResult);
-                    return customQuestionResult;
+                    return finalizeAndCache(requestCacheKey, req, customQuestionResult);
                 }
             } catch (Exception e) {
                 log.warn("Failed to select from custom questions, falling back to question bank or AI: {}", e.getMessage());
@@ -131,8 +151,7 @@ public class QuestionService {
             try {
                 QuestionResult questionBankResult = selectFromQuestionBank(req, userId);
                 if (questionBankResult != null) {
-                    cacheResult(requestCacheKey, questionBankResult);
-                    return questionBankResult;
+                    return finalizeAndCache(requestCacheKey, req, questionBankResult);
                 }
             } catch (Exception e) {
                 log.warn("Failed to select from question bank, falling back to AI generation: {}", e.getMessage());
@@ -154,12 +173,10 @@ public class QuestionService {
                             null,
                             "AI_GENERATED"
                         );
-                        cacheResult(requestCacheKey, result);
-                        return result;
+                        return finalizeAndCache(requestCacheKey, req, result);
                     }
                     QuestionResult result = new QuestionResult(getVagueAnswerProbe(), false, false, null, "AI_GENERATED");
-                    cacheResult(requestCacheKey, result);
-                    return result;
+                    return finalizeAndCache(requestCacheKey, req, result);
                 }
                 
                 // Check cache for first question
@@ -167,9 +184,10 @@ public class QuestionService {
                     String firstQuestionCacheHit = cacheService.getCachedFirstQuestion(
                         req.getJdTitle(), req.getJdText(), req.getFocusAreas(), req.getInterviewMode());
                     if (firstQuestionCacheHit != null) {
-                        QuestionResult result = new QuestionResult(firstQuestionCacheHit, false, false, null, "CACHED");
-                        cacheResult(requestCacheKey, result);
-                        return result;
+                        QuestionResult result = new QuestionResult(firstQuestionCacheHit, false, false, null, "CACHED",
+                            detectCodingQuestion(firstQuestionCacheHit, null),
+                            inferLanguageFromContext(firstQuestionCacheHit, req.getJdTitle()), null);
+                        return finalizeAndCache(requestCacheKey, req, result);
                     }
                 }
                 
@@ -181,18 +199,18 @@ public class QuestionService {
                         req.getJdTitle(), req.getJdText(), req.getFocusAreas(), req.getInterviewMode(), question);
                 }
                 
-                QuestionResult result = new QuestionResult(question, false, false, null, "AI_GENERATED");
-                cacheResult(requestCacheKey, result);
-                return result;
+                QuestionResult result = new QuestionResult(question, false, false, null, "AI_GENERATED",
+                    detectCodingQuestion(question, null), inferLanguageFromContext(question, req.getJdTitle()), null);
+                return finalizeAndCache(requestCacheKey, req, result);
             } catch (Exception e) {
                 log.warn("Claude failed, falling back to heuristic: {}", e.getMessage());
             }
         } else {
             log.warn("LLM provider not configured — falling back to heuristic");
         }
-        QuestionResult fallback = new QuestionResult(fallbackQuestion(req), false, false, null, "FALLBACK");
-        cacheResult(requestCacheKey, fallback);
-        return fallback;
+        QuestionResult fallback = new QuestionResult(fallbackQuestion(req), false, false, null, "FALLBACK",
+            false, "python", null);
+        return finalizeAndCache(requestCacheKey, req, fallback);
     }
 
     private String buildRequestCacheKey(NextQuestionRequest req) {
@@ -213,7 +231,7 @@ public class QuestionService {
         return interviewId + "|" + slot + "|" + manipulationCount + "|" + answer + "|" + tailContext;
     }
 
-    private QuestionResult getCachedResult(String key) {
+    private QuestionResult getCachedResult(String key, NextQuestionRequest req) {
         CachedQuestionResult cached = requestCache.get(key);
         if (cached == null) return null;
         long age = System.currentTimeMillis() - cached.createdAtMs();
@@ -221,7 +239,13 @@ public class QuestionService {
             requestCache.remove(key);
             return null;
         }
-        return cached.result();
+        return applyCodingSlotPolicy(req, cached.result());
+    }
+
+    private QuestionResult finalizeAndCache(String key, NextQuestionRequest req, QuestionResult result) {
+        QuestionResult finalized = applyCodingSlotPolicy(req, result);
+        cacheResult(key, finalized);
+        return finalized;
     }
 
     private void cacheResult(String key, QuestionResult result) {
@@ -595,10 +619,32 @@ public class QuestionService {
         com.fasterxml.jackson.databind.JsonNode selectedQuestion = mapper.readTree(selectedQuestionJson);
         
         String questionText = selectedQuestion.path("question").asText();
-        String questionBankId = selectedQuestion.path("questionBankId").asText();
-        
-        log.info("Selected question from question bank: ID={}", questionBankId);
-        return new QuestionResult(questionText, false, false, questionBankId, "QUESTION_BANK");
+        String questionBankId = selectedQuestion.path("questionBankId").asText("");
+        if (questionBankId.isBlank()) questionBankId = null;
+        boolean llmCoding = selectedQuestion.path("isCoding").asBoolean(false);
+        String preferredLanguage = selectedQuestion.path("preferredLanguage").asText("");
+        if (preferredLanguage.isBlank()) preferredLanguage = null;
+
+        String bankQuestionType = null;
+        if (questionBankId != null && !questionBankId.isBlank()) {
+            for (com.fasterxml.jackson.databind.JsonNode q : unusedQuestions) {
+                if (questionBankId.equals(q.path("id").asText())) {
+                    bankQuestionType = q.path("questionType").asText(null);
+                    break;
+                }
+            }
+        }
+
+        boolean isCoding = llmCoding || detectCodingQuestion(questionText, bankQuestionType);
+        if (preferredLanguage == null || preferredLanguage.isBlank()) {
+            preferredLanguage = inferLanguageFromContext(questionText, req.getJdTitle());
+        }
+
+        log.info("Selected question from question bank: ID={}, isCoding={}", questionBankId, isCoding);
+        return new QuestionResult(questionText, false, false,
+            questionBankId != null && !questionBankId.isBlank() ? questionBankId : null,
+            selectedQuestion.path("source").asText("QUESTION_BANK"),
+            isCoding, preferredLanguage, null);
     }
 
     private String llmSelectQuestionFromBank(NextQuestionRequest req, List<com.fasterxml.jackson.databind.JsonNode> unusedQuestions, String userId) throws Exception {
@@ -613,6 +659,7 @@ public class QuestionService {
             com.fasterxml.jackson.databind.JsonNode q = unusedQuestions.get(i);
             questionBankContext.append(i + 1).append(". ")
                 .append("[ID: ").append(q.path("id").asText()).append("] ")
+                .append("[Type: ").append(q.path("questionType").asText("TECHNICAL")).append("] ")
                 .append(q.path("text").asText())
                 .append(" (Relevancy: ").append(q.path("relevancyLabel").asText("MEDIUM")).append(")\n");
         }
@@ -636,7 +683,9 @@ public class QuestionService {
             "{\n" +
             "  \"question\": \"Insert selected question text or your custom cross-question here\",\n" +
             "  \"questionBankId\": \"Insert UUID string or null if AI_CROSS_QUESTION\",\n" +
-            "  \"source\": \"QUESTION_BANK\" or \"AI_CROSS_QUESTION\"\n" +
+            "  \"source\": \"QUESTION_BANK\" or \"AI_CROSS_QUESTION\",\n" +
+            "  \"isCoding\": true or false,\n" +
+            "  \"preferredLanguage\": \"python|java|javascript|cpp|go|etc or null\"\n" +
             "}";
 
         String lastAnswer = req.getLastAnswer() != null ? req.getLastAnswer().trim() : "";
@@ -683,15 +732,138 @@ public class QuestionService {
         // Find next unused custom question (in order)
         for (int i = 0; i < customQuestionsArray.size(); i++) {
             if (!usedIndices.contains(i)) {
-                String questionText = customQuestionsArray.get(i).asText();
+                com.fasterxml.jackson.databind.JsonNode qNode = customQuestionsArray.get(i);
+                String questionText = qNode.isTextual() ? qNode.asText() : qNode.path("text").asText("");
+                String questionType = qNode.isObject() ? qNode.path("questionType").asText("") : "";
+                if (questionType.isBlank()) questionType = null;
                 String customQuestionId = "custom_" + i;
+                boolean isCoding = detectCodingQuestion(questionText, questionType);
+                String lang = inferLanguageFromContext(questionText, req.getJdTitle());
                 log.info("Selected custom question at index {}: {}", i, questionText.substring(0, Math.min(50, questionText.length())));
-                return new QuestionResult(questionText, false, false, customQuestionId, "CUSTOM_QUESTION");
+                return new QuestionResult(questionText, false, false, customQuestionId, "CUSTOM_QUESTION", isCoding, lang, null);
             }
         }
 
         log.info("All {} custom questions have been used, falling back to question bank or AI", customQuestionsArray.size());
         return null;
+    }
+
+    private Integer codingSlotForMode(String mode) {
+        return CODING_SLOT_BY_MODE.get(mode != null ? mode : "L3");
+    }
+
+    private boolean hasCodingQuestionBeenAsked(List<NextQuestionRequest.Utterance> utterances) {
+        if (utterances == null) return false;
+        for (NextQuestionRequest.Utterance u : utterances) {
+            if ("BOT".equals(u.speaker()) && detectCodingQuestion(u.text(), null)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String defaultCodingPrompt(NextQuestionRequest req) {
+        String lang = inferLanguageFromContext("", req.getJdTitle());
+        if ("java".equals(lang)) {
+            return "Implement a Java solution that finds the second smallest distinct value in an integer array "
+                + "(prefer using streams). Open the code editor, write your solution, and click Run & Submit when ready.";
+        }
+        if ("javascript".equals(lang) || "typescript".equals(lang)) {
+            return "Implement a function that processes an array of numbers and returns the second smallest distinct value. "
+                + "Use the code editor and click Run & Submit when your solution is ready.";
+        }
+        return "Write a short coding solution for a practical algorithm problem (array or string). "
+            + "Use the code editor and click Run & Submit when your solution is ready.";
+    }
+
+    private QuestionResult applyCodingSlotPolicy(NextQuestionRequest req, QuestionResult result) {
+        if (result == null) return null;
+        String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";
+        Integer codingSlot = codingSlotForMode(mode);
+        if (codingSlot == null) return result;
+
+        boolean alreadyHadCoding = hasCodingQuestionBeenAsked(req.getUtterances());
+        int slot = req.getSlot();
+
+        if (alreadyHadCoding && result.isCoding()) {
+            log.info("Coding already asked — converting slot {} question to verbal", slot);
+            return copyResult(result, result.question(), false);
+        }
+
+        if (slot == codingSlot && !alreadyHadCoding) {
+            if (!result.isCoding()) {
+                String q = result.question();
+                if (!detectCodingQuestion(q, null)) {
+                    q = defaultCodingPrompt(req);
+                } else {
+                    q = q + " Use the code editor and click Run & Submit when your solution is ready.";
+                }
+                String lang = result.preferredLanguage() != null && !result.preferredLanguage().isBlank()
+                    ? result.preferredLanguage()
+                    : inferLanguageFromContext(q, req.getJdTitle());
+                log.info("Forcing coding question at slot {} for mode {}", slot, mode);
+                return copyResult(result, q, true, lang, result.starterCode());
+            }
+            return result;
+        }
+
+        if (result.isCoding() && slot != codingSlot) {
+            log.info("Coding detected off-slot (slot {} vs coding slot {}) — verbal only", slot, codingSlot);
+            return copyResult(result, result.question(), false);
+        }
+
+        return result;
+    }
+
+    private QuestionResult copyResult(QuestionResult src, String question, boolean isCoding) {
+        return copyResult(src, question, isCoding, src.preferredLanguage(), src.starterCode());
+    }
+
+    private QuestionResult copyResult(QuestionResult src, String question, boolean isCoding,
+                                      String preferredLanguage, String starterCode) {
+        return new QuestionResult(
+            question,
+            src.manipulationDetected(),
+            src.terminateInterview(),
+            src.questionBankId(),
+            src.source(),
+            isCoding,
+            preferredLanguage != null ? preferredLanguage : "python",
+            starterCode
+        );
+    }
+
+    static boolean detectCodingQuestion(String questionText, String questionType) {
+        if (questionType != null && "CODING".equalsIgnoreCase(questionType.trim())) {
+            return true;
+        }
+        if (questionText == null || questionText.isBlank()) return false;
+        String lower = questionText.toLowerCase();
+        String[] keywords = {
+            "write a function", "write code", "write a program", "implement a function", "implement the",
+            "coding question", "algorithm", "leetcode", "hackerrank", "time complexity", "space complexity",
+            "given an array", "given a string", "input:", "output:", "sample input", "sample output",
+            "solve the following", "program to", "function that", "return an array", "return the"
+        };
+        for (String kw : keywords) {
+            if (lower.contains(kw)) return true;
+        }
+        return false;
+    }
+
+    static String inferLanguageFromContext(String questionText, String jdTitle) {
+        String combined = ((questionText != null ? questionText : "") + " " + (jdTitle != null ? jdTitle : "")).toLowerCase();
+        if (combined.contains("javascript") || combined.contains("react") || combined.contains("node.js") || combined.contains("typescript")) {
+            return combined.contains("typescript") ? "typescript" : "javascript";
+        }
+        if (combined.contains("java") && !combined.contains("javascript")) return "java";
+        if (combined.contains("python")) return "python";
+        if (combined.contains("golang") || combined.contains(" go ")) return "go";
+        if (combined.contains("c++") || combined.contains("cpp")) return "cpp";
+        if (combined.contains("kotlin")) return "kotlin";
+        if (combined.contains("c#") || combined.contains("csharp") || combined.contains(".net")) return "csharp";
+        if (combined.contains("rust")) return "rust";
+        return "python";
     }
 }
 

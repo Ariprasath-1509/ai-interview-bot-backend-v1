@@ -6,18 +6,21 @@ spring:
     active: local
 
   datasource:
-    url: jdbc:postgresql://103.182.211.219:5434/aibot?serverTimezone=UTC&currentSchema=questionbank_svc&searchpath=questionbank_svc,public
+    # socketTimeout/connectTimeout in seconds — required for remote PostgreSQL over slow networks
+    url: jdbc:postgresql://103.182.211.219:5434/aibot?tcpKeepAlive=true&connectTimeout=60&socketTimeout=300&loginTimeout=60&currentSchema=questionbank_svc&searchpath=questionbank_svc,public
     username: aibot
     password: aibot!@#$%
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 3
+      maximum-pool-size: 5
       minimum-idle: 1
-      connection-timeout: 30000
-      idle-timeout: 600000
-      max-lifetime: 1800000
-      leak-detection-threshold: 30000
-      validation-timeout: 5000
+      connection-timeout: 120000
+      validation-timeout: 15000
+      idle-timeout: 120000
+      max-lifetime: 300000
+      keepalive-time: 30000
+      initialization-fail-timeout: 120000
+      leak-detection-threshold: 180000
       connection-init-sql: SET search_path TO questionbank_svc, public; SET TIME ZONE 'UTC';
 
   jpa:
@@ -37,6 +40,8 @@ spring:
     baseline-on-migrate: true
     validate-on-migrate: false
     ignore-migration-patterns: "*:missing,*:ignored"
+    connect-retries: 5
+    connect-retries-interval: 10s
 
   mail:
     host: smtp.gmail.com

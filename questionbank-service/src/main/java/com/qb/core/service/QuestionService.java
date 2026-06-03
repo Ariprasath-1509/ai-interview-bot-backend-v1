@@ -115,7 +115,19 @@ public class QuestionService {
             q.setTags(tags);
         }
 
+        if (request.questionType() != null && !request.questionType().isBlank()) {
+            q.setQuestionType(normalizeQuestionType(request.questionType()));
+        }
+
         return toDTO(questionRepo.save(q), null, null);
+    }
+
+    private String normalizeQuestionType(String type) {
+        String upper = type.trim().toUpperCase();
+        return switch (upper) {
+            case "CODING", "BEHAVIORAL", "TECHNICAL" -> upper;
+            default -> "TECHNICAL";
+        };
     }
 
     /**
@@ -242,6 +254,7 @@ public class QuestionService {
                 companies,
                 sessions,
                 q.getRelevancyLabel(),
+                q.getQuestionType() != null ? q.getQuestionType() : "TECHNICAL",
                 q.getCreatedAt(),
                 q.getUpdatedAt()
         );
@@ -278,6 +291,7 @@ public class QuestionService {
                 companies,
                 sessions,
                 q.getRelevancyLabel(),
+                q.getQuestionType() != null ? q.getQuestionType() : "TECHNICAL",
                 q.getCreatedAt(),
                 q.getUpdatedAt()
         );

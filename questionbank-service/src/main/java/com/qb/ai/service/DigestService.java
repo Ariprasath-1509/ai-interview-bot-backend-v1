@@ -261,6 +261,7 @@ public class DigestService {
                             .category(category)
                             .tags(tags)
                             .occurrenceCount(0)
+                            .questionType(inferQuestionType(cq.text(), category.getName(), cq.tags()))
                             .build();
                     questionRepo.save(question);
                     questionsCreated.incrementAndGet();
@@ -293,5 +294,23 @@ public class DigestService {
                 questionsLinked.get(),
                 tagsCreated.get()
         );
+    }
+
+    private static String inferQuestionType(String text, String categoryName, java.util.List<String> tags) {
+        if ("DSA".equalsIgnoreCase(categoryName)) return "CODING";
+        if (tags != null && tags.stream().anyMatch(t -> t != null && t.toLowerCase().matches(".*(coding|algorithm|dsa|leetcode).*"))) {
+            return "CODING";
+        }
+        if (text != null) {
+            String lower = text.toLowerCase();
+            if (lower.contains("write a function") || lower.contains("implement") || lower.contains("algorithm")
+                    || lower.contains("time complexity") || lower.contains("given an array")) {
+                return "CODING";
+            }
+            if (lower.contains("tell me about a time") || lower.contains("behavioral") || lower.contains("team conflict")) {
+                return "BEHAVIORAL";
+            }
+        }
+        return "TECHNICAL";
     }
 }

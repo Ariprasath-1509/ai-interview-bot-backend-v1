@@ -14,6 +14,9 @@ public class InterviewQuestion {
     
     @Column(name = "interview_id", nullable = false)
     private String interviewId;
+
+    @Column(name = "slot_number", nullable = false)
+    private int slotNumber;
     
     @Column(name = "question_text", columnDefinition = "TEXT", nullable = false)
     private String questionText;
@@ -34,12 +37,22 @@ public class InterviewQuestion {
     
     @Column(name = "asked_at")
     private LocalDateTime askedAt;
+
+    @Column(name = "answered_at")
+    private LocalDateTime answeredAt;
+
+    @Column(name = "question_bank_id")
+    private String questionBankId;
+
+    @Column(name = "source")
+    private String source;
     
     // Constructors
     public InterviewQuestion() {}
     
-    public InterviewQuestion(String interviewId, String questionText) {
+    public InterviewQuestion(String interviewId, int slotNumber, String questionText) {
         this.interviewId = interviewId;
+        this.slotNumber = slotNumber;
         this.questionText = questionText;
     }
     
@@ -62,6 +75,10 @@ public class InterviewQuestion {
     
     public String getInterviewId() {
         return interviewId;
+    }
+
+    public int getSlotNumber() {
+        return slotNumber;
     }
     
     public String getQuestionText() {
@@ -87,6 +104,18 @@ public class InterviewQuestion {
     public LocalDateTime getAskedAt() {
         return askedAt;
     }
+
+    public LocalDateTime getAnsweredAt() {
+        return answeredAt;
+    }
+
+    public String getQuestionBankId() {
+        return questionBankId;
+    }
+
+    public String getSource() {
+        return source;
+    }
     
     // Setters
     public void setId(Long id) {
@@ -95,6 +124,10 @@ public class InterviewQuestion {
     
     public void setInterviewId(String interviewId) {
         this.interviewId = interviewId;
+    }
+
+    public void setSlotNumber(int slotNumber) {
+        this.slotNumber = slotNumber;
     }
     
     public void setQuestionText(String questionText) {
@@ -119,6 +152,18 @@ public class InterviewQuestion {
     
     public void setAskedAt(LocalDateTime askedAt) {
         this.askedAt = askedAt;
+    }
+
+    public void setAnsweredAt(LocalDateTime answeredAt) {
+        this.answeredAt = answeredAt;
+    }
+
+    public void setQuestionBankId(String questionBankId) {
+        this.questionBankId = questionBankId;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
     }
     
     @PrePersist

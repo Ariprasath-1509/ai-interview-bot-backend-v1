@@ -40,6 +40,11 @@ public class Question {
     @Builder.Default
     private String relevancyLabel = "LOW";
 
+    /** TECHNICAL, BEHAVIORAL, or CODING */
+    @Column(name = "question_type", nullable = false)
+    @Builder.Default
+    private String questionType = "TECHNICAL";
+
     @ManyToMany(fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     @JoinTable(
             name = "question_tags",

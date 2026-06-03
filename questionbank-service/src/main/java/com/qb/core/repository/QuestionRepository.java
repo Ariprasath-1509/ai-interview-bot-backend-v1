@@ -19,7 +19,7 @@ public interface QuestionRepository extends JpaRepository<Question, UUID> {
      */
     @Query(value = """
             SELECT DISTINCT q.id, q.text, q.category_id, q.occurrence_count, q.created_at, q.updated_at,
-                           q.relevancy_score, q.relevancy_label
+                           q.relevancy_score, q.relevancy_label, q.question_type
             FROM questionbank_svc.questions q
             LEFT JOIN questionbank_svc.categories cat ON cat.id = q.category_id
             LEFT JOIN questionbank_svc.question_tags qt ON qt.question_id = q.id

@@ -116,16 +116,16 @@ services:
           cpus: '0.25'
           memory: 256M
 
-  compliance-service:
-    image: registry.gitlab.com/ty_optimize/optimize/compliance_service:latest
-    container_name: compliance-service
-    mem_limit: 1g
-    memswap_limit: 1g
+  ops-service:
+    image: registry.gitlab.com/ty_optimize/optimize/ops_service:latest
+    container_name: ops-service
+    mem_limit: 1536m
+    memswap_limit: 1536m
     ports:
       - "6005:6005"
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      JAVA_OPTS: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+      JAVA_OPTS: "-Xms512m -Xmx1280m -XX:+UseG1GC"
     depends_on:
       eureka-server:
         condition: service_healthy
@@ -137,15 +137,15 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 90s
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: 1G
+          cpus: '1.5'
+          memory: 1536M
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '0.75'
+          memory: 1G
 
   auth-service:
     image: registry.gitlab.com/ty_optimize/optimize/ai_auth:latest
@@ -187,11 +187,14 @@ services:
       - "6006:6006"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      APP_RECORDING_DIR: /app/uploads/recordings
       JAVA_OPTS: "-Xms2g -Xmx3g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+    volumes:
+      - interview-recordings:/app/uploads/recordings
     depends_on:
       eureka-server:
         condition: service_healthy
-      compliance-service:
+      ops-service:
         condition: service_healthy
       auth-service:
         condition: service_healthy
@@ -237,11 +240,20 @@ services:
       APP_OLLAMA_QUESTION_TEMPERATURE: ${APP_OLLAMA_QUESTION_TEMPERATURE:-0.55}
       APP_OLLAMA_ASSESSMENT_TEMPERATURE: ${APP_OLLAMA_ASSESSMENT_TEMPERATURE:-0.3}
       APP_OLLAMA_TIMEOUT_SECONDS: ${APP_OLLAMA_TIMEOUT_SECONDS:-600}
+      APP_MEDIA_STT_PROVIDER: ${APP_MEDIA_STT_PROVIDER:-faster-whisper}
+      APP_MEDIA_WHISPER_URL: ${APP_MEDIA_WHISPER_URL:-http://whisper-stt:8000}
+      APP_MEDIA_WHISPER_MODEL: ${APP_MEDIA_WHISPER_MODEL:-medium}
+      APP_MEDIA_COQUI_URL: ${APP_MEDIA_COQUI_URL:-http://coqui-tts:5002}
+      APP_MEDIA_TTS_PATH: ${APP_MEDIA_TTS_PATH:-/api/tts}
       JAVA_OPTS: "-Xms2g -Xmx3g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
     depends_on:
       eureka-server:
         condition: service_healthy
-      compliance-service:
+      ops-service:
+        condition: service_healthy
+      whisper-stt:
+        condition: service_healthy
+      coqui-tts:
         condition: service_healthy
     networks:
       - bench-network
@@ -260,41 +272,6 @@ services:
         reservations:
           cpus: '2'
           memory: 2G
-
-  observer-service:
-    image: registry.gitlab.com/ty_optimize/optimize/observer_service:latest
-    container_name: observer-service
-    mem_limit: 1536m
-    memswap_limit: 1536m
-    ports:
-      - "6007:6007"
-    environment:
-      SPRING_PROFILES_ACTIVE: docker
-      JAVA_OPTS: "-Xms1g -Xmx1536m -XX:+UseG1GC"
-    depends_on:
-      eureka-server:
-        condition: service_healthy
-      auth-service:
-        condition: service_healthy
-      interview-service:
-        condition: service_healthy
-    networks:
-      - bench-network
-    restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6007' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.5'
-          memory: 1536M
-        reservations:
-          cpus: '0.75'
-          memory: 1G
 
   review-service:
     image: registry.gitlab.com/ty_optimize/optimize/review_service:latest
@@ -381,6 +358,12 @@ services:
     networks:
       - bench-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 8
+      start_period: 120s
     deploy:
       resources:
         limits:
@@ -402,6 +385,12 @@ services:
     networks:
       - bench-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/5002' || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
     deploy:
       resources:
         limits:
@@ -448,6 +437,8 @@ volumes:
   whisper-models:
     driver: local
   tts-models:
+    driver: local
+  interview-recordings:
     driver: local
 
 networks:

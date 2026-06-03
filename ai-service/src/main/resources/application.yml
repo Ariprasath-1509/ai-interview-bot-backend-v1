@@ -45,6 +45,12 @@ app:
     async-enabled: true
     thread-pool-size: 10
     queue-capacity: 50
+  media:
+    stt-provider: ${APP_MEDIA_STT_PROVIDER:faster-whisper}
+    whisper-url: ${APP_MEDIA_WHISPER_URL:http://localhost:6013}
+    whisper-model: ${APP_MEDIA_WHISPER_MODEL:whisper-1}
+    coqui-url: ${APP_MEDIA_COQUI_URL:http://localhost:6014}
+    tts-path: ${APP_MEDIA_TTS_PATH:/api/tts}
 
 management:
   endpoints:

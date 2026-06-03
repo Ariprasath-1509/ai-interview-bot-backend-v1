@@ -9,5 +9,6 @@ import java.util.List;
 public record QuestionUpdateRequest(
         @NotBlank String text,
         @NotBlank String category,
-        List<String> tags
+        List<String> tags,
+        String questionType
 ) {}

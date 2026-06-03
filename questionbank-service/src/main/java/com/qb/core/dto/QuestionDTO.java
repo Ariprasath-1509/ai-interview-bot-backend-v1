@@ -16,6 +16,7 @@ public record QuestionDTO(
         List<String> askedByCompanies,
         List<SessionInfo> sessions,
         String relevancyLabel,
+        String questionType,
         Instant createdAt,
         Instant updatedAt
 ) {

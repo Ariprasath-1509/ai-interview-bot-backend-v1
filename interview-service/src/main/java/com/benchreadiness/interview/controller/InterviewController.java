@@ -5,14 +5,18 @@ import com.benchreadiness.interview.dto.CandidateMatchingResult;
 import com.benchreadiness.interview.dto.CandidateReviewSummary;
 import com.benchreadiness.interview.dto.CompleteInterviewRequest;
 import com.benchreadiness.interview.dto.CreateInterviewRequest;
+import com.benchreadiness.interview.dto.RecordAnswerRequest;
+import com.benchreadiness.interview.dto.RecordQuestionRequest;
 import com.benchreadiness.interview.entity.Interview;
+import com.benchreadiness.interview.entity.InterviewQuestion;
 import com.benchreadiness.interview.service.CandidateMatchingService;
 import com.benchreadiness.interview.service.CandidateReviewService;
 import com.benchreadiness.interview.service.InterviewService;
 import com.benchreadiness.interview.service.EnhancedInterviewService;
+import com.benchreadiness.interview.service.InterviewQuestionService;
 import com.benchreadiness.interview.service.PdfGenerationService;
+import com.benchreadiness.interview.service.RecordingService;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -23,12 +27,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/interviews")
@@ -39,20 +39,23 @@ public class InterviewController {
     private final CandidateMatchingService candidateMatchingService;
     private final CandidateReviewService candidateReviewService;
     private final PdfGenerationService pdfGenerationService;
-
-    @Value("${app.recording.upload-dir:${java.io.tmpdir}/br-recordings}")
-    private String uploadDir;
+    private final InterviewQuestionService interviewQuestionService;
+    private final RecordingService recordingService;
 
     public InterviewController(InterviewService interviewService,
                               EnhancedInterviewService enhancedInterviewService,
                               CandidateMatchingService candidateMatchingService,
                               CandidateReviewService candidateReviewService,
-                              PdfGenerationService pdfGenerationService) {
+                              PdfGenerationService pdfGenerationService,
+                              InterviewQuestionService interviewQuestionService,
+                              RecordingService recordingService) {
         this.interviewService = interviewService;
         this.enhancedInterviewService = enhancedInterviewService;
         this.candidateMatchingService = candidateMatchingService;
         this.candidateReviewService = candidateReviewService;
         this.pdfGenerationService = pdfGenerationService;
+        this.interviewQuestionService = interviewQuestionService;
+        this.recordingService = recordingService;
     }
 
     @GetMapping("/auto-fill/preview")
@@ -126,6 +129,30 @@ public class InterviewController {
     @PreAuthorize("hasRole('CANDIDATE')")
     public ResponseEntity<List<Interview>> getMine(@RequestHeader("X-User-Email") String email) {
         return ResponseEntity.ok(interviewService.findByEmail(email));
+    }
+
+    @PostMapping("/{id}/start")
+    public ResponseEntity<?> startLive(@PathVariable String id) {
+        try {
+            Interview updated = interviewService.startLiveInterview(id);
+            return ResponseEntity.ok(updated);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PatchMapping("/{id}/assessment-status")
+    public ResponseEntity<?> updateAssessmentStatus(@PathVariable String id,
+                                                    @RequestBody Map<String, Object> body) {
+        try {
+            String status = body.get("status") != null ? String.valueOf(body.get("status")) : null;
+            String error = body.get("error") != null ? String.valueOf(body.get("error")) : null;
+            String resultJson = body.get("resultJson") != null ? String.valueOf(body.get("resultJson")) : null;
+            Interview updated = interviewService.updateAssessmentStatus(id, status, error, resultJson);
+            return ResponseEntity.ok(updated);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @PatchMapping("/{id}/complete")
@@ -242,28 +269,66 @@ public class InterviewController {
         }
     }
 
-    /** Upload session recording (candidate calls this after interview). */
+    /** Persist bot question for a slot (called after each next-question). */
+    @PostMapping("/{id}/questions")
+    public ResponseEntity<?> recordQuestion(@PathVariable String id,
+                                            @RequestBody RecordQuestionRequest req) {
+        try {
+            InterviewQuestion saved = interviewQuestionService.recordQuestion(id, req);
+            return ResponseEntity.ok(Map.of(
+                "ok", true,
+                "id", saved.getId(),
+                "slot", saved.getSlotNumber()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /** Persist candidate answer for a slot. */
+    @PostMapping("/{id}/answers")
+    public ResponseEntity<?> recordAnswer(@PathVariable String id,
+                                          @RequestBody RecordAnswerRequest req) {
+        try {
+            InterviewQuestion saved = interviewQuestionService.recordAnswer(id, req);
+            return ResponseEntity.ok(Map.of(
+                "ok", true,
+                "id", saved.getId(),
+                "slot", saved.getSlotNumber()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/{id}/questions")
+    public ResponseEntity<?> listQuestions(@PathVariable String id) {
+        try {
+            return ResponseEntity.ok(interviewQuestionService.listByInterview(id));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /** Append a session recording chunk (upload during interview). */
+    @PostMapping(value = "/{id}/recording/chunk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> uploadRecordingChunk(@PathVariable String id,
+                                                  @RequestParam("chunk") MultipartFile chunk,
+                                                  @RequestParam(value = "chunkIndex", defaultValue = "0") int chunkIndex,
+                                                  @RequestParam(value = "isFinal", defaultValue = "false") boolean isFinal) {
+        try {
+            return ResponseEntity.ok(recordingService.appendChunk(id, chunk, chunkIndex, isFinal));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /** Upload session recording (single file — legacy / final upload). */
     @PostMapping(value = "/{id}/recording", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> uploadRecording(@PathVariable String id,
                                              @RequestParam("recording") MultipartFile file) {
         try {
-            Interview interview = interviewService.findById(id)
-                    .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
-
-            Path dir = Paths.get(uploadDir);
-            Files.createDirectories(dir);
-
-            String ext = ".webm";
-            String orig = file.getOriginalFilename();
-            if (orig != null && orig.contains(".")) ext = orig.substring(orig.lastIndexOf('.'));
-
-            Path dest = dir.resolve("rec_" + id + "_" + UUID.randomUUID() + ext);
-            file.transferTo(dest.toFile());
-
-            interview.setRecordingPath(dest.toAbsolutePath().toString());
-            interviewService.saveInterview(interview);
-
-            return ResponseEntity.ok(Map.of("ok", true, "path", dest.getFileName().toString()));
+            return ResponseEntity.ok(recordingService.uploadFull(id, file));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }

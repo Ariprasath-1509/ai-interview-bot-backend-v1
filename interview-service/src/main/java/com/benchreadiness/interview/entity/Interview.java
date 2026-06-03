@@ -84,6 +84,18 @@ public class Interview {
     @Column(name = "recording_path", columnDefinition = "TEXT")
     private String recordingPath;
 
+    @Column(name = "assessment_status", length = 32)
+    private String assessmentStatus;
+
+    @Column(name = "assessment_error", columnDefinition = "TEXT")
+    private String assessmentError;
+
+    @Column(name = "assessment_result_json", columnDefinition = "TEXT")
+    private String assessmentResultJson;
+
+    @Column(name = "recording_bytes")
+    private Long recordingBytes;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -141,6 +153,14 @@ public class Interview {
     public void setUsedQuestionIds(String usedQuestionIds) { this.usedQuestionIds = usedQuestionIds; }
     public String getRecordingPath() { return recordingPath; }
     public void setRecordingPath(String recordingPath) { this.recordingPath = recordingPath; }
+    public String getAssessmentStatus() { return assessmentStatus; }
+    public void setAssessmentStatus(String assessmentStatus) { this.assessmentStatus = assessmentStatus; }
+    public String getAssessmentError() { return assessmentError; }
+    public void setAssessmentError(String assessmentError) { this.assessmentError = assessmentError; }
+    public String getAssessmentResultJson() { return assessmentResultJson; }
+    public void setAssessmentResultJson(String assessmentResultJson) { this.assessmentResultJson = assessmentResultJson; }
+    public Long getRecordingBytes() { return recordingBytes; }
+    public void setRecordingBytes(Long recordingBytes) { this.recordingBytes = recordingBytes; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

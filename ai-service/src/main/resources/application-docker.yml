@@ -12,7 +12,7 @@ app:
   llm:
     provider: ${APP_LLM_PROVIDER:claude}
   claude:
-    api-key: ${APP_CLAUDE_API_KEY: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}
+    api-key: ${APP_CLAUDE_API_KEY:}
     model: ${APP_CLAUDE_MODEL:claude-haiku-4-5}
     assessment-model: ${APP_CLAUDE_ASSESSMENT_MODEL:claude-sonnet-4-5}
     question-temperature: ${APP_CLAUDE_QUESTION_TEMPERATURE:0.55}
@@ -20,3 +20,9 @@ app:
   ollama:
     base-url: ${APP_OLLAMA_BASE_URL:http://103.182.211.219:11434}
     model: ${APP_OLLAMA_MODEL:qwen2.5:7b}
+  media:
+    stt-provider: ${APP_MEDIA_STT_PROVIDER:faster-whisper}
+    whisper-url: ${APP_MEDIA_WHISPER_URL:http://whisper-stt:8000}
+    whisper-model: ${APP_MEDIA_WHISPER_MODEL:medium}
+    coqui-url: ${APP_MEDIA_COQUI_URL:http://coqui-tts:5002}
+    tts-path: ${APP_MEDIA_TTS_PATH:/api/tts}

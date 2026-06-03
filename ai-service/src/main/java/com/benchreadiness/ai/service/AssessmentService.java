@@ -50,11 +50,20 @@ public class AssessmentService {
         log.info("Assessment request for interview {}: {} candidate words, {} candidate turns", 
                 req.getInterviewId(), candidateWords, candidateTurns);
             
-        // Skip Claude for insufficient responses
+        // Thin transcript: still assess when substantive code was submitted
         if (candidateWords < 50 || candidateTurns < 3) {
-            log.warn("Insufficient responses for interview {}: {} words, {} turns", 
+            if (hasSubstantiveCodeSubmissions(req.getCodeSubmissionJson())) {
+                log.info("Thin transcript for interview {} ({} words, {} turns) — using coding-only assessment",
+                        req.getInterviewId(), candidateWords, candidateTurns);
+                Map<String, Object> result = codingOnlyAssessment(req, utterances, candidateWords, candidateTurns);
+                result.put("speechAnalytics", computeSpeechAnalytics(utterances));
+                cacheAssessment(cacheKey, result);
+                return result;
+            }
+            log.warn("Insufficient responses for interview {}: {} words, {} turns",
                     req.getInterviewId(), candidateWords, candidateTurns);
-            Map<String, Object> result = thinTranscriptResult("Insufficient responses — candidate answered fewer than 3 questions or provided less than 50 words total.");
+            Map<String, Object> result = thinTranscriptResult(
+                    "Insufficient responses — candidate answered fewer than 3 questions or provided less than 50 words total.");
             result.put("speechAnalytics", computeSpeechAnalytics(utterances));
             cacheAssessment(cacheKey, result);
             return result;
@@ -164,7 +173,8 @@ public class AssessmentService {
             req.getRubricJson() != null ? req.getRubricJson() : "",
             req.getCandidateProfileJson() != null ? req.getCandidateProfileJson() : "",
             req.getJdTitle() != null ? req.getJdTitle() : "",
-            req.getInterviewMode() != null ? req.getInterviewMode() : ""
+            req.getInterviewMode() != null ? req.getInterviewMode() : "",
+            req.getCodeSubmissionJson() != null ? req.getCodeSubmissionJson() : ""
         );
         return interviewId + "|" + sha256(material);
     }
@@ -218,7 +228,8 @@ public class AssessmentService {
 
     // ── Pass 1: Evidence extraction ──────────────────────────────────────────
     private Map<String, List<String>> extractEvidence(
-            List<Map<String, String>> utterances, List<Map<String, Object>> categories, String interviewId, String userId) throws Exception {
+            List<Map<String, String>> utterances, List<Map<String, Object>> categories,
+            String interviewId, String userId, String codeSubmissionJson) throws Exception {
 
         String categoryList = categories.stream()
             .map(c -> "- " + c.get("key") + ": " + c.get("description"))
@@ -236,7 +247,12 @@ public class AssessmentService {
             "{\"categoryKey\": [\"extracted evidence quote 1\", \"extracted evidence quote 2\"]}";
 
         String transcript = buildEfficientTranscript(utterances);
-        String raw = llmClient.chatAssessmentWithTracking(system, "Transcript:\n" + transcript, interviewId, userId);
+        String codeContext = buildCodeSubmissionContext(codeSubmissionJson);
+        String userContent = "Transcript:\n" + transcript;
+        if (!codeContext.isBlank()) {
+            userContent += "\n\nCode submissions (include in evidence where relevant):\n" + codeContext;
+        }
+        String raw = llmClient.chatAssessmentWithTracking(system, userContent, interviewId, userId);
         JsonNode json = objectMapper.readTree(JsonRepairUtil.repair(raw));
 
         Map<String, List<String>> evidence = new LinkedHashMap<>();
@@ -297,7 +313,7 @@ public class AssessmentService {
         log.info("Starting evidence extraction pass...");
         Map<String, List<String>> evidence;
         try {
-            evidence = extractEvidence(utterances, categories, req.getInterviewId(), userId);
+            evidence = extractEvidence(utterances, categories, req.getInterviewId(), userId, req.getCodeSubmissionJson());
             log.info("Evidence extraction completed for {} categories", evidence.size());
         } catch (Exception e) {
             log.error("Evidence extraction failed: {}", e.getMessage(), e);
@@ -307,6 +323,11 @@ public class AssessmentService {
         String evidenceSummary = evidence.entrySet().stream()
             .map(e -> e.getKey() + ": " + (e.getValue().isEmpty() ? "no evidence" : String.join("; ", e.getValue())))
             .reduce("", (a, b) -> a + "\n" + b);
+
+        String codeContext = buildCodeSubmissionContext(req.getCodeSubmissionJson());
+        if (!codeContext.isBlank()) {
+            evidenceSummary = evidenceSummary + "\n\nCode submissions:\n" + codeContext;
+        }
 
         String level = (String) candidateProfile.getOrDefault("level", "mid");
         String yoe = String.valueOf(candidateProfile.getOrDefault("yearsOfExperience", "unknown"));
@@ -815,6 +836,314 @@ public class AssessmentService {
         return result;
     }
 
+    private record CodeSubmissionSummary(
+            String question,
+            String language,
+            int testsPassed,
+            int testsTotal,
+            int aiScore,
+            String correctness,
+            String overallFeedback
+    ) {}
+
+    private boolean hasSubstantiveCodeSubmissions(String codeSubmissionJson) {
+        return !parseCodeSubmissionSummaries(codeSubmissionJson).isEmpty();
+    }
+
+    private List<CodeSubmissionSummary> parseCodeSubmissionSummaries(String codeSubmissionJson) {
+        if (codeSubmissionJson == null || codeSubmissionJson.isBlank()) return List.of();
+        try {
+            JsonNode root = objectMapper.readTree(codeSubmissionJson);
+            List<CodeSubmissionSummary> list = new ArrayList<>();
+            if (root.isArray()) {
+                for (JsonNode sub : root) list.add(toCodeSummary(sub));
+            } else {
+                list.add(toCodeSummary(root));
+            }
+            return list.stream()
+                    .filter(s -> s.testsTotal() > 0 || s.aiScore() > 0
+                            || "correct".equalsIgnoreCase(s.correctness())
+                            || "partial".equalsIgnoreCase(s.correctness()))
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Failed to parse code submissions for assessment: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private CodeSubmissionSummary toCodeSummary(JsonNode sub) {
+        String question = sub.path("question").asText("");
+        String language = sub.path("language").asText("unknown");
+        int passed = 0;
+        int total = 0;
+        JsonNode results = sub.path("results");
+        if (results.isArray()) {
+            total = results.size();
+            for (JsonNode r : results) {
+                if (r.path("passed").asBoolean(false)) passed++;
+            }
+        }
+        JsonNode review = sub.path("aiReview");
+        int aiScore = review.path("score").asInt(0);
+        String correctness = review.path("correctness").asText("unknown");
+        String feedback = review.path("overallFeedback").asText("");
+        return new CodeSubmissionSummary(question, language, passed, total, aiScore, correctness, feedback);
+    }
+
+    private int scoreTechnicalFromCode(List<CodeSubmissionSummary> submissions) {
+        if (submissions.isEmpty()) return 1;
+        int best = 1;
+        for (CodeSubmissionSummary s : submissions) {
+            int fromTests = 1;
+            if (s.testsTotal() > 0) {
+                double ratio = (double) s.testsPassed() / s.testsTotal();
+                if (ratio >= 1.0) fromTests = 5;
+                else if (ratio >= 0.8) fromTests = 4;
+                else if (ratio >= 0.6) fromTests = 3;
+                else if (ratio >= 0.4) fromTests = 2;
+            }
+            int fromAi = s.aiScore() > 0 ? Math.max(1, Math.min(5, s.aiScore())) : fromTests;
+            int combined = Math.max(fromTests, fromAi);
+            if ("correct".equalsIgnoreCase(s.correctness())) combined = Math.max(combined, 4);
+            else if ("partial".equalsIgnoreCase(s.correctness())) combined = Math.max(combined, 3);
+            best = Math.max(best, combined);
+        }
+        return Math.min(5, best);
+    }
+
+    private int scoreCommunicationForThinTranscript(long candidateWords, long candidateTurns) {
+        if (candidateTurns == 0 && candidateWords == 0) return 1;
+        if (candidateWords < 20) return 1;
+        return 2;
+    }
+
+    private String proposeVerdictForCodingOnly(int techScore, int commScore) {
+        if (techScore >= 4 && commScore <= 2) return "NEEDS_1_WEEK_PREP";
+        if (techScore >= 3) return "NEEDS_1_WEEK_PREP";
+        return "NEEDS_RESKILLING";
+    }
+
+    private Map<String, Object> codingOnlyAssessment(
+            AssessmentRequest req,
+            List<Map<String, String>> utterances,
+            long candidateWords,
+            long candidateTurns) {
+        List<CodeSubmissionSummary> submissions = parseCodeSubmissionSummaries(req.getCodeSubmissionJson());
+        int techScore = scoreTechnicalFromCode(submissions);
+        int commScore = scoreCommunicationForThinTranscript(candidateWords, candidateTurns);
+
+        CodeSubmissionSummary primary = submissions.get(0);
+        int totalPassed = submissions.stream().mapToInt(CodeSubmissionSummary::testsPassed).sum();
+        int totalTests = submissions.stream().mapToInt(CodeSubmissionSummary::testsTotal).sum();
+        String testSummary = totalTests > 0 ? totalPassed + "/" + totalTests + " automated tests passed" : "code submitted (tests not run)";
+
+        String techRationale = "Coding-only session: " + testSummary + ". "
+                + (primary.correctness() != null && !primary.correctness().isBlank()
+                ? "AI code review: " + primary.correctness() + "." : "")
+                + (primary.overallFeedback() != null && !primary.overallFeedback().isBlank()
+                ? " " + primary.overallFeedback().substring(0, Math.min(200, primary.overallFeedback().length()))
+                : "");
+
+        String commRationale = candidateTurns == 0
+                ? "No spoken candidate responses were recorded; verbal communication and explanation could not be assessed."
+                : "Very limited spoken responses (" + candidateWords + " words in " + candidateTurns
+                + " turns); communication was not meaningfully assessed.";
+
+        String summary = "Coding assessment completed (" + testSummary + "), but the verbal interview was not completed "
+                + "(" + candidateWords + " words, " + candidateTurns + " candidate turns). "
+                + "Technical score reflects code quality; communication and other JD topics were not verbally covered.";
+
+        List<String> codingPros = new ArrayList<>();
+        List<String> codingCons = new ArrayList<>();
+        if (totalTests > 0 && totalPassed == totalTests) {
+            codingPros.add("All automated test cases passed (" + testSummary + ")");
+        } else if (totalPassed > 0) {
+            codingPros.add("Partial test success: " + testSummary);
+            codingCons.add("Some test cases failed — review edge cases and output format");
+        }
+        if ("correct".equalsIgnoreCase(primary.correctness())) {
+            codingPros.add("AI code review rated the solution as correct");
+        } else if ("partial".equalsIgnoreCase(primary.correctness())) {
+            codingCons.add("AI code review: solution is partially correct");
+        }
+        if (primary.overallFeedback() != null && !primary.overallFeedback().isBlank()) {
+            codingPros.add(primary.overallFeedback().substring(0, Math.min(160, primary.overallFeedback().length())));
+        }
+        if (codingPros.isEmpty()) {
+            codingPros.add("Submitted a coding solution for the assigned problem");
+        }
+
+        List<Map<String, Object>> prosAndCons = new ArrayList<>();
+        prosAndCons.add(Map.of(
+                "category", "Coding / Problem Solving",
+                "pros", codingPros,
+                "cons", codingCons.isEmpty() ? List.of("Continue practicing timed coding under interview conditions") : codingCons
+        ));
+        prosAndCons.add(Map.of(
+                "category", "Verbal Technical Interview",
+                "pros", List.of(),
+                "cons", List.of(
+                        "No meaningful spoken answers were recorded for this session",
+                        "Could not assess explanation of approach, trade-offs, or depth on JD topics (Spring, system design, etc.)"
+                )
+        ));
+        prosAndCons.add(Map.of(
+                "category", "Communication",
+                "pros", List.of(),
+                "cons", List.of(
+                        "Communication score is low because the voice Q&A portion was not completed — not necessarily poor speaking skills",
+                        "Recommend re-taking the verbal portion or a follow-up call to assess communication"
+                )
+        ));
+
+        List<Map<String, Object>> scoreRows = new ArrayList<>();
+        scoreRows.add(new LinkedHashMap<>(Map.of(
+                "dimension", "TechnicalKnowledge",
+                "value", techScore,
+                "rationale", techRationale,
+                "evidence", buildCodeSubmissionContext(req.getCodeSubmissionJson()),
+                "gap", commScore <= 2 ? "Verbal technical depth not demonstrated in this session" : "",
+                "strengths", codingPros.toString(),
+                "weaknesses", codingCons.toString(),
+                "confidence", totalTests > 0 && totalPassed == totalTests ? "high" : "medium"
+        )));
+        scoreRows.add(new LinkedHashMap<>(Map.of(
+                "dimension", "communication",
+                "value", commScore,
+                "rationale", commRationale,
+                "evidence", "",
+                "gap", "Complete the voice interview to assess communication fairly",
+                "strengths", "[]",
+                "weaknesses", "[\"Verbal interview not completed\"]",
+                "confidence", "low"
+        )));
+
+        String verdict = proposeVerdictForCodingOnly(techScore, commScore);
+
+        Map<String, Object> candidateFeedback = new LinkedHashMap<>();
+        candidateFeedback.put("summary",
+                "Your coding submission was evaluated. The voice interview was not completed, so verbal and JD-wide topics were not assessed.");
+        candidateFeedback.put("overallSummary", candidateFeedback.get("summary"));
+        candidateFeedback.put("prosAndCons", prosAndCons);
+        candidateFeedback.put("strengths", codingPros);
+        candidateFeedback.put("areasToImprove", List.of(
+                "Complete the full voice interview so communication and technical discussion can be scored",
+                "Practice explaining your code approach aloud (complexity, edge cases, alternatives)"
+        ));
+        candidateFeedback.put("resumeConsistencyForCandidate", List.of(
+                Map.of("claim", "Coding / problem solving", "demonstrated", techScore >= 3,
+                        "note", "Demonstrated via submitted code" + (totalTests > 0 ? " (" + testSummary + ")" : "")),
+                Map.of("claim", "Verbal technical interview", "demonstrated", false,
+                        "note", "Not assessed — no spoken responses recorded"),
+                Map.of("claim", "Communication", "demonstrated", false,
+                        "note", "Not assessed — complete the voice Q&A portion")
+        ));
+        candidateFeedback.put("roadmap", List.of(
+                Map.of("day", 1, "category", "Interview completion", "gap", "Verbal portion missing",
+                        "focus", "Re-take voice interview questions", "whyItMatters",
+                        "Hiring decisions require both code and communication evidence",
+                        "resource", "Mock technical interview", "resourceUrl", "", "exercise",
+                        "Record yourself explaining your coding solution for 5 minutes", "estimatedHours", 1)
+        ));
+        candidateFeedback.put("estimatedReadiness",
+                techScore >= 4 ? "Strong on coding task; complete verbal interview for full readiness decision"
+                        : "Complete verbal interview and strengthen areas flagged in code review");
+        candidateFeedback.put("estimatedReadinessTimeline", candidateFeedback.get("estimatedReadiness"));
+
+        if (llmClient.isConfigured()) {
+            try {
+                Map<String, Object> enriched = enrichCodingOnlyFeedbackWithLlm(
+                        req, submissions, techScore, commScore, summary, scoreRows);
+                if (enriched != null && !enriched.isEmpty()) {
+                    candidateFeedback.putAll(enriched);
+                }
+            } catch (Exception e) {
+                log.warn("Coding-only LLM feedback enrichment failed: {}", e.getMessage());
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("categoryScores", scoreRows);
+        result.put("technicalKnowledge", Map.of("score", techScore, "rationale", techRationale));
+        result.put("communication", Map.of("score", commScore, "rationale", commRationale));
+        result.put("proposedVerdict", verdict);
+        result.put("summary", summary);
+        result.put("candidateFeedback", candidateFeedback);
+        result.put("behavioralSignals", Map.of(
+                "ownershipLevel", "low",
+                "learningAgility", "medium",
+                "communicationStructure", "not_assessed",
+                "confidenceCalibration", "not_assessed",
+                "summary", "Behavioral signals not assessed — verbal interview incomplete"
+        ));
+        result.put("resumeConsistency", Map.of(
+                "claimed", List.of(),
+                "demonstrated", List.of("Coding / problem solving"),
+                "notDemonstrated", List.of("Verbal technical interview", "Communication"),
+                "consistencyScore", techScore >= 3 ? 3 : 2,
+                "flags", List.of("coding_only_session")
+        ));
+        result.put("interviewQuality", Map.of(
+                "coverageScore", 2,
+                "categoriesCovered", List.of("Coding / Problem Solving"),
+                "categoriesMissed", List.of("Verbal Q&A", "Communication", "JD breadth"),
+                "note", "Session ended with code submission; voice portion not completed"
+        ));
+        result.put("source", "coding-only");
+        return result;
+    }
+
+    private Map<String, Object> enrichCodingOnlyFeedbackWithLlm(
+            AssessmentRequest req,
+            List<CodeSubmissionSummary> submissions,
+            int techScore,
+            int commScore,
+            String summary,
+            List<Map<String, Object>> scoreRows) throws Exception {
+        String codeContext = buildCodeSubmissionContext(req.getCodeSubmissionJson());
+        String system =
+                "You enrich assessment feedback for a coding-only interview (no verbal answers).\n"
+                + "Return ONLY raw JSON:\n"
+                + "{\n"
+                + "  \"summary\": \"2-3 sentences for reviewers\",\n"
+                + "  \"prosAndCons\": [{\"category\": \"name\", \"pros\": [\"...\"], \"cons\": [\"...\"]}]\n"
+                + "}\n"
+                + "RULES:\n"
+                + "- Include categories: Coding / Problem Solving, Verbal Technical Interview, Communication\n"
+                + "- Credit code quality and test results; clearly state verbal/JD topics were NOT assessed\n"
+                + "- Do not penalize communication as if they spoke poorly — they did not complete voice Q&A";
+
+        String user = "Role: " + req.getJdTitle() + "\n"
+                + "Technical score: " + techScore + "/5, Communication: " + commScore + "/5 (not assessable — no speech)\n"
+                + "Summary: " + summary + "\n"
+                + "Code submissions:\n" + codeContext;
+
+        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), "coding-only-feedback");
+        JsonNode json = objectMapper.readTree(JsonRepairUtil.repair(raw));
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (!json.path("summary").asText("").isBlank()) {
+            out.put("summary", json.path("summary").asText());
+            out.put("overallSummary", json.path("summary").asText());
+        }
+        JsonNode pc = json.path("prosAndCons");
+        if (pc.isArray() && pc.size() > 0) {
+            List<Map<String, Object>> list = new ArrayList<>();
+            pc.forEach(n -> {
+                List<String> pros = new ArrayList<>();
+                List<String> cons = new ArrayList<>();
+                if (n.path("pros").isArray()) n.path("pros").forEach(p -> pros.add(p.asText()));
+                if (n.path("cons").isArray()) n.path("cons").forEach(c -> cons.add(c.asText()));
+                list.add(Map.of(
+                        "category", n.path("category").asText("General"),
+                        "pros", pros,
+                        "cons", cons
+                ));
+            });
+            out.put("prosAndCons", list);
+        }
+        return out;
+    }
+
     private Map<String, Object> thinTranscriptResult(String reason) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("categoryScores", List.of());
@@ -948,6 +1277,56 @@ public class AssessmentService {
                     list.add(Map.of("speaker", u.path("speaker").asText("CANDIDATE"), "text", u.path("text").asText("")));
             return list;
         } catch (Exception e) { return List.of(); }
+    }
+
+    private String buildCodeSubmissionContext(String codeSubmissionJson) {
+        if (codeSubmissionJson == null || codeSubmissionJson.isBlank()) return "";
+        try {
+            JsonNode root = objectMapper.readTree(codeSubmissionJson);
+            StringBuilder sb = new StringBuilder();
+            if (root.isArray()) {
+                int i = 0;
+                for (JsonNode sub : root) {
+                    appendCodeSubmissionEntry(sb, sub, ++i);
+                }
+            } else {
+                appendCodeSubmissionEntry(sb, root, 1);
+            }
+            return sb.toString().trim();
+        } catch (Exception e) {
+            log.warn("Failed to parse codeSubmissionJson: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    private void appendCodeSubmissionEntry(StringBuilder sb, JsonNode sub, int index) {
+        String question = sub.path("question").asText("");
+        String language = sub.path("language").asText("unknown");
+        String code = sub.path("code").asText("");
+        sb.append("Submission ").append(index);
+        if (!question.isBlank()) {
+            sb.append(" (Q: ").append(question, 0, Math.min(120, question.length())).append(")");
+        }
+        sb.append(" [").append(language).append("]:\n");
+        if (!code.isBlank()) {
+            sb.append(code, 0, Math.min(2000, code.length())).append("\n");
+        }
+        JsonNode results = sub.path("results");
+        if (results.isArray() && results.size() > 0) {
+            int passed = 0;
+            for (JsonNode r : results) if (r.path("passed").asBoolean(false)) passed++;
+            sb.append("Tests: ").append(passed).append("/").append(results.size()).append(" passed\n");
+        }
+        JsonNode review = sub.path("aiReview");
+        if (!review.isMissingNode()) {
+            sb.append("AI review score: ").append(review.path("score").asInt(0)).append("/5, ")
+              .append("correctness: ").append(review.path("correctness").asText("unknown")).append("\n");
+            String feedback = review.path("overallFeedback").asText("");
+            if (!feedback.isBlank()) {
+                sb.append("Feedback: ").append(feedback, 0, Math.min(300, feedback.length())).append("\n");
+            }
+        }
+        sb.append("\n");
     }
 
     private List<String> toStringList(JsonNode node) {

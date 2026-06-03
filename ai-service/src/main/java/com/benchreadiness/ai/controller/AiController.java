@@ -10,9 +10,13 @@ import com.benchreadiness.ai.service.AsyncAssessmentService;
 import com.benchreadiness.ai.service.LlmClient;
 import com.benchreadiness.ai.service.QuestionService;
 import com.benchreadiness.ai.service.RubricService;
+import com.benchreadiness.ai.service.MediaHealthService;
 import com.benchreadiness.ai.service.TranscribeService;
+import com.benchreadiness.ai.service.TtsService;
 import com.benchreadiness.ai.service.JsonRepairUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,12 +34,15 @@ public class AiController {
     private final AiMatchingService aiMatchingService;
     private final LlmClient llmClient;
     private final TranscribeService transcribeService;
+    private final TtsService ttsService;
+    private final MediaHealthService mediaHealthService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AiController(QuestionService questionService, AssessmentService assessmentService,
                        AsyncAssessmentService asyncAssessmentService, RubricService rubricService, 
                        AiMatchingService aiMatchingService, LlmClient llmClient,
-                       TranscribeService transcribeService) {
+                       TranscribeService transcribeService, TtsService ttsService,
+                       MediaHealthService mediaHealthService) {
         this.questionService = questionService;
         this.assessmentService = assessmentService;
         this.asyncAssessmentService = asyncAssessmentService;
@@ -43,14 +50,27 @@ public class AiController {
         this.aiMatchingService = aiMatchingService;
         this.llmClient = llmClient;
         this.transcribeService = transcribeService;
+        this.ttsService = ttsService;
+        this.mediaHealthService = mediaHealthService;
     }
 
     @GetMapping("/health")
     public ResponseEntity<?> health() {
+        Map<String, Object> media = mediaHealthService.probe();
         return ResponseEntity.ok(Map.of(
             "status", "ok",
-            "llmConfigured", llmClient.isConfigured()
+            "llmConfigured", llmClient.isConfigured(),
+            "sttConfigured", transcribeService.isConfigured(),
+            "ttsConfigured", ttsService.isConfigured(),
+            "whisperReachable", media.get("whisperReachable"),
+            "coquiReachable", media.get("coquiReachable"),
+            "mediaReady", media.get("mediaReady")
         ));
+    }
+
+    @GetMapping("/media-health")
+    public ResponseEntity<?> mediaHealth() {
+        return ResponseEntity.ok(mediaHealthService.probe());
     }
 
     @GetMapping("/test-llm")
@@ -117,13 +137,18 @@ public class AiController {
     public ResponseEntity<?> nextQuestion(@RequestBody NextQuestionRequest req,
                                          @RequestHeader("X-User-Id") String userId) {
         QuestionService.QuestionResult result = questionService.getNextQuestion(req, userId);
-        return ResponseEntity.ok(Map.of(
-            "question", result.question(),
-            "manipulationDetected", result.manipulationDetected(),
-            "terminateInterview", result.terminateInterview(),
-            "questionBankId", result.questionBankId() != null ? result.questionBankId() : "",
-            "source", result.source() != null ? result.source() : "AI_GENERATED"
-        ));
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("question", result.question());
+        body.put("manipulationDetected", result.manipulationDetected());
+        body.put("terminateInterview", result.terminateInterview());
+        body.put("questionBankId", result.questionBankId() != null ? result.questionBankId() : "");
+        body.put("source", result.source() != null ? result.source() : "AI_GENERATED");
+        body.put("isCoding", result.isCoding());
+        body.put("preferredLanguage", result.preferredLanguage() != null ? result.preferredLanguage() : "python");
+        if (result.starterCode() != null) {
+            body.put("starterCode", result.starterCode());
+        }
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/assess")
@@ -135,6 +160,7 @@ public class AiController {
     @PostMapping("/assess-async")
     public ResponseEntity<?> assessAsync(@RequestBody AssessmentRequest req,
                                         @RequestHeader("X-User-Id") String userId) {
+        asyncAssessmentService.markProcessing(req.getInterviewId());
         asyncAssessmentService.processAssessmentAsync(req, userId);
         return ResponseEntity.ok(Map.of(
             "status", "ASSESSMENT_PENDING",
@@ -280,8 +306,8 @@ public class AiController {
             @RequestParam(required = false) String language) {
         if (!transcribeService.isConfigured()) {
             return ResponseEntity.status(503).body(Map.of(
-                "error", "whisper_not_configured",
-                "detail", "Set APP_OPENAI_API_KEY to enable server-side Whisper STT."
+                "error", "stt_not_configured",
+                "detail", "Set APP_MEDIA_WHISPER_URL (faster-whisper on port 6013) or Ollama transcribe."
             ));
         }
         if (audio == null || audio.isEmpty()) {
@@ -292,6 +318,31 @@ public class AiController {
         } catch (Exception e) {
             return ResponseEntity.status(502).body(Map.of(
                 "error", "transcribe_failed",
+                "detail", e.getMessage()
+            ));
+        }
+    }
+
+    @PostMapping("/tts")
+    public ResponseEntity<?> tts(@RequestBody Map<String, Object> body) {
+        if (!ttsService.isConfigured()) {
+            return ResponseEntity.status(503).body(Map.of(
+                "error", "tts_not_configured",
+                "detail", "Set APP_MEDIA_COQUI_URL (Coqui TTS on port 6014)."
+            ));
+        }
+        String text = body.get("text") instanceof String s ? s : "";
+        if (text.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "text_required"));
+        }
+        try {
+            byte[] audio = ttsService.synthesize(text);
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_OCTET_STREAM_VALUE)
+                    .body(audio);
+        } catch (Exception e) {
+            return ResponseEntity.status(502).body(Map.of(
+                "error", "tts_failed",
                 "detail", e.getMessage()
             ));
         }
