@@ -4,6 +4,8 @@ import com.benchreadiness.ai.dto.NextQuestionRequest;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -34,6 +36,9 @@ public class QuestionService {
     private static final int MANIPULATION_WARN_THRESHOLD = 1;
     private static final int MANIPULATION_TERMINATE_THRESHOLD = InjectionGuard.TERMINATE_THRESHOLD;
     private static final long QUESTION_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+    private static final int MAX_CROSS_QUESTIONS_PER_SLOT = 1;
+    private static final int RECENT_BOT_QUESTIONS_FOR_DEDUP = 4;
+    private static final double QUESTION_SIMILARITY_THRESHOLD = 0.62;
 
     private static final Map<String, Map<Integer, String>> MODE_SLOT_THEMES = Map.of(
         "SCREENING", Map.of(
@@ -163,9 +168,10 @@ public class QuestionService {
             try {
                 // Check for vague/short answers first
                 // IMPORTANT: don't get stuck in probe loops. Allow one probe, then move forward deterministically.
-                if (isVagueAnswer(req.getLastAnswer())) {
+                if (isVagueAnswer(req.getLastAnswer()) || isLowSubstanceAnswer(req.getLastAnswer())) {
                     int recentProbeCount = countRecentProbeQuestions(req.getUtterances());
-                    if (recentProbeCount >= 1 || lastQuestionWasProbe(req.getUtterances())) {
+                    if (recentProbeCount >= 1 || lastQuestionWasProbe(req.getUtterances())
+                        || countSimilarRepeatedBotQuestions(req.getUtterances()) >= 1) {
                         QuestionResult result = new QuestionResult(
                             deterministicProgressQuestion(req),
                             false,
@@ -185,22 +191,27 @@ public class QuestionService {
                         req.getJdTitle(), req.getJdText(), req.getFocusAreas(), req.getInterviewMode());
                     if (firstQuestionCacheHit != null) {
                         QuestionResult result = new QuestionResult(firstQuestionCacheHit, false, false, null, "CACHED",
-                            detectCodingQuestion(firstQuestionCacheHit, null),
+                            resolveIsCoding(firstQuestionCacheHit, null),
                             inferLanguageFromContext(firstQuestionCacheHit, req.getJdTitle()), null);
                         return finalizeAndCache(requestCacheKey, req, result);
                     }
                 }
                 
                 String question = llmQuestion(req, userId);
-                
+                List<String> recentBot = extractRecentBotQuestions(req.getUtterances(), RECENT_BOT_QUESTIONS_FOR_DEDUP);
+                if (isQuestionSimilarToRecent(question, recentBot)) {
+                    log.info("AI question too similar to recent bot questions — advancing slot theme");
+                    question = deterministicProgressQuestion(req);
+                }
+
                 // Cache first question if this was slot 1
                 if (req.getSlot() == 1 && (req.getLastAnswer() == null || req.getLastAnswer().isBlank())) {
                     cacheService.cacheFirstQuestion(
                         req.getJdTitle(), req.getJdText(), req.getFocusAreas(), req.getInterviewMode(), question);
                 }
-                
+
                 QuestionResult result = new QuestionResult(question, false, false, null, "AI_GENERATED",
-                    detectCodingQuestion(question, null), inferLanguageFromContext(question, req.getJdTitle()), null);
+                    resolveIsCoding(question, null), inferLanguageFromContext(question, req.getJdTitle()), null);
                 return finalizeAndCache(requestCacheKey, req, result);
             } catch (Exception e) {
                 log.warn("Claude failed, falling back to heuristic: {}", e.getMessage());
@@ -243,9 +254,47 @@ public class QuestionService {
     }
 
     private QuestionResult finalizeAndCache(String key, NextQuestionRequest req, QuestionResult result) {
-        QuestionResult finalized = applyCodingSlotPolicy(req, result);
+        QuestionResult sanitized = sanitizeQuestionResult(req, result);
+        QuestionResult finalized = applyCodingSlotPolicy(req, sanitized);
         cacheResult(key, finalized);
         return finalized;
+    }
+
+    /** Dedupe repeats, fix isCoding flags, and progress when the model re-asks the same thing. */
+    private QuestionResult sanitizeQuestionResult(NextQuestionRequest req, QuestionResult result) {
+        if (result == null) return null;
+        String question = result.question();
+        if (question == null || question.isBlank()) return result;
+
+        List<String> recentBot = extractRecentBotQuestions(req.getUtterances(), RECENT_BOT_QUESTIONS_FOR_DEDUP);
+        if (isQuestionSimilarToRecent(question, recentBot)) {
+            log.warn("Sanitize: question repeats recent bot dialogue — forcing progression (source={})", result.source());
+            question = deterministicProgressQuestion(req);
+            return copyResult(result, question, false);
+        }
+
+        boolean isCoding = resolveIsCoding(question, bankQuestionTypeForResult(req, result));
+        if (isCoding != result.isCoding()) {
+            log.info("Sanitize: corrected isCoding {} -> {} for source={}", result.isCoding(), isCoding, result.source());
+        }
+        return copyResult(result, question, isCoding);
+    }
+
+    private String bankQuestionTypeForResult(NextQuestionRequest req, QuestionResult result) {
+        if (result.questionBankId() == null || result.questionBankId().isBlank()) return null;
+        if (req.getQuestionBankQuestionsJson() == null || req.getQuestionBankQuestionsJson().isBlank()) return null;
+        try {
+            com.fasterxml.jackson.databind.JsonNode arr =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(req.getQuestionBankQuestionsJson());
+            if (!arr.isArray()) return null;
+            for (com.fasterxml.jackson.databind.JsonNode q : arr) {
+                if (result.questionBankId().equals(q.path("id").asText())) {
+                    String t = q.path("questionType").asText("");
+                    return t.isBlank() ? null : t;
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
     }
 
     private void cacheResult(String key, QuestionResult result) {
@@ -269,7 +318,7 @@ public class QuestionService {
             if (lastQ.isBlank()) return false;
 
             // If the previous BOT message looks like a generic probe/fallback, avoid repeating it.
-            return lastQ.contains("elaborate")
+            if (lastQ.contains("elaborate")
                 || lastQ.contains("tell me more")
                 || lastQ.contains("give me more details")
                 || lastQ.contains("more details")
@@ -282,7 +331,19 @@ public class QuestionService {
                 || lastQ.contains("can you repeat")
                 || lastQ.contains("what do you mean")
                 || lastQ.contains("next prompt from the server")
-                || lastQ.contains("staying on what you just said");
+                || lastQ.contains("staying on what you just said")
+                || lastQ.contains("can you explain")
+                || lastQ.contains("how does")
+                || lastQ.contains("how do")
+                || lastQ.contains("what is partition")
+                || lastQ.contains("what are topics")) {
+                return true;
+            }
+            List<String> prior = extractRecentBotQuestions(utterances, 3);
+            if (prior.size() >= 2 && isQuestionSimilar(prior.get(0), prior.get(1))) {
+                return true;
+            }
+            return false;
         }
         return false;
     }
@@ -460,6 +521,32 @@ public class QuestionService {
         return false;
     }
 
+    /** Long STT ramble with little distinct content — treat like vague so we do not loop cross-questions. */
+    private boolean isLowSubstanceAnswer(String answer) {
+        if (answer == null || answer.isBlank()) return false;
+        String trimmed = answer.trim().toLowerCase();
+        String[] words = trimmed.split("\\s+");
+        if (words.length < 20) return false;
+
+        Set<String> unique = new HashSet<>(Arrays.asList(words));
+        double uniqueRatio = (double) unique.size() / words.length;
+        if (uniqueRatio < 0.38) {
+            log.debug("Low substance: repetitive wording (unique ratio {})", uniqueRatio);
+            return true;
+        }
+
+        // Very short "sentences" chained without structure (common in noisy STT)
+        long singleWordRuns = 0;
+        for (String w : words) {
+            if (w.length() <= 2) singleWordRuns++;
+        }
+        if (singleWordRuns > words.length * 0.25 && uniqueRatio < 0.5) {
+            log.debug("Low substance: noisy STT fragment ratio");
+            return true;
+        }
+        return false;
+    }
+
     private String getVagueAnswerProbe() {
         String[] probes = {
             "Can you elaborate on that with a specific example?",
@@ -559,23 +646,110 @@ public class QuestionService {
 
     private int countRecentProbeQuestions(List<NextQuestionRequest.Utterance> utterances) {
         if (utterances == null || utterances.isEmpty()) return 0;
-        int size = utterances.size();
-        int start = Math.max(0, size - 8);
+        List<String> recentBot = extractRecentBotQuestions(utterances, 8);
         int count = 0;
-        for (int i = start; i < size; i++) {
-            NextQuestionRequest.Utterance u = utterances.get(i);
-            if (!"BOT".equals(u.speaker())) continue;
-            String text = u.text() == null ? "" : u.text().toLowerCase();
-            if (text.contains("elaborate")
-                || text.contains("tell me more")
-                || text.contains("specific example")
-                || text.contains("concrete")
-                || text.contains("didn't quite catch")
-                || text.contains("didnt quite catch")) {
+        for (String text : recentBot) {
+            String lower = text.toLowerCase();
+            if (lower.contains("elaborate")
+                || lower.contains("tell me more")
+                || lower.contains("specific example")
+                || lower.contains("concrete")
+                || lower.contains("didn't quite catch")
+                || lower.contains("didnt quite catch")
+                || lower.contains("can you explain")
+                || lower.contains("how does")
+                || lower.contains("what is partition")
+                || lower.contains("what are topics")) {
                 count++;
             }
         }
+        count += countSimilarRepeatedBotQuestions(utterances);
         return count;
+    }
+
+    private List<String> extractRecentBotQuestions(List<NextQuestionRequest.Utterance> utterances, int max) {
+        if (utterances == null || utterances.isEmpty()) return List.of();
+        List<String> bot = new ArrayList<>();
+        for (int i = utterances.size() - 1; i >= 0 && bot.size() < max; i--) {
+            NextQuestionRequest.Utterance u = utterances.get(i);
+            if ("BOT".equals(u.speaker()) && u.text() != null && !u.text().isBlank()) {
+                bot.add(u.text().trim());
+            }
+        }
+        return bot;
+    }
+
+    private int countSimilarRepeatedBotQuestions(List<NextQuestionRequest.Utterance> utterances) {
+        List<String> recent = extractRecentBotQuestions(utterances, 5);
+        int repeats = 0;
+        for (int i = 0; i < recent.size() - 1; i++) {
+            if (isQuestionSimilar(recent.get(i), recent.get(i + 1))) repeats++;
+        }
+        return repeats;
+    }
+
+    private int countRecentCrossQuestions(List<NextQuestionRequest.Utterance> utterances) {
+        return countSimilarRepeatedBotQuestions(utterances);
+    }
+
+    private boolean shouldBlockCrossQuestion(NextQuestionRequest req) {
+        return countRecentCrossQuestions(req.getUtterances()) >= MAX_CROSS_QUESTIONS_PER_SLOT
+            || countSimilarRepeatedBotQuestions(req.getUtterances()) >= 1;
+    }
+
+    private boolean isQuestionSimilarToRecent(String question, List<String> recent) {
+        if (question == null || question.isBlank() || recent == null) return false;
+        for (String r : recent) {
+            if (isQuestionSimilar(question, r)) return true;
+        }
+        return false;
+    }
+
+    private boolean isQuestionSimilar(String a, String b) {
+        if (a == null || b == null) return false;
+        String na = normalizeQuestion(a);
+        String nb = normalizeQuestion(b);
+        if (na.isBlank() || nb.isBlank()) return false;
+        if (na.equals(nb)) return true;
+        if (na.length() >= 25 && nb.length() >= 25 && (na.contains(nb) || nb.contains(na))) return true;
+        return wordSimilarity(a, b) >= QUESTION_SIMILARITY_THRESHOLD;
+    }
+
+    private static String normalizeQuestion(String q) {
+        return q.toLowerCase()
+            .replaceAll("[^a-z0-9\\s]", " ")
+            .replaceAll("\\s+", " ")
+            .trim();
+    }
+
+    private static double wordSimilarity(String a, String b) {
+        Set<String> wa = tokenSet(a);
+        Set<String> wb = tokenSet(b);
+        if (wa.isEmpty() || wb.isEmpty()) return 0;
+        long inter = wa.stream().filter(wb::contains).count();
+        long union = wa.size() + wb.size() - inter;
+        return union == 0 ? 0 : (double) inter / union;
+    }
+
+    private static Set<String> tokenSet(String text) {
+        Set<String> tokens = new HashSet<>();
+        for (String w : normalizeQuestion(text).split("\\s+")) {
+            if (w.length() > 2) tokens.add(w);
+        }
+        return tokens;
+    }
+
+    private static int relevancyScore(String label) {
+        if (label == null) return 2;
+        return switch (label.trim().toUpperCase()) {
+            case "HIGH" -> 3;
+            case "LOW" -> 1;
+            default -> 2;
+        };
+    }
+
+    private boolean resolveIsCoding(String questionText, String questionType) {
+        return detectCodingQuestion(questionText, questionType);
     }
 
     private String deterministicProgressQuestion(NextQuestionRequest req) {
@@ -614,16 +788,32 @@ public class QuestionService {
             return null;
         }
 
+        if (shouldBlockCrossQuestion(req)) {
+            log.info("Cross-question cap reached — selecting next bank question deterministically");
+            return pickBestBankQuestionFallback(req, unusedQuestions, "CROSS_CAP");
+        }
+
         // Let AI select the best question from question bank
         String selectedQuestionJson = llmSelectQuestionFromBank(req, unusedQuestions, userId);
         com.fasterxml.jackson.databind.JsonNode selectedQuestion = mapper.readTree(selectedQuestionJson);
-        
+
         String questionText = selectedQuestion.path("question").asText();
         String questionBankId = selectedQuestion.path("questionBankId").asText("");
         if (questionBankId.isBlank()) questionBankId = null;
-        boolean llmCoding = selectedQuestion.path("isCoding").asBoolean(false);
+        String source = selectedQuestion.path("source").asText("QUESTION_BANK");
         String preferredLanguage = selectedQuestion.path("preferredLanguage").asText("");
         if (preferredLanguage.isBlank()) preferredLanguage = null;
+
+        List<String> recentBot = extractRecentBotQuestions(req.getUtterances(), RECENT_BOT_QUESTIONS_FOR_DEDUP);
+        boolean crossQuestion = "AI_CROSS_QUESTION".equalsIgnoreCase(source);
+        if (crossQuestion && (shouldBlockCrossQuestion(req) || isQuestionSimilarToRecent(questionText, recentBot))) {
+            log.info("Blocked duplicate/overflow cross-question — using bank fallback");
+            return pickBestBankQuestionFallback(req, unusedQuestions, "CROSS_DEDUP");
+        }
+        if (isQuestionSimilarToRecent(questionText, recentBot)) {
+            log.info("Bank/LLM question duplicates recent dialogue — using bank fallback");
+            return pickBestBankQuestionFallback(req, unusedQuestions, "DEDUP");
+        }
 
         String bankQuestionType = null;
         if (questionBankId != null && !questionBankId.isBlank()) {
@@ -635,16 +825,65 @@ public class QuestionService {
             }
         }
 
-        boolean isCoding = llmCoding || detectCodingQuestion(questionText, bankQuestionType);
+        boolean isCoding = resolveIsCoding(questionText, bankQuestionType);
         if (preferredLanguage == null || preferredLanguage.isBlank()) {
             preferredLanguage = inferLanguageFromContext(questionText, req.getJdTitle());
         }
+        if (isCoding) {
+            preferredLanguage = inferLanguageFromContext(questionText, req.getJdTitle());
+        }
 
-        log.info("Selected question from question bank: ID={}, isCoding={}", questionBankId, isCoding);
+        log.info("Selected question from question bank: ID={}, source={}, isCoding={}", questionBankId, source, isCoding);
         return new QuestionResult(questionText, false, false,
             questionBankId != null && !questionBankId.isBlank() ? questionBankId : null,
-            selectedQuestion.path("source").asText("QUESTION_BANK"),
+            source,
             isCoding, preferredLanguage, null);
+    }
+
+    private QuestionResult pickBestBankQuestionFallback(
+            NextQuestionRequest req,
+            List<com.fasterxml.jackson.databind.JsonNode> unusedQuestions,
+            String reason) {
+        Integer codingSlot = codingSlotForMode(req.getInterviewMode() != null ? req.getInterviewMode() : "L3");
+        boolean wantCoding = codingSlot != null && req.getSlot() == codingSlot
+            && !hasCodingQuestionBeenAsked(req.getUtterances());
+
+        com.fasterxml.jackson.databind.JsonNode best = null;
+        int bestScore = -1;
+        for (com.fasterxml.jackson.databind.JsonNode q : unusedQuestions) {
+            String type = q.path("questionType").asText("TECHNICAL");
+            boolean isBankCoding = "CODING".equalsIgnoreCase(type);
+            if (wantCoding && !isBankCoding) continue;
+            if (!wantCoding && isBankCoding) continue;
+
+            int score = relevancyScore(q.path("relevancyLabel").asText("MEDIUM"));
+            boolean hasHigher = unusedQuestions.stream()
+                .anyMatch(other -> relevancyScore(other.path("relevancyLabel").asText("MEDIUM")) > 1);
+            if (hasHigher && score < 2) continue;
+
+            if (score > bestScore) {
+                bestScore = score;
+                best = q;
+            }
+        }
+        if (best == null) {
+            for (com.fasterxml.jackson.databind.JsonNode q : unusedQuestions) {
+                int score = relevancyScore(q.path("relevancyLabel").asText("MEDIUM"));
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = q;
+                }
+            }
+        }
+        if (best == null) return null;
+
+        String questionText = best.path("text").asText();
+        String bankQuestionType = best.path("questionType").asText(null);
+        String questionBankId = best.path("id").asText();
+        boolean isCoding = resolveIsCoding(questionText, bankQuestionType);
+        String lang = inferLanguageFromContext(questionText, req.getJdTitle());
+        log.info("Bank fallback ({}) ID={}, relevancy={}", reason, questionBankId, best.path("relevancyLabel").asText(""));
+        return new QuestionResult(questionText, false, false, questionBankId, "QUESTION_BANK", isCoding, lang, null);
     }
 
     private String llmSelectQuestionFromBank(NextQuestionRequest req, List<com.fasterxml.jackson.databind.JsonNode> unusedQuestions, String userId) throws Exception {
@@ -653,16 +892,40 @@ public class QuestionService {
         String slotTheme = slotThemes.getOrDefault(req.getSlot(),
             "Continue probing technical depth and communication quality relevant to the role.");
 
-        // Build question bank context
+        // Build question bank context (prefer HIGH/MEDIUM; avoid LOW when alternatives exist)
         StringBuilder questionBankContext = new StringBuilder("Available Question Bank Questions:\n");
+        boolean hasHighOrMedium = unusedQuestions.stream()
+            .anyMatch(q -> relevancyScore(q.path("relevancyLabel").asText("MEDIUM")) >= 2);
         for (int i = 0; i < unusedQuestions.size(); i++) {
             com.fasterxml.jackson.databind.JsonNode q = unusedQuestions.get(i);
+            if (hasHighOrMedium && relevancyScore(q.path("relevancyLabel").asText("MEDIUM")) < 2) {
+                continue;
+            }
             questionBankContext.append(i + 1).append(". ")
                 .append("[ID: ").append(q.path("id").asText()).append("] ")
                 .append("[Type: ").append(q.path("questionType").asText("TECHNICAL")).append("] ")
                 .append(q.path("text").asText())
                 .append(" (Relevancy: ").append(q.path("relevancyLabel").asText("MEDIUM")).append(")\n");
         }
+        if (questionBankContext.length() < 80) {
+            questionBankContext.setLength(0);
+            questionBankContext.append("Available Question Bank Questions:\n");
+            for (int i = 0; i < unusedQuestions.size(); i++) {
+                com.fasterxml.jackson.databind.JsonNode q = unusedQuestions.get(i);
+                questionBankContext.append(i + 1).append(". ")
+                    .append("[ID: ").append(q.path("id").asText()).append("] ")
+                    .append("[Type: ").append(q.path("questionType").asText("TECHNICAL")).append("] ")
+                    .append(q.path("text").asText())
+                    .append(" (Relevancy: ").append(q.path("relevancyLabel").asText("MEDIUM")).append(")\n");
+            }
+        }
+
+        List<String> recentBot = extractRecentBotQuestions(req.getUtterances(), RECENT_BOT_QUESTIONS_FOR_DEDUP);
+        String recentQuestionsBlock = recentBot.isEmpty()
+            ? "None"
+            : String.join("\n- ", recentBot);
+
+        boolean crossBlocked = shouldBlockCrossQuestion(req);
 
         String system =
             "You are an expert technical recruiter. Select EXACTLY ONE question from the available question bank context.\n" +
@@ -672,11 +935,15 @@ public class QuestionService {
             "Question Bank: " + questionBankContext + "\n" +
             "Active Slot Theme: " + slotTheme + "\n" +
             "Active Mode: " + mode + "\n" +
+            "Recently asked (DO NOT repeat or paraphrase closely):\n- " + recentQuestionsBlock + "\n" +
             "\n" +
             "SELECTION LOGIC:\n" +
-            "1. Cross-reference the conversation flow and choose the highest relevancy score (HIGH > MEDIUM > LOW).\n" +
-            "2. If the candidate's response is vague, or you need to dig deeper into a specific technical gap, you must pivot. Return source as \"AI_CROSS_QUESTION\" and generate an original follow-up query.\n" +
-            "3. Track historically used question IDs to avoid repeating topics.\n" +
+            "1. Prefer unused bank questions with relevancy HIGH, then MEDIUM. Do not pick LOW if HIGH/MEDIUM exist.\n" +
+            "2. Cross-question (source AI_CROSS_QUESTION) only if the last answer needs one brief clarification AND no cross-question was already asked on this topic. Maximum one cross-question before moving to a new bank question.\n" +
+            (crossBlocked ? "3. Cross-questions are DISALLOWED this turn — you MUST return source QUESTION_BANK with a new unused question ID.\n"
+                : "3. If you cross-question, it must be a NEW angle — never repeat the previous interviewer question.\n") +
+            "4. isCoding MUST be true ONLY when the candidate must write executable code in an editor (implement function, algorithm with I/O). Conceptual, architecture, and Kafka/system-design questions MUST have isCoding false.\n" +
+            "5. preferredLanguage only when isCoding is true; otherwise null.\n" +
             "\n" +
             "OUTPUT SPECIFICATION:\n" +
             "You must output ONLY a valid, raw JSON object. Do NOT wrap it in markdown fences like ```json. Do NOT include any trailing comments.\n" +
@@ -791,20 +1058,17 @@ public class QuestionService {
         }
 
         if (slot == codingSlot && !alreadyHadCoding) {
-            if (!result.isCoding()) {
-                String q = result.question();
-                if (!detectCodingQuestion(q, null)) {
-                    q = defaultCodingPrompt(req);
-                } else {
-                    q = q + " Use the code editor and click Run & Submit when your solution is ready.";
-                }
-                String lang = result.preferredLanguage() != null && !result.preferredLanguage().isBlank()
-                    ? result.preferredLanguage()
-                    : inferLanguageFromContext(q, req.getJdTitle());
-                log.info("Forcing coding question at slot {} for mode {}", slot, mode);
-                return copyResult(result, q, true, lang, result.starterCode());
+            String q = result.question();
+            String bankType = bankQuestionTypeForResult(req, result);
+            boolean textIsCoding = detectCodingQuestion(q, bankType);
+            if (!textIsCoding) {
+                q = defaultCodingPrompt(req);
+            } else if (!q.toLowerCase().contains("code editor")) {
+                q = q + " Use the code editor and click Run & Submit when your solution is ready.";
             }
-            return result;
+            String lang = inferLanguageFromContext(q, req.getJdTitle());
+            log.info("Forcing coding question at slot {} for mode {} (textIsCoding={})", slot, mode, textIsCoding);
+            return copyResult(result, q, true, lang, result.starterCode());
         }
 
         if (result.isCoding() && slot != codingSlot) {
