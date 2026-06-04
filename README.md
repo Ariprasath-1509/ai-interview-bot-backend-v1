@@ -492,7 +492,7 @@ docker compose up -d
 
 # Verify
 docker compose ps
-curl -sf http://localhost:6013/health    # whisper-stt
+curl -sf http://localhost:6013/docs || nc -z localhost 6013   # whisper-stt (OpenAPI UI or port open)
 curl -sf http://localhost:6002/actuator/health  # gateway (via Eureka chain)
 ```
 
@@ -509,7 +509,7 @@ curl -sf http://localhost:6002/actuator/health  # gateway (via Eureka chain)
 ### Health checks
 
 - **Java services:** TCP port check on service port
-- **whisper-stt:** `curl -sf http://127.0.0.1:8000/health`
+- **whisper-stt:** Python TCP probe on port 8000 (works with `/bin/sh`; no `curl`/`/health`)
 - **coqui-tts:** TCP 5002
 - **ELK:** Elasticsearch cluster health, Logstash API
 
