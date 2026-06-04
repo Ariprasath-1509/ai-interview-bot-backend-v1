@@ -252,7 +252,7 @@ services:
       ops-service:
         condition: service_healthy
       whisper-stt:
-        condition: service_healthy
+        condition: service_started
       coqui-tts:
         condition: service_healthy
     networks:
@@ -359,12 +359,12 @@ services:
       - bench-network
     restart: unless-stopped
     healthcheck:
-      # CMD-SHELL uses /bin/sh (not bash); /dev/tcp is bash-only. Python exists in this uv image.
-      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('127.0.0.1',8000),5); s.close()\" || exit 1"]
-      interval: 20s
-      timeout: 10s
-      retries: 15
-      start_period: 300s
+      # Use uv run python (same runtime as uvicorn). Avoid CMD-SHELL: python may not be on PATH as `python`.
+      test: ["CMD", "uv", "run", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8000),5).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
     deploy:
       resources:
         limits:
