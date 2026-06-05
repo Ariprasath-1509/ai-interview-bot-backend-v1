@@ -186,7 +186,8 @@ public class ProctoringService {
                 "camera_blocked", 20,
                 "multiple_faces", 30,
                 "no_face", 10,
-                "looking_away", 8
+                "looking_away", 8,
+                "gaze_away", 5
         );
         for (Map<String, Object> event : events) {
             String type = String.valueOf(event.getOrDefault("type", ""));
