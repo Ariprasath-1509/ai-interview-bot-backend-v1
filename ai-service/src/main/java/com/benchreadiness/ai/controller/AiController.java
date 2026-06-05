@@ -15,6 +15,8 @@ import com.benchreadiness.ai.service.TranscribeService;
 import com.benchreadiness.ai.service.TtsService;
 import com.benchreadiness.ai.service.JsonRepairUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -26,6 +28,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/ai")
 public class AiController {
+
+    private static final Logger log = LoggerFactory.getLogger(AiController.class);
 
     private final QuestionService questionService;
     private final AssessmentService assessmentService;
