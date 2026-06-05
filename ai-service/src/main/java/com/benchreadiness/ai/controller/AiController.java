@@ -300,7 +300,7 @@ public class AiController {
         }
     }
 
-    @PostMapping(name = "/transcribe", consumes = "multipart/form-data")
+    @PostMapping(value = "/transcribe", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> transcribe(
             @RequestParam("audio") MultipartFile audio,
             @RequestParam(required = false) String language) {
@@ -316,9 +316,10 @@ public class AiController {
         try {
             return ResponseEntity.ok(transcribeService.transcribe(audio, language));
         } catch (Exception e) {
+            log.error("[STT] transcribe failed: {}", e.getMessage(), e);
             return ResponseEntity.status(502).body(Map.of(
                 "error", "transcribe_failed",
-                "detail", e.getMessage()
+                "detail", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()
             ));
         }
     }

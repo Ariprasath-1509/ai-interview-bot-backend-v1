@@ -88,14 +88,20 @@ public class TranscribeService {
     private Map<String, Object> callFasterWhisper(File audioFile, String language) throws Exception {
         String boundary = "----BRSTTBoundary" + UUID.randomUUID().toString().replace("-", "");
         ByteArrayOutputStream body = new ByteArrayOutputStream();
-        writeField(body, boundary, "model", whisperModel);
+        // Let faster-whisper-server use WHISPER_MODEL from its container env unless a full HF id is configured.
+        if (shouldSendWhisperModel()) {
+            writeField(body, boundary, "model", whisperModel);
+        }
         if (language != null && !language.isBlank() && !"auto".equalsIgnoreCase(language)) {
             writeField(body, boundary, "language", language);
         }
         byte[] audioBytes = Files.readAllBytes(audioFile.toPath());
         body.write(("--" + boundary + "\r\n").getBytes());
         body.write(("Content-Disposition: form-data; name=\"file\"; filename=\"audio" + getExt(audioFile) + "\"\r\n").getBytes());
-        body.write(("Content-Type: application/octet-stream\r\n\r\n").getBytes());
+        String contentType = getExt(audioFile).equalsIgnoreCase(".webm")
+                ? "audio/webm"
+                : "application/octet-stream";
+        body.write(("Content-Type: " + contentType + "\r\n\r\n").getBytes());
         body.write(audioBytes);
         body.write("\r\n".getBytes());
         body.write(("--" + boundary + "--\r\n").getBytes());
@@ -175,5 +181,12 @@ public class TranscribeService {
         String n = f.getName();
         int i = n.lastIndexOf('.');
         return i >= 0 ? n.substring(i) : ".webm";
+    }
+
+    /** Only send model when explicitly set to a HuggingFace-style id (e.g. Systran/faster-whisper-medium). */
+    private boolean shouldSendWhisperModel() {
+        if (whisperModel == null || whisperModel.isBlank()) return false;
+        if ("whisper-1".equalsIgnoreCase(whisperModel)) return false;
+        return whisperModel.contains("/");
     }
 }
