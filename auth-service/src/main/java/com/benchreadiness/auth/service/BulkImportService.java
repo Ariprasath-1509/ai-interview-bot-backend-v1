@@ -2,7 +2,8 @@ package com.benchreadiness.auth.service;
 
 import com.benchreadiness.auth.dto.BulkImportRequest;
 import com.benchreadiness.auth.dto.BulkImportResponse;
-import com.benchreadiness.auth.entity.*;
+import com.benchreadiness.auth.entity.User;
+import com.benchreadiness.auth.entity.UserRole;
 import com.benchreadiness.auth.repository.UserRepository;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -109,9 +110,12 @@ public class BulkImportService {
         // Set candidate-specific fields
         user.setBatch(candidateData.getBatch());
         user.setBatchMentor(candidateData.getBatchMentor());
-        user.setSource(candidateData.getSource() != null ? CandidateSource.valueOf(candidateData.getSource()) : null);
-        user.setCandidateStatus(candidateData.getStatus() != null ? CandidateStatus.valueOf(candidateData.getStatus()) : CandidateStatus.TRAINING);
-        user.setRating(candidateData.getRating() != null ? CandidateRating.valueOf(candidateData.getRating()) : null);
+        user.setSource(candidateData.getSource() != null
+                ? candidateData.getSource().toUpperCase() : null);
+        user.setCandidateStatus(candidateData.getStatus() != null
+                ? candidateData.getStatus().toUpperCase() : "TRAINING");
+        user.setRating(candidateData.getRating() != null
+                ? candidateData.getRating().toUpperCase() : null);
         user.setContactNumber(candidateData.getContactNumber());
         user.setOfficialEmail(candidateData.getOfficialEmail());
         user.setPersonalEmail(candidateData.getPersonalEmail());
@@ -125,7 +129,7 @@ public class BulkImportService {
         }
         
         if (candidateData.getSkillSet() != null) {
-            try { user.setSkillSet(SkillSet.valueOf(candidateData.getSkillSet())); } catch (IllegalArgumentException ignored) {}
+            user.setSkillSet(candidateData.getSkillSet().toUpperCase());
         }
         user.setNoOfInterviews(candidateData.getNoOfInterviews() != null ? candidateData.getNoOfInterviews() : 0);
         user.setYop(candidateData.getYop());

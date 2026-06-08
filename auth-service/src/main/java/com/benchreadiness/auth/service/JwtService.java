@@ -1,6 +1,7 @@
 package com.benchreadiness.auth.service;
 
 import com.benchreadiness.auth.entity.User;
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.Optional;
 
 @Service
 public class JwtService {
@@ -27,7 +29,7 @@ public class JwtService {
                 .claim("email", user.getEmail())
                 .claim("role", user.getRole().name());
         if (user.getAdminSource() != null) {
-            builder.claim("adminSource", user.getAdminSource().name());
+            builder.claim("adminSource", user.getAdminSource());
         }
         return builder
                 .issuedAt(now)
@@ -35,4 +37,28 @@ public class JwtService {
                 .signWith(Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8)))
                 .compact();
     }
+
+    /** Extract user id and role from a bearer token (used when gateway headers are absent). */
+    public Optional<TokenUser> parseToken(String token) {
+        if (token == null || token.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            Claims claims = Jwts.parser()
+                    .verifyWith(Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8)))
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+            String userId = claims.getSubject();
+            String role = claims.get("role", String.class);
+            if (role == null || role.isBlank()) {
+                return Optional.empty();
+            }
+            return Optional.of(new TokenUser(userId, role));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    public record TokenUser(String userId, String role) {}
 }

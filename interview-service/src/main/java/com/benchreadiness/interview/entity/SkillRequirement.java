@@ -17,22 +17,19 @@ public class SkillRequirement {
     @JoinColumn(name = "client_id", nullable = false)
     private Client client;
     
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private SkillSet skillSet;
+    @Column(name = "skill_set", nullable = false, length = 128)
+    private String skillSet;
     
     @OneToMany(mappedBy = "skillRequirement", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<PositionRequirement> positions = new ArrayList<>();
     
-    // Constructors
     public SkillRequirement() {}
     
-    public SkillRequirement(Client client, SkillSet skillSet) {
+    public SkillRequirement(Client client, String skillSet) {
         this.client = client;
         this.skillSet = skillSet;
     }
     
-    // Getters and Setters
     public UUID getId() {
         return id;
     }
@@ -49,11 +46,11 @@ public class SkillRequirement {
         this.client = client;
     }
     
-    public SkillSet getSkillSet() {
+    public String getSkillSet() {
         return skillSet;
     }
     
-    public void setSkillSet(SkillSet skillSet) {
+    public void setSkillSet(String skillSet) {
         this.skillSet = skillSet;
     }
     

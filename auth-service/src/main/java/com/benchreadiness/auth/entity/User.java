@@ -39,30 +39,20 @@ public class User {
     @Column(name = "batch", length = 100)
     private String batch;
 
-    @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "source", columnDefinition = "auth_svc.candidate_source")
-    private CandidateSource source;
+    @Column(name = "source", length = 128)
+    private String source;
 
-    @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "candidate_status", columnDefinition = "auth_svc.candidate_status")
-    private CandidateStatus candidateStatus;
+    @Column(name = "candidate_status", length = 128)
+    private String candidateStatus;
 
-    @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "rating", columnDefinition = "auth_svc.candidate_rating")
-    private CandidateRating rating;
+    @Column(name = "rating", length = 128)
+    private String rating;
 
-    @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "skill_set", columnDefinition = "auth_svc.skill_set")
-    private SkillSet skillSet;
+    @Column(name = "skill_set", length = 128)
+    private String skillSet;
 
-    @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "admin_source", columnDefinition = "auth_svc.admin_source")
-    private AdminSource adminSource;
+    @Column(name = "admin_source", length = 128)
+    private String adminSource;
 
     @Column(name = "yoe_actual", precision = 4, scale = 1)
     private BigDecimal yoeActual;
@@ -156,14 +146,14 @@ public class User {
     public void setPersonalEmail(String personalEmail) { this.personalEmail = personalEmail; }
     public String getBatch() { return batch; }
     public void setBatch(String batch) { this.batch = batch; }
-    public CandidateSource getSource() { return source; }
-    public void setSource(CandidateSource source) { this.source = source; }
-    public CandidateStatus getCandidateStatus() { return candidateStatus; }
-    public void setCandidateStatus(CandidateStatus candidateStatus) { this.candidateStatus = candidateStatus; }
-    public CandidateRating getRating() { return rating; }
-    public void setRating(CandidateRating rating) { this.rating = rating; }
-    public SkillSet getSkillSet() { return skillSet; }
-    public void setSkillSet(SkillSet skillSet) { this.skillSet = skillSet; }
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
+    public String getCandidateStatus() { return candidateStatus; }
+    public void setCandidateStatus(String candidateStatus) { this.candidateStatus = candidateStatus; }
+    public String getRating() { return rating; }
+    public void setRating(String rating) { this.rating = rating; }
+    public String getSkillSet() { return skillSet; }
+    public void setSkillSet(String skillSet) { this.skillSet = skillSet; }
     public BigDecimal getYoeActual() { return yoeActual; }
     public void setYoeActual(BigDecimal yoeActual) { this.yoeActual = yoeActual; }
     public BigDecimal getYoePortrayed() { return yoePortrayed; }
@@ -174,8 +164,8 @@ public class User {
     public void setSystemInterviewCount(Integer systemInterviewCount) { this.systemInterviewCount = systemInterviewCount; }
     public Integer getYop() { return yop; }
     public void setYop(Integer yop) { this.yop = yop; }
-    public AdminSource getAdminSource() { return adminSource; }
-    public void setAdminSource(AdminSource adminSource) { this.adminSource = adminSource; }
+    public String getAdminSource() { return adminSource; }
+    public void setAdminSource(String adminSource) { this.adminSource = adminSource; }
 
     // Resume getters and setters
     public String getResumeFilename() { return resumeFilename; }

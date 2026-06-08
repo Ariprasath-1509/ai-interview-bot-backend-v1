@@ -2,6 +2,8 @@ package com.benchreadiness.auth.service;
 
 import com.benchreadiness.auth.dto.BulkImportRequest;
 import com.benchreadiness.auth.dto.BulkImportResponse;
+import com.benchreadiness.auth.masterdata.MasterDataCategory;
+import com.benchreadiness.auth.masterdata.MasterDataService;
 import com.benchreadiness.auth.repository.UserRepository;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -17,7 +19,13 @@ import java.util.regex.Pattern;
 public class ExcelParserService {
 
     private final UserRepository userRepository;
+    private final MasterDataService masterDataService;
     private final Map<String, BulkImportRequest> importSessions = new HashMap<>();
+
+    public ExcelParserService(UserRepository userRepository, MasterDataService masterDataService) {
+        this.userRepository = userRepository;
+        this.masterDataService = masterDataService;
+    }
 
     // Column mapping based on Excel headers
     private static final Map<String, Integer> COLUMN_MAPPING = new HashMap<String, Integer>() {{
@@ -44,10 +52,6 @@ public class ExcelParserService {
     );
 
     private static final Pattern PHONE_PATTERN = Pattern.compile("^[0-9]{10}$");
-
-    public ExcelParserService(UserRepository userRepository) {
-        this.userRepository = userRepository;
-    }
 
     public BulkImportResponse parseExcelFile(MultipartFile file) throws IOException {
         String sessionId = UUID.randomUUID().toString();
@@ -209,13 +213,9 @@ public class ExcelParserService {
         }
 
         // Skill set validation — optional, warn on unknown values
-        if (!isBlank(candidate.getSkillSet())) {
-            try {
-                com.benchreadiness.auth.entity.SkillSet.valueOf(candidate.getSkillSet());
-            } catch (IllegalArgumentException e) {
-                errors.add(new BulkImportResponse.ValidationError(row, "skillSet",
-                    "Unrecognized skill set, will be skipped: " + candidate.getSkillSet(), candidate.getSkillSet(), "WARNING"));
-            }
+        if (!isBlank(candidate.getSkillSet()) && !masterDataService.isValid(MasterDataCategory.SKILL_SET, candidate.getSkillSet())) {
+            errors.add(new BulkImportResponse.ValidationError(row, "skillSet",
+                "Unrecognized skill set, will be skipped: " + candidate.getSkillSet(), candidate.getSkillSet(), "WARNING"));
         }
 
         // YOE validation

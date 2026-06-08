@@ -29,7 +29,7 @@ spring:
         default_schema: auth_svc
     open-in-view: false
   flyway:
-    schemas: auth_svc
+    schemas: auth_svc,master_data_svc
     locations: classpath:db/migration
     connect-retries: 5
     connect-retries-interval: 10s

@@ -1,8 +1,12 @@
 package com.benchreadiness.auth.controller;
 
 import com.benchreadiness.auth.dto.*;
-import com.benchreadiness.auth.entity.*;
+import com.benchreadiness.auth.entity.DeploymentHistory;
+import com.benchreadiness.auth.entity.User;
+import com.benchreadiness.auth.entity.UserRole;
 import com.benchreadiness.auth.repository.UserRepository;
+import com.benchreadiness.auth.masterdata.MasterDataCategory;
+import com.benchreadiness.auth.masterdata.MasterDataService;
 import com.benchreadiness.auth.service.*;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -30,12 +34,9 @@ public class AuthController {
     private static final Set<UserRole> STAFF_ROLES =
         Set.of(UserRole.RECRUITER, UserRole.ADMIN, UserRole.SUPER_ADMIN);
 
-    private static final List<CandidateSource> BENCH_SOURCES = List.of(CandidateSource.BENCH, CandidateSource.B2B);
-    private static final List<CandidateSource> BD_SOURCES = List.of(CandidateSource.B2B);
-    private static final List<CandidateSource> RECRUITMENT_SOURCES = List.of(CandidateSource.MARKET);
-
     private final UserRepository userRepository;
     private final JwtService jwtService;
+    private final MasterDataService masterDataService;
     private final ExcelParserService excelParserService;
     private final BulkImportService bulkImportService;
     private final DeploymentService deploymentService;
@@ -45,6 +46,7 @@ public class AuthController {
     private final CandidateBulkImportService candidateBulkImportService;
 
     public AuthController(UserRepository userRepository, JwtService jwtService,
+                         MasterDataService masterDataService,
                          ExcelParserService excelParserService, BulkImportService bulkImportService,
                          DeploymentService deploymentService, OtpService otpService,
                          EmailService emailService,
@@ -52,6 +54,7 @@ public class AuthController {
                          CandidateBulkImportService candidateBulkImportService) {
         this.userRepository = userRepository;
         this.jwtService = jwtService;
+        this.masterDataService = masterDataService;
         this.excelParserService = excelParserService;
         this.bulkImportService = bulkImportService;
         this.deploymentService = deploymentService;
@@ -76,8 +79,8 @@ public class AuthController {
         user.setOfficialEmail(req.getOfficialEmail());
         user.setPersonalEmail(req.getPersonalEmail());
         user.setBatch(req.getBatch());
-        user.setSource(req.getSource());
-        user.setSkillSet(req.getSkillSet());
+        user.setSource(masterDataService.normalizeAndValidate(MasterDataCategory.CANDIDATE_SOURCE, req.getSource()));
+        user.setSkillSet(masterDataService.normalizeAndValidate(MasterDataCategory.SKILL_SET, req.getSkillSet()));
         user.setYoeActual(req.getYoeActual());
         user.setYoePortrayed(req.getYoePortrayed());
         user.setYop(req.getYop());
@@ -108,8 +111,12 @@ public class AuthController {
         if (callerRole.equals("ADMIN") && !canAdminAccessCandidate(callerId, user)) {
             return ResponseEntity.status(403).body(Map.of("ok", false, "error", "You cannot manage candidates outside your source"));
         }
-        if (req.getRating() != null) user.setRating(req.getRating());
-        if (req.getCandidateStatus() != null) user.setCandidateStatus(req.getCandidateStatus());
+        if (req.getRating() != null) {
+            user.setRating(masterDataService.normalizeAndValidate(MasterDataCategory.CANDIDATE_RATING, req.getRating()));
+        }
+        if (req.getCandidateStatus() != null) {
+            user.setCandidateStatus(masterDataService.normalizeAndValidate(MasterDataCategory.CANDIDATE_STATUS, req.getCandidateStatus()));
+        }
         if (req.getNoOfInterviews() != null) user.setNoOfInterviews(req.getNoOfInterviews());
         // Extended fields — all roles
         if (req.getName() != null) user.setName(req.getName());
@@ -118,7 +125,9 @@ public class AuthController {
         if (req.getPersonalEmail() != null) user.setPersonalEmail(req.getPersonalEmail());
         if (req.getBatch() != null) user.setBatch(req.getBatch());
         if (req.getBatchMentor() != null) user.setBatchMentor(req.getBatchMentor());
-        if (req.getSkillSet() != null) user.setSkillSet(req.getSkillSet());
+        if (req.getSkillSet() != null) {
+            user.setSkillSet(masterDataService.normalizeAndValidate(MasterDataCategory.SKILL_SET, req.getSkillSet()));
+        }
         if (req.getYoeActual() != null) user.setYoeActual(req.getYoeActual());
         if (req.getYoePortrayed() != null) user.setYoePortrayed(req.getYoePortrayed());
         if (req.getYop() != null) user.setYop(req.getYop());
@@ -126,7 +135,9 @@ public class AuthController {
         if (req.getClientName() != null) user.setClientName(req.getClientName());
         // Source and email — SUPER_ADMIN only
         if (callerRole.equals("SUPER_ADMIN")) {
-            if (req.getSource() != null) user.setSource(req.getSource());
+            if (req.getSource() != null) {
+                user.setSource(masterDataService.normalizeAndValidate(MasterDataCategory.CANDIDATE_SOURCE, req.getSource()));
+            }
             if (req.getEmail() != null) user.setEmail(req.getEmail());
         }
         userRepository.save(user);
@@ -159,7 +170,10 @@ public class AuthController {
         }
         // ADMIN role requires adminSource
         if (req.getRole() == UserRole.ADMIN && req.getAdminSource() == null) {
-            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "adminSource (BENCH, BD, or RECRUITMENT) is required for ADMIN role"));
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "adminSource is required for ADMIN role"));
+        }
+        if (req.getRole() == UserRole.ADMIN) {
+            masterDataService.requireValid(MasterDataCategory.ADMIN_SOURCE, req.getAdminSource());
         }
         if (userRepository.findByEmail(req.getEmail()).isPresent()) {
             return ResponseEntity.status(409).body(Map.of("ok", false, "error", "Email already registered"));
@@ -170,7 +184,7 @@ public class AuthController {
         user.setPassword(req.getPassword());
         user.setRole(req.getRole());
         if (req.getRole() == UserRole.ADMIN) {
-            user.setAdminSource(req.getAdminSource());
+            user.setAdminSource(masterDataService.normalizeCode(req.getAdminSource()));
         }
         userRepository.save(user);
         
@@ -204,7 +218,7 @@ public class AuthController {
         response.put("role", user.getRole().name());
         response.put("name", user.getName() != null ? user.getName() : "");
         if (user.getAdminSource() != null) {
-            response.put("adminSource", user.getAdminSource().name());
+            response.put("adminSource", user.getAdminSource());
         }
         return ResponseEntity.ok(response);
     }
@@ -278,7 +292,7 @@ public class AuthController {
                                             @RequestHeader("X-User-Id") String callerId,
                                             @RequestHeader("X-User-Role") String callerRole) {
         
-        List<CandidateSource> allowedSources = getAllowedSources(callerId, callerRole);
+        List<String> allowedSources = getAllowedSources(callerId, callerRole);
         List<?> candidates;
         if (allowedSources == null) {
             // SUPER_ADMIN or RECRUITER — see all
@@ -319,7 +333,7 @@ public class AuthController {
                 map.put("email", u.getEmail());
                 map.put("role", u.getRole().name());
                 if (u.getAdminSource() != null) {
-                    map.put("adminSource", u.getAdminSource().name());
+                    map.put("adminSource", u.getAdminSource());
                 }
                 return map;
             })
@@ -344,10 +358,10 @@ public class AuthController {
         Map<String, Object> pipeline = new HashMap<>();
         
         // Count by status
-        long rfdCount = candidates.stream().filter(c -> c.getCandidateStatus() == CandidateStatus.RFD).count();
-        long wfdCount = candidates.stream().filter(c -> c.getCandidateStatus() == CandidateStatus.WFD).count();
-        long dobCount = candidates.stream().filter(c -> c.getCandidateStatus() == CandidateStatus.DOB).count();
-        long deployedCount = candidates.stream().filter(c -> c.getCandidateStatus() == CandidateStatus.DEPLOYED).count();
+        long rfdCount = candidates.stream().filter(c -> "RFD".equals(c.getCandidateStatus())).count();
+        long wfdCount = candidates.stream().filter(c -> "WFD".equals(c.getCandidateStatus())).count();
+        long dobCount = candidates.stream().filter(c -> "DOB".equals(c.getCandidateStatus())).count();
+        long deployedCount = candidates.stream().filter(c -> "DEPLOYED".equals(c.getCandidateStatus())).count();
         
         pipeline.put("rfd", rfdCount);
         pipeline.put("wfd", wfdCount);
@@ -357,19 +371,19 @@ public class AuthController {
         // Count by source
         Map<String, Long> bySource = candidates.stream()
             .filter(c -> c.getSource() != null)
-            .collect(Collectors.groupingBy(c -> c.getSource().name(), Collectors.counting()));
+            .collect(Collectors.groupingBy(User::getSource, Collectors.counting()));
         pipeline.put("bySource", bySource);
         
         // Count by rating
         Map<String, Long> byRating = candidates.stream()
             .filter(c -> c.getRating() != null)
-            .collect(Collectors.groupingBy(c -> c.getRating().name(), Collectors.counting()));
+            .collect(Collectors.groupingBy(User::getRating, Collectors.counting()));
         pipeline.put("byRating", byRating);
         
         // Count by skill set
         Map<String, Long> bySkillSet = candidates.stream()
             .filter(c -> c.getSkillSet() != null)
-            .collect(Collectors.groupingBy(c -> c.getSkillSet().name(), Collectors.counting()));
+            .collect(Collectors.groupingBy(User::getSkillSet, Collectors.counting()));
         pipeline.put("bySkillSet", bySkillSet);
         
         // Today's registrations
@@ -423,7 +437,7 @@ public class AuthController {
         map.put("role", role);
         map.put("email", email);
         if (user != null && user.getAdminSource() != null) {
-            map.put("adminSource", user.getAdminSource().name());
+            map.put("adminSource", user.getAdminSource());
         }
         return ResponseEntity.ok(map);
     }
@@ -721,7 +735,7 @@ public class AuthController {
                     user.getName(),
                     user.getEmail(),
                     newPassword, // Show the new readable password
-                    user.getSource() != null ? user.getSource().name() : "UNKNOWN",
+                    user.getSource() != null ? user.getSource() : "UNKNOWN",
                     user.getBatch(),
                     0
                 ));
@@ -748,25 +762,17 @@ public class AuthController {
      * Returns the candidate sources an admin is allowed to see.
      * BENCH admin → B2B, BENCH | RECRUITMENT admin → MARKET | SUPER_ADMIN/RECRUITER → null (all)
      */
-    private List<CandidateSource> getAllowedSources(String userId, String role) {
+    private List<String> getAllowedSources(String userId, String role) {
         if (!"ADMIN".equals(role)) return null;
         User admin = userRepository.findById(userId).orElse(null);
         if (admin == null || admin.getAdminSource() == null) return null;
-        return switch (admin.getAdminSource()) {
-            case BENCH -> BENCH_SOURCES;
-            case BD -> BD_SOURCES;
-            case RECRUITMENT -> RECRUITMENT_SOURCES;
-        };
+        return masterDataService.getAllowedCandidateSources(admin.getAdminSource());
     }
 
     private boolean canAdminAccessCandidate(String adminId, User candidate) {
         User admin = userRepository.findById(adminId).orElse(null);
         if (admin == null || admin.getAdminSource() == null) return true;
-        List<CandidateSource> allowed = switch (admin.getAdminSource()) {
-            case BENCH -> BENCH_SOURCES;
-            case BD -> BD_SOURCES;
-            case RECRUITMENT -> RECRUITMENT_SOURCES;
-        };
+        List<String> allowed = masterDataService.getAllowedCandidateSources(admin.getAdminSource());
         return candidate.getSource() == null || allowed.contains(candidate.getSource());
     }
 
@@ -777,7 +783,7 @@ public class AuthController {
         map.put("email", u.getEmail());
         map.put("role", u.getRole().name());
         if (u.getAdminSource() != null) {
-            map.put("adminSource", u.getAdminSource().name());
+            map.put("adminSource", u.getAdminSource());
         }
         return map;
     }
@@ -791,10 +797,10 @@ public class AuthController {
         map.put("officialEmail", u.getOfficialEmail());
         map.put("personalEmail", u.getPersonalEmail());
         map.put("batch", u.getBatch());
-        map.put("source", u.getSource() != null ? u.getSource().name() : null);
-        map.put("candidateStatus", u.getCandidateStatus() != null ? u.getCandidateStatus().name() : null);
-        map.put("rating", u.getRating() != null ? u.getRating().name() : null);
-        map.put("skillSet", u.getSkillSet() != null ? u.getSkillSet().name() : null);
+        map.put("source", u.getSource());
+        map.put("candidateStatus", u.getCandidateStatus());
+        map.put("rating", u.getRating());
+        map.put("skillSet", u.getSkillSet());
         map.put("yoeActual", u.getYoeActual());
         map.put("yoePortrayed", u.getYoePortrayed());
         map.put("noOfInterviews", u.getNoOfInterviews());

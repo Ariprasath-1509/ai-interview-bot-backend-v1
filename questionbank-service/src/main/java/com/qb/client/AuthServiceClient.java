@@ -1,12 +1,14 @@
 package com.qb.client;
 
+import com.qb.config.FeignAuthConfig;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
-@FeignClient(name = "auth-service", path = "/auth")
+@FeignClient(name = "auth-service", path = "/auth", configuration = FeignAuthConfig.class)
 public interface AuthServiceClient {
 
     @GetMapping("/me")
@@ -32,4 +34,32 @@ public interface AuthServiceClient {
 
     @PostMapping("/candidates/by-email/{email}/increment-interview-count")
     Map<String, Object> incrementInterviewCountByEmail(@PathVariable("email") String email);
+
+    @GetMapping("/master-data")
+    Map<String, List<Map<String, Object>>> getAllMasterData(
+            @RequestParam(value = "includeInactive", defaultValue = "false") boolean includeInactive);
+
+    @GetMapping("/master-data/categories")
+    List<String> getMasterDataCategories();
+
+    @GetMapping("/master-data/{category}")
+    List<Map<String, Object>> getMasterDataByCategory(
+            @PathVariable("category") String category,
+            @RequestParam(value = "includeInactive", defaultValue = "false") boolean includeInactive);
+
+    @PostMapping("/master-data/{category}")
+    Map<String, Object> createMasterDataEntry(
+            @PathVariable("category") String category,
+            @RequestBody Map<String, Object> body);
+
+    @PutMapping("/master-data/{category}/{id}")
+    Map<String, Object> updateMasterDataEntry(
+            @PathVariable("category") String category,
+            @PathVariable("id") UUID id,
+            @RequestBody Map<String, Object> body);
+
+    @DeleteMapping("/master-data/{category}/{id}")
+    Map<String, Object> deactivateMasterDataEntry(
+            @PathVariable("category") String category,
+            @PathVariable("id") UUID id);
 }

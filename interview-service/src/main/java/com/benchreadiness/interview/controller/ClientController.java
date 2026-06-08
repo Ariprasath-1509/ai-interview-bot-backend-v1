@@ -126,7 +126,7 @@ public class ClientController {
         boolean skillFound = false;
         boolean yoeMet = false;
         for (var skillReq : client.getSkillRequirements()) {
-            if (skillReq.getSkillSet() != null && skillReq.getSkillSet().name().equals(candidateSkillSet)) {
+            if (skillReq.getSkillSet() != null && skillReq.getSkillSet().equals(candidateSkillSet)) {
                 skillFound = true;
                 for (var pos : skillReq.getPositions()) {
                     double minYoe = pos.getMinYoeRequired() != null ? pos.getMinYoeRequired() : 0.0;
@@ -162,7 +162,7 @@ public class ClientController {
                     for (var posReq : skillReq.getPositions()) {
                         // Check if ANY candidate matches this skill + YOE + source
                         boolean hasMatch = allCandidates.stream().anyMatch(candidate -> 
-                            matchesSkillRequirement(candidate, skillReq.getSkillSet().name(), 
+                            matchesSkillRequirement(candidate, skillReq.getSkillSet(),
                                                    posReq.getMinYoeRequired(), posReq.getSource())
                         );
                         
@@ -273,7 +273,7 @@ public class ClientController {
         // Create a default JAVA_SB skill requirement if candidates are needed
         if (clientDTO.getBenchB2bCandidatesNeeded() > 0 || clientDTO.getMarketCandidatesNeeded() > 0) {
             com.benchreadiness.interview.dto.SkillRequirementDTO skillReq = 
-                new com.benchreadiness.interview.dto.SkillRequirementDTO(com.benchreadiness.interview.entity.SkillSet.JAVA_SB);
+                new com.benchreadiness.interview.dto.SkillRequirementDTO("JAVA_SB");
             
             List<com.benchreadiness.interview.dto.PositionRequirementDTO> positions = new ArrayList<>();
             

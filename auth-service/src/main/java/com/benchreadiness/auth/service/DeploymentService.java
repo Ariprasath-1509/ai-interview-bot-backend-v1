@@ -1,7 +1,9 @@
 package com.benchreadiness.auth.service;
 
 import com.benchreadiness.auth.dto.DeploymentBulkRequest;
-import com.benchreadiness.auth.entity.*;
+import com.benchreadiness.auth.entity.DeploymentHistory;
+import com.benchreadiness.auth.entity.User;
+import com.benchreadiness.auth.entity.UserRole;
 import com.benchreadiness.auth.repository.DeploymentHistoryRepository;
 import com.benchreadiness.auth.repository.UserRepository;
 import org.apache.poi.ss.usermodel.*;
@@ -200,8 +202,8 @@ public class DeploymentService {
                         candidate.setPassword(passwordEncoder.encode(defaultPassword));
                         
                         candidate.setRole(UserRole.CANDIDATE);
-                        candidate.setSource(CandidateSource.B2B);
-                        candidate.setCandidateStatus(CandidateStatus.DEPLOYED);
+                        candidate.setSource("B2B");
+                        candidate.setCandidateStatus("DEPLOYED");
                         candidate.setNoOfInterviews(0);
                         candidate.setSystemInterviewCount(0);
                         
@@ -214,12 +216,12 @@ public class DeploymentService {
                         isNewCandidate = true;
                     } else {
                         candidate = candidateOpt.get();
-                        hadPreviousDeployment = candidate.getCandidateStatus() == CandidateStatus.DEPLOYED;
+                        hadPreviousDeployment = "DEPLOYED".equals(candidate.getCandidateStatus());
                         
                         // Check if this is historical data (candidate is RFD/WFD/DOB but we're importing deployment history)
-                        if (candidate.getCandidateStatus() == CandidateStatus.RFD || 
-                            candidate.getCandidateStatus() == CandidateStatus.WFD || 
-                            candidate.getCandidateStatus() == CandidateStatus.DOB) {
+                        if ("RFD".equals(candidate.getCandidateStatus())
+                            || "WFD".equals(candidate.getCandidateStatus())
+                            || "DOB".equals(candidate.getCandidateStatus())) {
                             isHistoricalDeployment = true;
                         }
                     }
@@ -259,7 +261,7 @@ public class DeploymentService {
                         candidate.setDeployedClientName(clientName.trim());
                         candidate.setDeployedDate(deployedDate);
                         candidate.setMentor(mentor != null && !mentor.trim().isEmpty() ? mentor.trim() : null);
-                        candidate.setCandidateStatus(CandidateStatus.DEPLOYED);
+                        candidate.setCandidateStatus("DEPLOYED");
                         userRepository.save(candidate);
                     }
                     
@@ -350,7 +352,7 @@ public class DeploymentService {
         User candidate = userRepository.findById(candidateId)
                 .orElseThrow(() -> new RuntimeException("Candidate not found"));
         
-        String oldStatus = candidate.getCandidateStatus() != null ? candidate.getCandidateStatus().name() : "N/A";
+        String oldStatus = candidate.getCandidateStatus() != null ? candidate.getCandidateStatus() : "N/A";
         String oldClient = candidate.getDeployedClientName();
         
         // End active deployment in history
@@ -367,7 +369,7 @@ public class DeploymentService {
         candidate.setDeployedClientName(null);
         candidate.setDeployedDate(null);
         candidate.setMentor(null);
-        candidate.setCandidateStatus(CandidateStatus.RFD);
+        candidate.setCandidateStatus("RFD");
         
         User saved = userRepository.save(candidate);
         
@@ -397,7 +399,7 @@ public class DeploymentService {
         candidate.setDeployedClientName(clientName);
         candidate.setDeployedDate(deployedDate);
         candidate.setMentor(mentor);
-        candidate.setCandidateStatus(CandidateStatus.DEPLOYED);
+        candidate.setCandidateStatus("DEPLOYED");
         userRepository.save(candidate);
         
         // Create new deployment history record
@@ -419,16 +421,16 @@ public class DeploymentService {
         return endDeployment(candidateId, LocalDate.now());
     }
 
-    private SkillSet mapTechnologyToSkillSet(String technology) {
+    private String mapTechnologyToSkillSet(String technology) {
         String tech = technology.toLowerCase();
         if (tech.contains("java") || tech.contains("spring")) {
-            return SkillSet.JAVA_SB;
+            return "JAVA_SB";
         } else if (tech.contains("react")) {
-            return SkillSet.REACT_JS;
+            return "REACT_JS";
         } else if (tech.contains("full") || tech.contains("jfsr")) {
-            return SkillSet.JFSR;
+            return "JFSR";
         }
-        return SkillSet.JAVA_SB; // Default
+        return "JAVA_SB";
     }
 
     /**

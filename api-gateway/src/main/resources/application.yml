@@ -79,7 +79,7 @@ spring:
         - id: questionbank-service
           uri: lb://questionbank-service
           predicates:
-            - Path=/api/qb/**,/api/questionbank/**
+            - Path=/api/qb/**,/api/questionbank/**,/api/admin/**
           filters:
             - RewritePath=/api/(qb|questionbank)/(?<segment>.*), /api/${segment}
         - id: questionbank-service-direct
