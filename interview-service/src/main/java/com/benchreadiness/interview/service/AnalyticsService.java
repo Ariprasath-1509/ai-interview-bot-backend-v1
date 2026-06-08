@@ -41,10 +41,15 @@ public class AnalyticsService {
         java.util.List<Interview> interviews = getUserInterviews(userId, userRole);
         
         // Count by status
+        long draft = interviews.stream().filter(i -> i.getStatus() == InterviewStatus.DRAFT).count();
         long scheduled = interviews.stream().filter(i -> i.getStatus() == InterviewStatus.SCHEDULED).count();
         long inProgress = interviews.stream().filter(i -> i.getStatus() == InterviewStatus.IN_PROGRESS).count();
         long completed = interviews.stream().filter(i -> i.getStatus() == InterviewStatus.COMPLETED).count();
         long signedOff = interviews.stream().filter(i -> i.getStatus() == InterviewStatus.SIGNED_OFF).count();
+        long withdrawn = interviews.stream()
+                .filter(i -> i.getProposedVerdict() == ReadinessVerdict.WITHDRAWN
+                        || i.getFinalVerdict() == ReadinessVerdict.WITHDRAWN)
+                .count();
         
         // Today's interviews
         Instant startOfDay = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant();
@@ -79,10 +84,12 @@ public class AnalyticsService {
         Map<String, Object> result = new HashMap<>();
         
         Map<String, Object> statusCounts = new HashMap<>();
+        statusCounts.put("draft", draft);
         statusCounts.put("scheduled", scheduled);
         statusCounts.put("inProgress", inProgress);
         statusCounts.put("completed", completed);
         statusCounts.put("signedOff", signedOff);
+        statusCounts.put("withdrawn", withdrawn);
         statusCounts.put("total", interviews.size());
         
         Map<String, Object> timePeriods = new HashMap<>();
