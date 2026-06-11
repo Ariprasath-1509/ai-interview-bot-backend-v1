@@ -29,6 +29,7 @@ public class InterviewService {
     private final ComplianceServiceClient complianceServiceClient;
     private final AuthServiceClient authServiceClient;
     private final QuestionBankClient questionBankClient;
+    private final InterviewProctoringSupport proctoringSupport;
 
     public InterviewService(InterviewRepository interviewRepository,
                             EngineerRepository engineerRepository,
@@ -39,7 +40,8 @@ public class InterviewService {
                             ObserverServiceClient observerServiceClient,
                             ComplianceServiceClient complianceServiceClient,
                             AuthServiceClient authServiceClient,
-                            QuestionBankClient questionBankClient) {
+                            QuestionBankClient questionBankClient,
+                            InterviewProctoringSupport proctoringSupport) {
         this.interviewRepository = interviewRepository;
         this.engineerRepository = engineerRepository;
         this.jdRepository = jdRepository;
@@ -50,6 +52,7 @@ public class InterviewService {
         this.complianceServiceClient = complianceServiceClient;
         this.authServiceClient = authServiceClient;
         this.questionBankClient = questionBankClient;
+        this.proctoringSupport = proctoringSupport;
     }
 
     public Interview createInterview(CreateInterviewRequest req, String createdByUserId) throws Exception {
@@ -318,7 +321,7 @@ public class InterviewService {
     }
 
     public Optional<Interview> findById(String id) {
-        return interviewRepository.findById(id);
+        return interviewRepository.findById(id).map(proctoringSupport::enrichInterview);
     }
 
     @Transactional

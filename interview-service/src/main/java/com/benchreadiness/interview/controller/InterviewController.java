@@ -10,6 +10,7 @@ import com.benchreadiness.interview.dto.RecordAnswerRequest;
 import com.benchreadiness.interview.dto.RecordQuestionRequest;
 import com.benchreadiness.interview.entity.Interview;
 import com.benchreadiness.interview.entity.InterviewQuestion;
+import com.benchreadiness.interview.exception.VideoProctoringNotRequiredException;
 import com.benchreadiness.interview.service.CandidateMatchingService;
 import com.benchreadiness.interview.service.CandidateReviewService;
 import com.benchreadiness.interview.service.InterviewService;
@@ -370,6 +371,8 @@ public class InterviewController {
                                                     @RequestBody ProctoringEventsRequest req) {
         try {
             return ResponseEntity.ok(proctoringService.appendEvents(id, req));
+        } catch (VideoProctoringNotRequiredException e) {
+            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
@@ -381,6 +384,8 @@ public class InterviewController {
                                                       @RequestParam(value = "eventType", required = false) String eventType) {
         try {
             return ResponseEntity.ok(proctoringService.saveSnapshot(id, snapshot, eventType));
+        } catch (VideoProctoringNotRequiredException e) {
+            return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }

@@ -13,6 +13,9 @@ public interface AuthServiceClient {
     @GetMapping("/auth/users/{userId}")
     Map<String, Object> getUserById(@PathVariable("userId") String userId);
 
+    @GetMapping("/auth/users/by-email/{email}")
+    Map<String, Object> getUserByEmail(@PathVariable("email") String email);
+
     @GetMapping("/auth/candidates")
     List<Map<String, Object>> searchCandidates(@RequestParam("search") String search);
 

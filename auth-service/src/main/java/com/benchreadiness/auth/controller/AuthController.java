@@ -349,6 +349,19 @@ public class AuthController {
             .orElse(ResponseEntity.notFound().build());
     }
 
+    /** GET /auth/users/by-email/{email} — internal service-to-service candidate lookup */
+    @GetMapping("/users/by-email/{email}")
+    public ResponseEntity<?> getUserByEmail(@PathVariable String email) {
+        User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
+        if (user == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (user.getRole() == UserRole.CANDIDATE) {
+            return ResponseEntity.ok(buildCandidateMap(user));
+        }
+        return ResponseEntity.ok(buildUserMap(user));
+    }
+
     /** GET /auth/candidates — search registered candidates (filtered by admin source) */
     @GetMapping("/candidates")
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")

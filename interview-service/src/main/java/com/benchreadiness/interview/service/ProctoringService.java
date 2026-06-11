@@ -2,6 +2,7 @@ package com.benchreadiness.interview.service;
 
 import com.benchreadiness.interview.dto.ProctoringEventsRequest;
 import com.benchreadiness.interview.entity.Interview;
+import com.benchreadiness.interview.exception.VideoProctoringNotRequiredException;
 import com.benchreadiness.interview.repository.InterviewRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,13 +31,17 @@ public class ProctoringService {
 
     private final InterviewRepository interviewRepository;
     private final ObjectMapper objectMapper;
+    private final InterviewProctoringSupport proctoringSupport;
 
     @Value("${app.recording.upload-dir:${java.io.tmpdir}/br-recordings}")
     private String uploadDir;
 
-    public ProctoringService(InterviewRepository interviewRepository, ObjectMapper objectMapper) {
+    public ProctoringService(InterviewRepository interviewRepository,
+                             ObjectMapper objectMapper,
+                             InterviewProctoringSupport proctoringSupport) {
         this.interviewRepository = interviewRepository;
         this.objectMapper = objectMapper;
+        this.proctoringSupport = proctoringSupport;
     }
 
     private Path proctoringDir(String interviewId) {
@@ -47,6 +52,7 @@ public class ProctoringService {
     public Map<String, Object> appendEvents(String interviewId, ProctoringEventsRequest req) throws IOException {
         Interview interview = interviewRepository.findById(interviewId)
                 .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + interviewId));
+        ensureVideoProctoringAllowed(interview);
 
         Map<String, Object> existing = readJsonMap(interview.getProctoringEventsJson());
         List<Map<String, Object>> mergedEvents = mergeEvents(existing, req.getEvents());
@@ -82,6 +88,7 @@ public class ProctoringService {
         }
         Interview interview = interviewRepository.findById(interviewId)
                 .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + interviewId));
+        ensureVideoProctoringAllowed(interview);
 
         Path dir = proctoringDir(interviewId);
         Files.createDirectories(dir);
@@ -120,16 +127,33 @@ public class ProctoringService {
         Map<String, Object> eventsDoc = readJsonMap(interview.getProctoringEventsJson());
         List<Map<String, Object>> snapshots = readJsonList(interview.getProctoringSnapshotsJson());
 
+        String candidateSource = proctoringSupport.resolveCandidateSource(interview);
+        String proctoringMode = proctoringSupport.resolveProctoringMode(candidateSource);
+
         Map<String, Object> timeline = new LinkedHashMap<>();
         timeline.put("interviewId", interviewId);
+        timeline.put("candidateSource", candidateSource);
+        timeline.put("proctoringMode", proctoringMode);
         timeline.put("integrityScore", interview.getProctoringScore());
         timeline.put("events", eventsDoc.getOrDefault("events", List.of()));
         timeline.put("strikes", eventsDoc.getOrDefault("strikes", Map.of()));
-        timeline.put("status", eventsDoc.getOrDefault("status", "NOT_AVAILABLE"));
         timeline.put("summary", eventsDoc.getOrDefault("summary", Map.of()));
         timeline.put("updatedAt", eventsDoc.getOrDefault("updatedAt", null));
         timeline.put("snapshots", snapshots.stream().map(this::publicSnapshot).toList());
+
+        if ("light".equals(proctoringMode)) {
+            timeline.put("status", "LIGHT_INTEGRITY");
+            timeline.put("lightIntegrity", proctoringSupport.extractLightIntegrity(interview.getTranscriptJson()));
+        } else {
+            timeline.put("status", eventsDoc.getOrDefault("status", "NOT_AVAILABLE"));
+        }
         return timeline;
+    }
+
+    private void ensureVideoProctoringAllowed(Interview interview) {
+        if (!proctoringSupport.requiresVideoProctoring(interview)) {
+            throw new VideoProctoringNotRequiredException(proctoringSupport.resolveCandidateSource(interview));
+        }
     }
 
     public Path resolveSnapshot(String interviewId, String fileName) {
