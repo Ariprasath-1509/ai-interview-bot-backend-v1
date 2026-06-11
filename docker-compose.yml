@@ -439,8 +439,9 @@ services:
     memswap_limit: 2g
     ports:
       - "6014:5002"
+    # tts-server is installed under ~/.local/bin (not on PATH)
     command:
-      - tts-server
+      - /home/ttsuser/.local/bin/tts-server
       - --model_name
       - tts_models/en/ljspeech/tacotron2-DDC
       - --port
