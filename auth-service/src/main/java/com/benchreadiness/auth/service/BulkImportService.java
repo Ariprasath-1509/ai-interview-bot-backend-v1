@@ -187,7 +187,7 @@ public class BulkImportService {
                 row.createCell(3).setCellValue(candidate.getSource());
                 row.createCell(4).setCellValue(candidate.getUsername());
                 row.createCell(5).setCellValue(candidate.getPassword());
-                row.createCell(6).setCellValue("http://localhost:6001/login");
+                row.createCell(6).setCellValue("https://prod.voiceaibot.in/login");
                 row.createCell(7).setCellValue("Created Successfully");
             }
 
