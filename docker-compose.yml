@@ -102,7 +102,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:6009/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6009' || exit 1"]
       interval: 20s
       timeout: 15s
       retries: 15
@@ -146,7 +146,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:6005/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6005' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -194,7 +194,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:6004/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6004' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -241,7 +241,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:6006/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6006' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -301,7 +301,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:6003/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6003' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -343,7 +343,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:6008/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6008' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -381,7 +381,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:6002/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6002' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -499,7 +499,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:6016/actuator/health || exit 1"]
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6016' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
