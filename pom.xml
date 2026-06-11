@@ -70,6 +70,15 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <groupId>org.owasp</groupId>
+        <artifactId>dependency-check-maven</artifactId>
+        <version>11.1.0</version>
+        <configuration>
+          <failBuildOnCVSS>9</failBuildOnCVSS>
+          <skipProvidedScope>true</skipProvidedScope>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 

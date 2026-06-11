@@ -8,6 +8,12 @@ import com.benchreadiness.auth.repository.UserRepository;
 import com.benchreadiness.auth.masterdata.MasterDataCategory;
 import com.benchreadiness.auth.masterdata.MasterDataService;
 import com.benchreadiness.auth.service.*;
+import com.benchreadiness.auth.util.PiiRedactor;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +34,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/auth")
+@Tag(name = "Authentication", description = "Login, registration, token lifecycle, and password reset")
 public class AuthController {
 
     private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
@@ -42,16 +49,22 @@ public class AuthController {
     private final DeploymentService deploymentService;
     private final OtpService otpService;
     private final EmailService emailService;
-    private final com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient;
     private final CandidateBulkImportService candidateBulkImportService;
+    private final PasswordService passwordService;
+    private final RefreshTokenService refreshTokenService;
+    private final LoginAttemptService loginAttemptService;
+    private final AuditService auditService;
 
     public AuthController(UserRepository userRepository, JwtService jwtService,
                          MasterDataService masterDataService,
                          ExcelParserService excelParserService, BulkImportService bulkImportService,
                          DeploymentService deploymentService, OtpService otpService,
                          EmailService emailService,
-                         com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient,
-                         CandidateBulkImportService candidateBulkImportService) {
+                         CandidateBulkImportService candidateBulkImportService,
+                         PasswordService passwordService,
+                         RefreshTokenService refreshTokenService,
+                         LoginAttemptService loginAttemptService,
+                         AuditService auditService) {
         this.userRepository = userRepository;
         this.jwtService = jwtService;
         this.masterDataService = masterDataService;
@@ -60,8 +73,11 @@ public class AuthController {
         this.deploymentService = deploymentService;
         this.otpService = otpService;
         this.emailService = emailService;
-        this.complianceServiceClient = complianceServiceClient;
         this.candidateBulkImportService = candidateBulkImportService;
+        this.passwordService = passwordService;
+        this.refreshTokenService = refreshTokenService;
+        this.loginAttemptService = loginAttemptService;
+        this.auditService = auditService;
     }
 
     /** POST /auth/register — candidate self-registration */
@@ -73,7 +89,7 @@ public class AuthController {
         User user = new User();
         user.setEmail(req.getEmail());
         user.setName(req.getName());
-        user.setPassword(req.getPassword());
+        user.setPassword(passwordService.encode(req.getPassword()));
         user.setRole(UserRole.CANDIDATE);
         user.setContactNumber(req.getContactNumber());
         user.setOfficialEmail(req.getOfficialEmail());
@@ -86,13 +102,13 @@ public class AuthController {
         user.setYop(req.getYop());
         userRepository.save(user);
         
-        // Log audit trail
-        logAudit(user.getId(), user.getName(), "CANDIDATE", "CANDIDATE_REGISTERED", user.getId(),
-            String.format("Registered: %s (%s) - %s", user.getName(), user.getEmail(), 
-                user.getSource() != null ? user.getSource() : "N/A"),
-            null, null);
+        auditService.record(user.getId(), user.getName(), "CANDIDATE", "CANDIDATE_REGISTERED",
+                "CANDIDATE", user.getId(),
+                String.format("Registered: %s (%s) - %s", user.getName(),
+                        PiiRedactor.maskEmail(user.getEmail()),
+                        user.getSource() != null ? user.getSource() : "N/A"));
         
-        return ResponseEntity.ok(Map.of("ok", true, "message", "Registration successful. You can now log in."));
+        return ResponseEntity.ok(new ApiMessageResponse(true, "Registration successful. You can now log in."));
     }
 
     /** PATCH /auth/candidates/{id} — ADMIN updates rating, status, no_of_interviews */
@@ -150,9 +166,8 @@ public class AuthController {
         if (req.getName() != null) changes.append("Name: ").append(req.getName()).append(", ");
         if (req.getSource() != null) changes.append("Source: ").append(req.getSource());
         
-        logAudit(callerId, null, callerRole, "CANDIDATE_UPDATED", user.getId(),
-            String.format("Updated %s: %s", user.getName(), changes.toString()),
-            null, null);
+        auditService.record(callerId, null, callerRole, "CANDIDATE_UPDATED", "CANDIDATE", user.getId(),
+            String.format("Updated %s: %s", user.getName(), changes.toString()));
         
         return ResponseEntity.ok(Map.of("ok", true, "message", "Candidate updated"));
     }
@@ -181,7 +196,7 @@ public class AuthController {
         User user = new User();
         user.setEmail(req.getEmail());
         user.setName(req.getName());
-        user.setPassword(req.getPassword());
+        user.setPassword(passwordService.encode(req.getPassword()));
         user.setRole(req.getRole());
         if (req.getRole() == UserRole.ADMIN) {
             user.setAdminSource(masterDataService.normalizeCode(req.getAdminSource()));
@@ -189,44 +204,93 @@ public class AuthController {
         userRepository.save(user);
         
         // Log audit trail
-        logAudit("system", "System", "SUPER_ADMIN", "STAFF_CREATED", user.getId(),
-            String.format("Created %s account: %s (%s)", req.getRole(), user.getName(), user.getEmail()),
-            null, null);
+        auditService.record("system", "System", "SUPER_ADMIN", "STAFF_CREATED", "STAFF", user.getId(),
+            String.format("Created %s account: %s (%s)", req.getRole(), user.getName(),
+                    PiiRedactor.maskEmail(user.getEmail())));
         
         return ResponseEntity.ok(Map.of("ok", true, "message", "Staff account created successfully"));
     }
 
-    /** POST /auth/login — unified login for candidates and staff */
+    @Operation(summary = "Login", description = "Unified login for candidates and staff")
+    @ApiResponse(responseCode = "200", description = "Authenticated",
+            content = @Content(schema = @Schema(implementation = AuthTokenResponse.class)))
+    @ApiResponse(responseCode = "401", description = "Invalid credentials",
+            content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     @PostMapping("/login")
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest req) {
-        String email = req.getUsername();
-        User user = userRepository.findByEmail(email).orElse(null);
-        if (user == null) {
-            return ResponseEntity.status(401).body(Map.of("ok", false, "error", "Email not registered"));
+        String email = req.getUsername() != null ? req.getUsername().trim() : null;
+        if (loginAttemptService.isLocked(email)) {
+            return ResponseEntity.status(429).body(
+                    new ApiErrorResponse("Too many failed login attempts. Please try again later."));
         }
-        if (user.getPassword() == null || !user.getPassword().equals(req.getPassword())) {
-            return ResponseEntity.status(401).body(Map.of("ok", false, "error", "Invalid credentials"));
+
+        User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
+        if (user == null) {
+            loginAttemptService.recordFailure(email);
+            auditService.recordLoginFailure(email);
+            return ResponseEntity.status(401).body(new ApiErrorResponse("Invalid credentials"));
+        }
+        if (!passwordService.matches(req.getPassword(), user.getPassword())) {
+            loginAttemptService.recordFailure(email);
+            auditService.recordLoginFailure(email);
+            return ResponseEntity.status(401).body(new ApiErrorResponse("Invalid credentials"));
+        }
+        loginAttemptService.recordSuccess(email);
+
+        if (passwordService.needsUpgrade(user.getPassword())) {
+            user.setPassword(passwordService.encode(req.getPassword()));
+            userRepository.save(user);
         }
         if (req.getRole() != null && req.getRole() != user.getRole()) {
-            return ResponseEntity.status(403).body(Map.of("ok", false, "error",
+            return ResponseEntity.status(403).body(new ApiErrorResponse(
                 "Your account role is " + user.getRole().name() + ", not " + req.getRole().name()));
         }
-        String token = jwtService.generateToken(user);
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("ok", true);
-        response.put("token", token);
-        response.put("role", user.getRole().name());
-        response.put("name", user.getName() != null ? user.getName() : "");
-        if (user.getAdminSource() != null) {
-            response.put("adminSource", user.getAdminSource());
-        }
-        return ResponseEntity.ok(response);
+
+        JwtService.TokenPair tokenPair = jwtService.generateTokenPair(user);
+        refreshTokenService.storeRefreshToken(user, tokenPair.refreshJti());
+        auditService.recordLoginSuccess(user.getId(), user.getRole().name(), user.getEmail());
+
+        return ResponseEntity.ok(AuthTokenResponse.from(user, tokenPair));
     }
 
-    /** POST /auth/logout */
+    @Operation(summary = "Refresh tokens", description = "Exchange a refresh token for a new access/refresh pair")
+    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = AuthTokenResponse.class)))
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refresh(@Valid @RequestBody RefreshTokenRequest req) {
+        var refreshed = refreshTokenService.refresh(req.getRefreshToken());
+        if (refreshed.isEmpty()) {
+            return ResponseEntity.status(401)
+                    .body(new ApiErrorResponse("Invalid or expired refresh token"));
+        }
+        JwtService.TokenPair pair = refreshed.get();
+        jwtService.parseAccessToken(pair.accessToken()).ifPresent(tokenUser ->
+                auditService.recordTokenRefresh(tokenUser.userId(), tokenUser.role()));
+        return ResponseEntity.ok(AuthTokenResponse.from(pair));
+    }
+
+    @Operation(summary = "Logout", description = "Revoke access and refresh tokens")
+    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = ApiSuccessResponse.class)))
     @PostMapping("/logout")
-    public ResponseEntity<?> logout() {
-        return ResponseEntity.ok(Map.of("ok", true));
+    public ResponseEntity<ApiSuccessResponse> logout(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody(required = false) LogoutRequest req) {
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7);
+            jwtService.parseAccessToken(token).ifPresent(tokenUser ->
+                    auditService.recordLogout(tokenUser.userId(), tokenUser.role()));
+            jwtService.revokeToken(token);
+        }
+        if (req != null && req.getRefreshToken() != null && !req.getRefreshToken().isBlank()) {
+            refreshTokenService.revoke(req.getRefreshToken());
+        }
+        return ResponseEntity.ok(new ApiSuccessResponse(true));
+    }
+
+    /** POST /auth/internal/introspect — token active check for API gateway */
+    @PostMapping("/internal/introspect")
+    public ResponseEntity<?> introspect(@Valid @RequestBody TokenIntrospectRequest req) {
+        boolean active = jwtService.isTokenActive(req.getToken());
+        return ResponseEntity.ok(Map.of("active", active));
     }
 
     /** POST /auth/forgot-password — Request OTP for password reset */
@@ -241,9 +305,9 @@ public class AuthController {
         String otp = otpService.generateOtp(req.getEmail());
         try {
             emailService.sendOtpEmail(req.getEmail(), otp, user.getName());
-            logger.info("OTP sent successfully to: {}", req.getEmail());
+            logger.info("OTP sent successfully to: {}", PiiRedactor.maskEmail(req.getEmail()));
         } catch (Exception e) {
-            logger.error("Failed to send OTP email to {}: {}", req.getEmail(), e.getMessage());
+            logger.error("Failed to send OTP email to {}: {}", PiiRedactor.maskEmail(req.getEmail()), e.getMessage());
             return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Failed to send OTP email. Please try again later."));
         }
         
@@ -256,16 +320,16 @@ public class AuthController {
         if (!otpService.validateOtp(req.getEmail(), req.getOtp())) {
             return ResponseEntity.status(400).body(Map.of("ok", false, "error", "Invalid or expired OTP"));
         }
-        User user = userRepository.findByEmail(req.getEmail()).orElse(null);
+        User user = userRepository.findByEmailIgnoreCase(req.getEmail()).orElse(null);
         if (user == null) {
             return ResponseEntity.status(404).body(Map.of("ok", false, "error", "User not found"));
         }
-        user.setPassword(req.getNewPassword());
+        user.setPassword(passwordService.encode(req.getNewPassword()));
         userRepository.save(user);
         otpService.markOtpAsUsed(req.getEmail(), req.getOtp());
         
-        logAudit(user.getId(), user.getName(), user.getRole().name(), "PASSWORD_RESET", user.getId(),
-            "Password reset via OTP", null, null);
+        auditService.record(user.getId(), user.getName(), user.getRole().name(), "PASSWORD_RESET",
+                "AUTH", user.getId(), "Password reset via OTP");
         
         return ResponseEntity.ok(Map.of("ok", true, "message", "Password reset successful. You can now log in."));
     }
@@ -415,9 +479,9 @@ public class AuthController {
         }
         
         // Log audit trail before deletion
-        logAudit(callerId, null, callerRole, "STAFF_DELETED", target.getId(),
-            String.format("Deleted %s account: %s (%s)", target.getRole(), target.getName(), target.getEmail()),
-            null, null);
+        auditService.record(callerId, null, callerRole, "STAFF_DELETED", "STAFF", target.getId(),
+            String.format("Deleted %s account: %s (%s)", target.getRole(), target.getName(),
+                    PiiRedactor.maskEmail(target.getEmail())));
         
         userRepository.delete(target);
         return ResponseEntity.ok(Map.of("ok", true));
@@ -602,8 +666,8 @@ public class AuthController {
             BulkImportResponse result = candidateBulkImportService.importFromThirdPartyApi(gdriveFileUrl, userId);
             
             // Log audit trail
-            logAudit(userId, null, callerRole, "BULK_IMPORT_API", "CANDIDATES",
-                String.format("API bulk import - Success: %d, Skipped: %d, Errors: %d", 
+            auditService.record(userId, null, callerRole, "BULK_IMPORT_API", "CANDIDATES", "bulk-import",
+                String.format("API bulk import - Success: %d, Skipped: %d, Errors: %d",
                     result.getSuccessCount(), result.getSkippedCount(), result.getErrorCount()),
                 null, gdriveFileUrl);
             
@@ -613,7 +677,7 @@ public class AuthController {
             logger.error("API bulk import failed for user: {}", userId, e);
             
             // Log audit trail for failure
-            logAudit(userId, null, callerRole, "BULK_IMPORT_API_FAILED", "CANDIDATES",
+            auditService.record(userId, null, callerRole, "BULK_IMPORT_API_FAILED", "CANDIDATES", "bulk-import",
                 "API bulk import failed: " + e.getMessage(), null, gdriveFileUrl);
             
             return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Import failed: " + e.getMessage()));
@@ -726,8 +790,7 @@ public class AuthController {
                     user.getName().split(" ")[0] : "User";
                 String newPassword = firstName + "@" + LocalDateTime.now().getYear();
                 
-                // Update user's password (store as plain text to match registration behavior)
-                user.setPassword(newPassword);
+                user.setPassword(passwordService.encode(newPassword));
                 userRepository.save(user);
                 
                 credentialList.add(new BulkImportService.CreatedCandidate(
@@ -981,40 +1044,4 @@ public class AuthController {
         return map;
     }
 
-    private void logAudit(String actorId, String actorName, String actorRole, String action,
-                         String resourceId, String detail, String oldValue, String newValue) {
-        try {
-            Map<String, Object> auditLog = new HashMap<>();
-            auditLog.put("actorId", actorId);
-            if (actorName != null) auditLog.put("actorName", actorName);
-            auditLog.put("actorRole", actorRole);
-            auditLog.put("action", action);
-            auditLog.put("resource", "CANDIDATE");
-            auditLog.put("resourceId", resourceId);
-            if (detail != null) auditLog.put("detail", detail);
-            if (oldValue != null) auditLog.put("oldValue", oldValue);
-            if (newValue != null) auditLog.put("newValue", newValue);
-            auditLog.put("ipAddress", resolveClientIp());
-            complianceServiceClient.recordAuditLog(auditLog);
-        } catch (Exception e) {
-            logger.error("Failed to record audit log: {}", e.getMessage());
-        }
-    }
-
-    private String resolveClientIp() {
-        try {
-            org.springframework.web.context.request.ServletRequestAttributes attrs =
-                (org.springframework.web.context.request.ServletRequestAttributes)
-                org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
-            if (attrs == null) return "internal";
-            jakarta.servlet.http.HttpServletRequest request = attrs.getRequest();
-            String ip = request.getHeader("X-Forwarded-For");
-            if (ip != null && !ip.isBlank()) return ip.split(",")[0].trim();
-            ip = request.getHeader("X-Real-IP");
-            if (ip != null && !ip.isBlank()) return ip.trim();
-            return request.getRemoteAddr();
-        } catch (Exception e) {
-            return "unknown";
-        }
-    }
 }

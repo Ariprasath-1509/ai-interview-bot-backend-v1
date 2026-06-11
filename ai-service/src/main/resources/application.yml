@@ -2,6 +2,11 @@ server:
   port: 6003
 
 spring:
+  # Optional .env at repo root (see .env.example). Override with ENV_FILE=/path/to/.env
+  config:
+    import:
+      - optional:file:${ENV_FILE:${user.dir}/../.env}[.properties]
+      - optional:file:${user.dir}/.env[.properties]
   application:
     name: ai-service
 
@@ -22,7 +27,9 @@ app:
     # Switch LLM provider: 'claude' (default) or 'ollama'
     provider: ${APP_LLM_PROVIDER:ollama}
   jwt:
-    secret: dev-jwt-secret-change-in-production-min-32-chars
+    secret: ${JWT_SECRET:}
+    issuer: ${JWT_ISSUER:benchreadiness-auth}
+    audience: ${JWT_AUDIENCE:benchreadiness-api}
   claude:
     api-key: ${APP_CLAUDE_API_KEY:}
     model: ${APP_CLAUDE_MODEL:claude-haiku-4-5}
@@ -56,7 +63,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,env,loggers
+        include: health
   endpoint:
     health:
-      show-details: always
+      show-details: never

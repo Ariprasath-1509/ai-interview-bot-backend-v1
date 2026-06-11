@@ -1,20 +1,17 @@
 package com.benchreadiness.auth.service;
 
 import com.benchreadiness.auth.dto.BulkImportRequest;
-import com.benchreadiness.auth.dto.BulkImportResponse;
 import com.benchreadiness.auth.entity.User;
 import com.benchreadiness.auth.entity.UserRole;
 import com.benchreadiness.auth.repository.UserRepository;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,17 +22,17 @@ import java.util.concurrent.ConcurrentHashMap;
 public class BulkImportService {
 
     private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
+    private final PasswordService passwordService;
     private final ExcelParserService excelParserService;
     
     // Store import results temporarily (in production, use Redis or database)
     private final Map<String, BulkImportResult> importResults = new ConcurrentHashMap<>();
 
-    public BulkImportService(UserRepository userRepository, 
-                           PasswordEncoder passwordEncoder,
+    public BulkImportService(UserRepository userRepository,
+                           PasswordService passwordService,
                            ExcelParserService excelParserService) {
         this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
+        this.passwordService = passwordService;
         this.excelParserService = excelParserService;
     }
 
@@ -104,7 +101,7 @@ public class BulkImportService {
         User user = new User();
         user.setName(candidateData.getName());
         user.setEmail(username); // Set the primary email field
-        user.setPassword(plainPassword); // Store plain text password (auth uses plain equals)
+        user.setPassword(passwordService.encode(plainPassword));
         user.setRole(UserRole.CANDIDATE);
         
         // Set candidate-specific fields

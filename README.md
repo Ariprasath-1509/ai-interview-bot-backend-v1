@@ -417,7 +417,7 @@ bench-readiness/
 | `/api/reviews/**`, `/api/scores/**`, `/reviews/**`, `/scores/**` | review-service |
 | `/api/qb/**`, `/questionbank/**` | questionbank-service |
 
-Public (no JWT): `/auth/login`, `/auth/register`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/logout`, `/actuator/**`
+Public (no JWT): `/auth/login`, `/auth/register`, `/auth/refresh`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/logout`, `/actuator/health`
 
 ---
 
@@ -524,6 +524,39 @@ curl -sf http://localhost:6002/actuator/health  # gateway (via Eureka chain)
 - Node.js 18+ (frontend)
 - Docker (for STT/TTS) or local Ollama/Claude API keys
 - Gmail app password (email features in ops-service)
+
+### Environment variables
+
+Secrets are **not** stored in `application.yml`. Copy `.env.example` to `.env` (backend) or `.env.frontend.example` to `.env.local` (frontend).
+
+Full reference: [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)
+
+| Variable | Required by | Description |
+|----------|-------------|-------------|
+| `DB_USER` / `DB_PASSWORD` | All DB services | PostgreSQL credentials |
+| `JWT_SECRET` | auth-service, api-gateway, others | Min 32 chars; shared across services |
+| `JWT_ISSUER` / `JWT_AUDIENCE` | auth-service, api-gateway | Token issuer/audience validation (defaults provided) |
+| `JWT_ACCESS_EXPIRY_MS` | auth-service | Access token lifetime (default 30 min) |
+| `JWT_REFRESH_EXPIRY_MS` | auth-service | Refresh token lifetime (default 7 days) |
+| `GATEWAY_SHARED_KEY` | api-gateway + all services | Shared secret; gateway stamps `X-Gateway-Key` on proxied requests |
+| `MAIL_USERNAME` / `MAIL_PASSWORD` | auth-service, ops-service, questionbank | SMTP for OTP and notifications |
+
+**Production:** use `.env.prod.example` as a template; rotate credentials that were previously committed.
+
+### API contracts
+
+Backend OpenAPI specs are the source of truth for frontend types. See [docs/api/CONTRACTS.md](docs/api/CONTRACTS.md).
+
+| Service | Swagger UI |
+|---------|------------|
+| auth-service | http://localhost:6004/swagger-ui.html |
+| questionbank-service | http://localhost:6016/swagger-ui.html |
+
+Contract snapshot: `contracts/auth-public-api.json` (validated by `AuthApiContractTest`).
+
+### CI security
+
+GitHub Actions runs `mvn verify` and OWASP dependency-check (fails on CVSS ≥ 9). Dependabot opens weekly dependency PRs.
 
 ### Build
 

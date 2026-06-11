@@ -2,6 +2,11 @@ server:
   port: 6002
 
 spring:
+  # Optional .env at repo root (see .env.example). Override with ENV_FILE=/path/to/.env
+  config:
+    import:
+      - optional:file:${ENV_FILE:${user.dir}/../.env}[.properties]
+      - optional:file:${user.dir}/.env[.properties]
   application:
     name: api-gateway
   cloud:
@@ -101,15 +106,22 @@ eureka:
 
 app:
   jwt:
-    secret: dev-jwt-secret-change-in-production-min-32-chars
+    secret: ${JWT_SECRET:}
+    issuer: ${JWT_ISSUER:benchreadiness-auth}
+    audience: ${JWT_AUDIENCE:benchreadiness-api}
+  auth-rate-limit:
+    max-requests: ${AUTH_RATE_LIMIT_MAX:20}
+    window-seconds: ${AUTH_RATE_LIMIT_WINDOW_SECONDS:60}
+  gateway:
+    shared-key: ${GATEWAY_SHARED_KEY:}
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,env,loggers,gateway
+        include: health
   endpoint:
     health:
-      show-details: always
+      show-details: never
     gateway:
-      enabled: true
+      enabled: false

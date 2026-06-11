@@ -41,6 +41,9 @@ public class CandidateBulkImportService {
     @Autowired
     private MasterDataService masterDataService;
 
+    @Autowired
+    private PasswordService passwordService;
+
     public BulkImportResponse importFromThirdPartyApi(String gdriveFileUrl, String userId) {
         try {
             log.info("Starting bulk import from third-party API for user: {}", userId);
@@ -332,8 +335,7 @@ public class CandidateBulkImportService {
         candidate.setInterviewMentorName(row.getInterviewMentorName());
         candidate.setClientName(row.getClientName());
         
-        // Generate default password
-        candidate.setPassword(generateDefaultPassword());
+        candidate.setPassword(passwordService.encode(generateDefaultPassword()));
         
         // Timestamps are handled by @PrePersist and @PreUpdate in User entity
         // No need to set them manually

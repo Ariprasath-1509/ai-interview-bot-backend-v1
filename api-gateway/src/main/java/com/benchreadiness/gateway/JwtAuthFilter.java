@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -22,67 +23,107 @@ import java.util.List;
 public class JwtAuthFilter implements GlobalFilter, Ordered {
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthFilter.class);
+    private static final String TYPE_ACCESS = "access";
+
     private static final List<String> PUBLIC_PATHS = List.of(
-        "/auth/login", 
-        "/auth/logout", 
-        "/auth/register", 
-        "/auth/forgot-password", 
-        "/auth/reset-password", 
-        "/actuator",
+        "/auth/login",
+        "/auth/logout",
+        "/auth/refresh",
+        "/auth/register",
+        "/auth/forgot-password",
+        "/auth/reset-password",
+        "/auth/internal/introspect",
         "/api/qb",
         "/api/questionbank",
         "/questionbank"
     );
 
-    @Value("${app.jwt.secret}")
-    private String jwtSecret;
+    private final SecretKey signingKey;
+    private final String issuer;
+    private final String audience;
+    private final String gatewaySharedKey;
+    private final TokenIntrospectionClient introspectionClient;
+
+    public JwtAuthFilter(
+            TokenIntrospectionClient introspectionClient,
+            @Value("${app.jwt.secret}") String jwtSecret,
+            @Value("${app.jwt.issuer:benchreadiness-auth}") String issuer,
+            @Value("${app.jwt.audience:benchreadiness-api}") String audience,
+            @Value("${app.gateway.shared-key:}") String gatewaySharedKey) {
+        this.introspectionClient = introspectionClient;
+        this.signingKey = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+        this.issuer = issuer;
+        this.audience = audience;
+        this.gatewaySharedKey = gatewaySharedKey;
+    }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String path = exchange.getRequest().getURI().getPath();
-        log.info("JWT Filter: Processing path: {}", path);
-        
-        if (PUBLIC_PATHS.stream().anyMatch(path::startsWith)) {
-            log.info("JWT Filter: Public path, skipping authentication");
+
+        if (isActuatorHealth(path) || PUBLIC_PATHS.stream().anyMatch(path::startsWith)) {
             return chain.filter(exchange);
         }
 
         String authHeader = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            log.warn("JWT Filter: Missing or invalid Authorization header");
+            log.warn("JWT Filter: Missing or invalid Authorization header for path {}", path);
             exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
             return exchange.getResponse().setComplete();
         }
 
+        String token = authHeader.substring(7);
+        Claims claims;
         try {
-            String token = authHeader.substring(7);
-            Claims claims = Jwts.parser()
-                    .verifyWith(Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8)))
+            claims = Jwts.parser()
+                    .verifyWith(signingKey)
+                    .requireIssuer(issuer)
+                    .requireAudience(audience)
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
+        } catch (Exception e) {
+            log.warn("JWT Filter: Token validation failed for path {}: {}", path, e.getMessage());
+            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+            return exchange.getResponse().setComplete();
+        }
 
-            String userId = claims.getSubject();
-            String role = claims.get("role", String.class);
-            String email = claims.get("email", String.class);
-            
-            log.info("JWT Filter: Token validated - userId: {}, role: {}, email: {}", userId, role, email);
+        if (!TYPE_ACCESS.equals(claims.get("typ", String.class))) {
+            log.warn("JWT Filter: Non-access token rejected for path {}", path);
+            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+            return exchange.getResponse().setComplete();
+        }
+
+        String userId = claims.getSubject();
+        String role = claims.get("role", String.class);
+        String email = claims.get("email", String.class);
+
+        return introspectionClient.isActive(token).flatMap(active -> {
+            if (!active) {
+                log.warn("JWT Filter: Revoked or inactive token for userId {}", userId);
+                exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+                return exchange.getResponse().setComplete();
+            }
 
             ServerWebExchange mutated = exchange.mutate()
                     .request(r -> r.headers(h -> {
                         h.set("X-User-Id", userId);
                         h.set("X-User-Role", role);
-                        h.set("X-User-Email", email);
+                        if (email != null) {
+                            h.set("X-User-Email", email);
+                        }
+                        if (gatewaySharedKey != null && !gatewaySharedKey.isBlank()) {
+                            h.set("X-Gateway-Key", gatewaySharedKey);
+                        }
                     }))
                     .build();
-            
-            log.info("JWT Filter: Forwarding request with user headers");
+
             return chain.filter(mutated);
-        } catch (Exception e) {
-            log.error("JWT Filter: Token validation failed", e);
-            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
-            return exchange.getResponse().setComplete();
-        }
+        });
+    }
+
+    private boolean isActuatorHealth(String path) {
+        return "/actuator/health".equals(path) || path.startsWith("/actuator/health/");
     }
 
     @Override

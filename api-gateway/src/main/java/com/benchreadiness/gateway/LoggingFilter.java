@@ -22,7 +22,7 @@ public class LoggingFilter implements GlobalFilter, Ordered {
         
         log.info(">>> INCOMING REQUEST: {} {} from {}", method, path, exchange.getRequest().getRemoteAddress());
         log.info(">>> TARGET URI: {}", targetUri);
-        log.info(">>> HEADERS: {}", exchange.getRequest().getHeaders());
+        log.debug(">>> HEADERS: {}", LogRedaction.redactHeaders(exchange.getRequest().getHeaders()));
         
         return chain.filter(exchange).then(Mono.fromRunnable(() -> {
             log.info("<<< RESPONSE STATUS: {} for {} {}", 

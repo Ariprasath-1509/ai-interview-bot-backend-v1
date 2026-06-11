@@ -8,13 +8,13 @@ import com.benchreadiness.auth.repository.DeploymentHistoryRepository;
 import com.benchreadiness.auth.repository.UserRepository;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
@@ -24,17 +24,17 @@ public class DeploymentService {
 
     private final UserRepository userRepository;
     private final DeploymentHistoryRepository deploymentHistoryRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient;
+    private final PasswordService passwordService;
+    private final AuditService auditService;
 
     public DeploymentService(UserRepository userRepository, 
                            DeploymentHistoryRepository deploymentHistoryRepository,
-                           PasswordEncoder passwordEncoder,
-                           com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient) {
+                           PasswordService passwordService,
+                           AuditService auditService) {
         this.userRepository = userRepository;
         this.deploymentHistoryRepository = deploymentHistoryRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.complianceServiceClient = complianceServiceClient;
+        this.passwordService = passwordService;
+        this.auditService = auditService;
     }
 
     @Transactional
@@ -199,7 +199,7 @@ public class DeploymentService {
                         // Set default password (email username + @123)
                         String username = email.split("@")[0];
                         String defaultPassword = username + "@123";
-                        candidate.setPassword(passwordEncoder.encode(defaultPassword));
+                        candidate.setPassword(passwordService.encode(defaultPassword));
                         
                         candidate.setRole(UserRole.CANDIDATE);
                         candidate.setSource("B2B");
@@ -374,9 +374,9 @@ public class DeploymentService {
         User saved = userRepository.save(candidate);
         
         // Log audit trail
-        logAudit("system", "System", "ADMIN", "DEPLOYMENT_ENDED", candidateId,
-            String.format("%s - %s → RFD", candidate.getName(), oldClient),
-            oldStatus, "RFD");
+        auditService.record("system", "System", "ADMIN", "DEPLOYMENT_ENDED", "DEPLOYMENT",
+                candidateId, String.format("%s - %s → RFD", candidate.getName(), oldClient),
+                oldStatus, "RFD");
         
         return saved;
     }
@@ -461,13 +461,13 @@ public class DeploymentService {
                     if (months <= 12) {
                         // Convert to decimal: years + (months / 12)
                         double totalYears = years + (months / 12.0);
-                        return BigDecimal.valueOf(totalYears).setScale(2, BigDecimal.ROUND_HALF_UP);
+                        return BigDecimal.valueOf(totalYears).setScale(2, RoundingMode.HALF_UP);
                     }
                 }
             }
             
             // Fallback: parse as decimal number
-            return new BigDecimal(cleaned).setScale(2, BigDecimal.ROUND_HALF_UP);
+            return new BigDecimal(cleaned).setScale(2, RoundingMode.HALF_UP);
             
         } catch (NumberFormatException e) {
             return null;
@@ -513,23 +513,4 @@ public class DeploymentService {
         return null;
     }
 
-    private void logAudit(String actorId, String actorName, String actorRole, String action, 
-                         String resourceId, String detail, String oldValue, String newValue) {
-        try {
-            Map<String, Object> auditLog = new HashMap<>();
-            auditLog.put("actorId", actorId);
-            if (actorName != null) auditLog.put("actorName", actorName);
-            auditLog.put("actorRole", actorRole);
-            auditLog.put("action", action);
-            auditLog.put("resource", "DEPLOYMENT");
-            auditLog.put("resourceId", resourceId);
-            if (detail != null) auditLog.put("detail", detail);
-            if (oldValue != null) auditLog.put("oldValue", oldValue);
-            if (newValue != null) auditLog.put("newValue", newValue);
-            auditLog.put("ipAddress", "system");
-            complianceServiceClient.recordAuditLog(auditLog);
-        } catch (Exception e) {
-            // Silent fail - don't break deployment operations
-        }
-    }
 }

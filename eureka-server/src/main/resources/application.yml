@@ -2,6 +2,11 @@ server:
   port: 6009
 
 spring:
+  # Optional .env at repo root (see .env.example). Override with ENV_FILE=/path/to/.env
+  config:
+    import:
+      - optional:file:${ENV_FILE:${user.dir}/../.env}[.properties]
+      - optional:file:${user.dir}/.env[.properties]
   application:
     name: eureka-server
 
@@ -22,7 +27,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,env,loggers
+        include: health
   endpoint:
     health:
-      show-details: always
+      show-details: never

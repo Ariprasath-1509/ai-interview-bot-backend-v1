@@ -1,4 +1,9 @@
 spring:
+  # Optional .env at repo root (see .env.example). Override with ENV_FILE=/path/to/.env
+  config:
+    import:
+      - optional:file:${ENV_FILE:${user.dir}/../.env}[.properties]
+      - optional:file:${user.dir}/.env[.properties]
   application:
     name: questionbank-service
 
@@ -7,9 +12,9 @@ spring:
 
   datasource:
     # socketTimeout/connectTimeout in seconds — required for remote PostgreSQL over slow networks
-    url: jdbc:postgresql://103.182.211.219:5434/aibot?tcpKeepAlive=true&connectTimeout=60&socketTimeout=300&loginTimeout=60&currentSchema=questionbank_svc&searchpath=questionbank_svc,public
-    username: aibot
-    password: aibot!@#$%
+    url: ${DB_QB_URL:}
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 5
@@ -44,10 +49,10 @@ spring:
     connect-retries-interval: 10s
 
   mail:
-    host: smtp.gmail.com
-    port: 587
-    username: learningdevelopment.tyss@gmail.com
-    password: xcbc bgrj lbql tgkd
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
     properties:
       mail:
         smtp:
@@ -87,21 +92,25 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,env,loggers
+        include: health
   endpoint:
     health:
-      show-details: always
+      show-details: never
 
 # --- App-specific config ---
 app:
   cors:
     allowed-origins: http://localhost:5173,http://localhost:3000,http://localhost:6001,http://localhost:6101,http://103.182.211.219:6001,http://103.182.211.219:6101,https://prod.voiceaibot.in
   email:
-    sender-email: learningdevelopment.tyss@gmail.com
+    sender-email: ${MAIL_USERNAME:}
     sender-name: QuestionBank
   jwt:
-    secret: dev-jwt-secret-change-in-production-min-32-chars
-    expiry-ms: 86400000
+    secret: ${JWT_SECRET:}
+    issuer: ${JWT_ISSUER:benchreadiness-auth}
+    audience: ${JWT_AUDIENCE:benchreadiness-api}
+    expiry-ms: ${JWT_ACCESS_EXPIRY_MS:1800000}
+  gateway:
+    shared-key: ${GATEWAY_SHARED_KEY:}
 
   llm:
     provider: ollama  # Use "ollama" only - no Claude fallback
