@@ -102,7 +102,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6009' || exit 1"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:6009/actuator/health || exit 1"]
       interval: 20s
       timeout: 15s
       retries: 15
@@ -125,6 +125,8 @@ services:
       - "6005:6005"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      DB_URL: ${DB_URL:-}
+      DB_USERNAME: ${DB_USERNAME:-}
       DATABASE_URL: ${DATABASE_URL:-}
       DB_USER: ${DB_USER:-}
       DB_PASSWORD: ${DB_PASSWORD:-}
@@ -144,11 +146,11 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6005' || exit 1"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:6005/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 90s
+      start_period: 120s
     deploy:
       resources:
         limits:
@@ -167,6 +169,8 @@ services:
       - "6004:6004"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      DB_URL: ${DB_URL:-}
+      DB_USERNAME: ${DB_USERNAME:-}
       DATABASE_URL: ${DATABASE_URL:-}
       DB_USER: ${DB_USER:-}
       DB_PASSWORD: ${DB_PASSWORD:-}
@@ -190,7 +194,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6004' || exit 1"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:6004/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -213,6 +217,8 @@ services:
       - "6006:6006"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      DB_URL: ${DB_URL:-}
+      DB_USERNAME: ${DB_USERNAME:-}
       DATABASE_URL: ${DATABASE_URL:-}
       DB_USER: ${DB_USER:-}
       DB_PASSWORD: ${DB_PASSWORD:-}
@@ -235,7 +241,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6006' || exit 1"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:6006/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -295,7 +301,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6003' || exit 1"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:6003/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -318,6 +324,8 @@ services:
       - "6008:6008"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      DB_URL: ${DB_URL:-}
+      DB_USERNAME: ${DB_USERNAME:-}
       DATABASE_URL: ${DATABASE_URL:-}
       DB_USER: ${DB_USER:-}
       DB_PASSWORD: ${DB_PASSWORD:-}
@@ -335,7 +343,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6008' || exit 1"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:6008/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -373,7 +381,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6002' || exit 1"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:6002/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -466,6 +474,9 @@ services:
       - "6016:6016"
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      DB_URL: ${DB_URL:-}
+      DB_USERNAME: ${DB_USERNAME:-}
+      DB_QB_URL: ${DB_QB_URL:-}
       DATABASE_URL: ${DATABASE_URL:-}
       DB_USER: ${DB_USER:-}
       DB_PASSWORD: ${DB_PASSWORD:-}
@@ -487,7 +498,7 @@ services:
       - bench-network
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6016' || exit 1"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:6016/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

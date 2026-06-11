@@ -13,8 +13,8 @@ spring:
     name: ops-service
   datasource:
     # socketTimeout/connectTimeout in seconds — required for remote PostgreSQL over slow networks
-    url: ${DB_URL:}
-    username: ${DB_USERNAME:}
+    url: ${DB_URL:${DATABASE_URL:}}
+    username: ${DB_USERNAME:${DB_USER:}}
     password: ${DB_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
