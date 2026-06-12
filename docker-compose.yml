@@ -439,11 +439,11 @@ services:
     memswap_limit: 2g
     ports:
       - "6014:5002"
-    # tts-server is installed under ~/.local/bin (not on PATH)
+    # Faster CPU model (VITS); downloads on first start into tts-models volume (~2–3 min).
     command:
       - /home/ttsuser/.local/bin/tts-server
       - --model_name
-      - tts_models/en/ljspeech/tacotron2-DDC
+      - tts_models/en/ljspeech/vits
       - --port
       - "5002"
     volumes:

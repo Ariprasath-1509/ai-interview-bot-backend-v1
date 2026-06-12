@@ -27,4 +27,5 @@ RUN pip install --no-cache-dir --user TTS==0.22.0 \
 EXPOSE 5002
 
 # tts-server 0.22.0 has no --host flag; it listens on 0.0.0.0 by default
-CMD ["/home/ttsuser/.local/bin/tts-server", "--model_name", "tts_models/en/ljspeech/tacotron2-DDC", "--port", "5002"]
+# VITS is much faster on CPU than tacotron2-DDC; model downloads on first container start into tts-models volume.
+CMD ["/home/ttsuser/.local/bin/tts-server", "--model_name", "tts_models/en/ljspeech/vits", "--port", "5002"]
