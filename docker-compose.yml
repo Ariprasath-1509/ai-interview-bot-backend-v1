@@ -439,24 +439,23 @@ services:
     memswap_limit: 2g
     ports:
       - "6014:5002"
-    # Faster CPU model (VITS); downloads on first start into tts-models volume (~2–3 min).
+    # VITS model is baked into the image at build time (see tts-service/Dockerfile).
+    # Do not mount tts-models here — an empty volume hides baked weights and forces a long runtime download.
     command:
       - /home/ttsuser/.local/bin/tts-server
       - --model_name
       - tts_models/en/ljspeech/vits
       - --port
       - "5002"
-    volumes:
-      - tts-models:/home/ttsuser/.local/share/tts
     networks:
       - bench-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/5002' || exit 1"]
-      interval: 20s
+      interval: 15s
       timeout: 10s
-      retries: 10
-      start_period: 180s
+      retries: 12
+      start_period: 300s
     deploy:
       resources:
         limits:
@@ -517,8 +516,6 @@ volumes:
   elasticsearch-data:
     driver: local
   whisper-models:
-    driver: local
-  tts-models:
     driver: local
   interview-recordings:
     driver: local

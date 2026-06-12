@@ -24,8 +24,14 @@ RUN pip install --no-cache-dir --user \
 RUN pip install --no-cache-dir --user TTS==0.22.0 \
     --extra-index-url https://download.pytorch.org/whl/cpu
 
+# Bake VITS weights into the image so deploy does not wait on runtime download (volume mount would hide this).
+RUN /home/ttsuser/.local/bin/tts \
+    --model_name tts_models/en/ljspeech/vits \
+    --text "Model warmup." \
+    --out_path /tmp/warmup.wav \
+    && rm -f /tmp/warmup.wav
+
 EXPOSE 5002
 
 # tts-server 0.22.0 has no --host flag; it listens on 0.0.0.0 by default
-# VITS is much faster on CPU than tacotron2-DDC; model downloads on first container start into tts-models volume.
 CMD ["/home/ttsuser/.local/bin/tts-server", "--model_name", "tts_models/en/ljspeech/vits", "--port", "5002"]
