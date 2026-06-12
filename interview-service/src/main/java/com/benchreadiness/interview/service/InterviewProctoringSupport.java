@@ -8,15 +8,23 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
 public class InterviewProctoringSupport {
 
+    private static final Duration SETTINGS_CACHE_TTL = Duration.ofSeconds(30);
+
     private final EngineerRepository engineerRepository;
     private final AuthServiceClient authServiceClient;
     private final ObjectMapper objectMapper;
+
+    private volatile Map<String, Boolean> cachedSettings = Map.of();
+    private volatile Instant settingsLoadedAt = Instant.EPOCH;
 
     public InterviewProctoringSupport(EngineerRepository engineerRepository,
                                       AuthServiceClient authServiceClient,
@@ -50,7 +58,7 @@ public class InterviewProctoringSupport {
     }
 
     public String resolveProctoringMode(String candidateSource) {
-        return "MARKET".equals(candidateSource) ? "video" : "light";
+        return isVideoProctoringEnabledForSource(candidateSource) ? "video" : "light";
     }
 
     public boolean requiresVideoProctoring(Interview interview) {
@@ -90,6 +98,63 @@ public class InterviewProctoringSupport {
             // best effort
         }
         return result;
+    }
+
+    private boolean isVideoProctoringEnabledForSource(String candidateSource) {
+        if (candidateSource == null || candidateSource.isBlank()) {
+            return false;
+        }
+        String normalized = candidateSource.trim().toUpperCase(Locale.ROOT).replace(' ', '_');
+        Map<String, Boolean> settings = loadProctoringSettings();
+        Boolean enabled = settings.get(normalized);
+        if (enabled != null) {
+            return enabled;
+        }
+        return "MARKET".equals(normalized);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Boolean> loadProctoringSettings() {
+        Instant now = Instant.now();
+        if (!cachedSettings.isEmpty() && Duration.between(settingsLoadedAt, now).compareTo(SETTINGS_CACHE_TTL) < 0) {
+            return cachedSettings;
+        }
+
+        try {
+            Map<String, Object> response = authServiceClient.getProctoringSettings();
+            Object settingsObj = response != null ? response.get("settings") : null;
+            if (settingsObj instanceof Map<?, ?> rawSettings) {
+                Map<String, Boolean> parsed = new LinkedHashMap<>();
+                for (Map.Entry<?, ?> entry : rawSettings.entrySet()) {
+                    if (entry.getKey() == null || entry.getValue() == null) {
+                        continue;
+                    }
+                    String key = entry.getKey().toString().trim().toUpperCase(Locale.ROOT).replace(' ', '_');
+                    Object value = entry.getValue();
+                    if (value instanceof Boolean b) {
+                        parsed.put(key, b);
+                    } else if (value instanceof String s) {
+                        parsed.put(key, Boolean.parseBoolean(s));
+                    }
+                }
+                if (!parsed.isEmpty()) {
+                    cachedSettings = Map.copyOf(parsed);
+                    settingsLoadedAt = now;
+                    return cachedSettings;
+                }
+            }
+        } catch (Exception ignored) {
+            // fall back to defaults below
+        }
+
+        Map<String, Boolean> defaults = Map.of(
+                "BENCH", false,
+                "B2B", false,
+                "MARKET", true
+        );
+        cachedSettings = defaults;
+        settingsLoadedAt = now;
+        return defaults;
     }
 
     private Map<String, Object> lookupCandidate(Engineer engineer) {

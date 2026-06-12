@@ -47,4 +47,7 @@ public interface AuthServiceClient {
     @GetMapping("/auth/candidates/{candidateId}")
     Map<String, Object> getCandidateById(@PathVariable("candidateId") String candidateId,
                                         @RequestHeader("X-User-Id") String userId);
+
+    @GetMapping("/auth/proctoring-settings")
+    Map<String, Object> getProctoringSettings();
 }

@@ -109,7 +109,7 @@ public class Interview {
     @Transient
     private String candidateSource;
 
-    /** "video" for MARKET, "light" for BENCH/B2B — not persisted. */
+    /** "video" or "light" based on admin proctoring settings for candidate source — not persisted. */
     @Transient
     private String proctoringMode;
 
