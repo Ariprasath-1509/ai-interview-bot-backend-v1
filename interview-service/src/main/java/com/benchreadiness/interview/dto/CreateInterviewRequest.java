@@ -28,6 +28,9 @@ public class CreateInterviewRequest {
     
     // Optional: admin-provided custom questions (list of question texts)
     private java.util.List<String> customQuestions;
+
+    /** When false, interview is theory/verbal only (no coding slot or code editor). Defaults to true. */
+    private Boolean includeProgrammingQuestions;
     
     // Constructors
     public CreateInterviewRequest() {}
@@ -121,6 +124,10 @@ public class CreateInterviewRequest {
     public java.util.List<String> getCustomQuestions() {
         return customQuestions;
     }
+
+    public Boolean getIncludeProgrammingQuestions() {
+        return includeProgrammingQuestions;
+    }
     
     // Setters
     public void setEngineerEmail(String engineerEmail) {
@@ -189,5 +196,9 @@ public class CreateInterviewRequest {
     
     public void setCustomQuestions(java.util.List<String> customQuestions) {
         this.customQuestions = customQuestions;
+    }
+
+    public void setIncludeProgrammingQuestions(Boolean includeProgrammingQuestions) {
+        this.includeProgrammingQuestions = includeProgrammingQuestions;
     }
 }
