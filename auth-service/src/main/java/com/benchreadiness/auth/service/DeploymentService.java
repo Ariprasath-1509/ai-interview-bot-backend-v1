@@ -8,6 +8,8 @@ import com.benchreadiness.auth.repository.DeploymentHistoryRepository;
 import com.benchreadiness.auth.repository.UserRepository;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -22,19 +24,24 @@ import java.util.*;
 @Service
 public class DeploymentService {
 
+    private static final Logger log = LoggerFactory.getLogger(DeploymentService.class);
+
     private final UserRepository userRepository;
     private final DeploymentHistoryRepository deploymentHistoryRepository;
     private final PasswordService passwordService;
     private final AuditService auditService;
+    private final EmailService emailService;
 
     public DeploymentService(UserRepository userRepository, 
                            DeploymentHistoryRepository deploymentHistoryRepository,
                            PasswordService passwordService,
-                           AuditService auditService) {
+                           AuditService auditService,
+                           EmailService emailService) {
         this.userRepository = userRepository;
         this.deploymentHistoryRepository = deploymentHistoryRepository;
         this.passwordService = passwordService;
         this.auditService = auditService;
+        this.emailService = emailService;
     }
 
     @Transactional
@@ -214,6 +221,7 @@ public class DeploymentService {
                         
                         candidate = userRepository.save(candidate);
                         isNewCandidate = true;
+                        sendWelcomeEmail(candidate, defaultPassword);
                     } else {
                         candidate = candidateOpt.get();
                         hadPreviousDeployment = "DEPLOYED".equals(candidate.getCandidateStatus());
@@ -511,6 +519,24 @@ public class DeploymentService {
         }
         
         return null;
+    }
+
+    private void sendWelcomeEmail(User candidate, String plainPassword) {
+        String notifyEmail = candidate.getEmail();
+        if (notifyEmail == null || notifyEmail.isBlank()) {
+            return;
+        }
+        try {
+            emailService.sendCandidateWelcomeEmail(
+                notifyEmail,
+                candidate.getName(),
+                candidate.getEmail(),
+                plainPassword
+            );
+        } catch (Exception e) {
+            log.warn("Failed to send welcome email for deployment candidate {}: {}",
+                notifyEmail, e.getMessage());
+        }
     }
 
 }

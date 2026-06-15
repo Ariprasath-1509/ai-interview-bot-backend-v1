@@ -1,3 +1,11 @@
+# Bench Readiness production stack
+# Configuration: copy .env.example to .env in this directory (same name Docker Compose loads).
+# Run: docker compose --env-file .env up -d
+
+x-default-env-file: &default-env-file
+  env_file:
+    - .env
+
 services:
 
   elasticsearch:
@@ -117,6 +125,7 @@ services:
           memory: 256M
 
   ops-service:
+    <<: *default-env-file
     image: registry.gitlab.com/ty_optimize/optimize/ops_service:latest
     container_name: ops-service
     mem_limit: 1536m
@@ -138,6 +147,8 @@ services:
       MAIL_PORT: ${MAIL_PORT:-587}
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      APP_INTERVIEW_BASE_URL: ${APP_INTERVIEW_BASE_URL:-https://prod.voiceaibot.in/interview}
+      APP_FRONTEND_URL: ${APP_FRONTEND_URL:-https://prod.voiceaibot.in}
       JAVA_OPTS: "-Xms512m -Xmx1280m -XX:+UseG1GC"
     depends_on:
       eureka-server:
@@ -161,6 +172,7 @@ services:
           memory: 1G
 
   auth-service:
+    <<: *default-env-file
     image: registry.gitlab.com/ty_optimize/optimize/ai_auth:latest
     container_name: auth-service
     mem_limit: 1536m
@@ -184,6 +196,7 @@ services:
       MAIL_PORT: ${MAIL_PORT:-587}
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      APP_LOGIN_URL: ${APP_LOGIN_URL:-https://prod.voiceaibot.in/login}
       AUTH_MAX_LOGIN_ATTEMPTS: ${AUTH_MAX_LOGIN_ATTEMPTS:-10}
       AUTH_LOCKOUT_SECONDS: ${AUTH_LOCKOUT_SECONDS:-900}
       JAVA_OPTS: "-Xms1g -Xmx1536m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
@@ -209,6 +222,7 @@ services:
           memory: 1G
 
   interview-service:
+    <<: *default-env-file
     image: registry.gitlab.com/ty_optimize/optimize/interview_service:latest
     container_name: interview-service
     mem_limit: 4g
@@ -256,6 +270,7 @@ services:
           memory: 2G
 
   ai-service:
+    <<: *default-env-file
     image: registry.gitlab.com/ty_optimize/optimize/ai_service:latest
     container_name: ai-service
     mem_limit: 4g
@@ -316,6 +331,7 @@ services:
           memory: 2G
 
   review-service:
+    <<: *default-env-file
     image: registry.gitlab.com/ty_optimize/optimize/review_service:latest
     container_name: review-service
     mem_limit: 1g
@@ -358,6 +374,7 @@ services:
           memory: 512M
 
   api-gateway:
+    <<: *default-env-file
     image: registry.gitlab.com/ty_optimize/optimize/api_gateway:latest
     container_name: api-gateway
     mem_limit: 2g
@@ -466,6 +483,7 @@ services:
           memory: 1G
 
   questionbank-service:
+    <<: *default-env-file
     image: registry.gitlab.com/ty_optimize/optimize/questionbank_service:latest
     container_name: questionbank-service
     mem_limit: 1g

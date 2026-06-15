@@ -1,8 +1,11 @@
 package com.benchreadiness.ops.observer.service;
 
 import com.benchreadiness.ops.observer.client.AuthServiceClient;
+import com.benchreadiness.ops.observer.dto.ClientCreatedRequest;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -11,11 +14,16 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class EmailService {
+
+    private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
     private final JavaMailSender mailSender;
     private final AuthServiceClient authServiceClient;
@@ -93,51 +101,64 @@ public class EmailService {
         };
     }
 
-    public void sendClientCreatedNotification(String clientId, String clientName, String jdRole,
-                                              Integer benchB2bCandidatesNeeded, Integer marketCandidatesNeeded) {
+    public void sendClientCreatedNotification(ClientCreatedRequest req) {
         try {
-            List<Map<String, Object>> staff = authServiceClient.getAllStaff();
-            if (benchB2bCandidatesNeeded > 0) {
-                staff.stream()
-                    .filter(u -> "ADMIN".equals(u.get("role")) && "BENCH".equals(u.get("adminSource")))
-                    .findFirst()
-                    .ifPresent(admin -> sendClientNotificationEmail(
-                        (String) admin.get("email"), (String) admin.get("name"),
-                        clientId, clientName, jdRole, benchB2bCandidatesNeeded, "BENCH/B2B"));
+            List<Map<String, Object>> recipients = authServiceClient.getClientNotificationRecipients();
+            if (recipients == null || recipients.isEmpty()) {
+                log.warn("No admin/recruiter recipients found for client creation notification");
+                return;
             }
-            if (marketCandidatesNeeded > 0) {
-                staff.stream()
-                    .filter(u -> "ADMIN".equals(u.get("role")) && "RECRUITMENT".equals(u.get("adminSource")))
-                    .findFirst()
-                    .ifPresent(admin -> sendClientNotificationEmail(
-                        (String) admin.get("email"), (String) admin.get("name"),
-                        clientId, clientName, jdRole, marketCandidatesNeeded, "MARKET"));
+
+            Set<String> sentEmails = new HashSet<>();
+            for (Map<String, Object> recipient : recipients) {
+                String email = (String) recipient.get("email");
+                if (email == null || email.isBlank() || !sentEmails.add(email.trim().toLowerCase())) {
+                    continue;
+                }
+                String name = (String) recipient.getOrDefault("name", "Team");
+                try {
+                    sendClientNotificationEmail(name, email, req);
+                    log.info("Client creation notification sent to {}", email);
+                } catch (Exception e) {
+                    log.warn("Failed to send client notification to {}: {}", email, e.getMessage());
+                }
             }
         } catch (Exception e) {
-            System.err.println("Failed to send client creation notifications: " + e.getMessage());
+            log.error("Failed to send client creation notifications: {}", e.getMessage());
         }
     }
 
-    private void sendClientNotificationEmail(String toEmail, String adminName, String clientId,
-                                             String clientName, String jdRole, Integer candidatesNeeded, String source) {
+    private void sendClientNotificationEmail(String recipientName, String toEmail, ClientCreatedRequest req) {
         try {
             MimeMessage mimeMessage = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
             helper.setFrom(from);
             helper.setTo(toEmail);
-            helper.setSubject("New Client Position - Action Required");
-            helper.setText(buildClientCreatedTemplate(adminName, clientId, clientName, jdRole, candidatesNeeded, source), true);
+            helper.setSubject("New Client Added — " + safe(req.getClientName()) + " (" + safe(req.getJdRole()) + ")");
+            helper.setText(buildClientCreatedTemplate(recipientName, req), true);
             mailSender.send(mimeMessage);
         } catch (MessagingException e) {
             SimpleMailMessage message = new SimpleMailMessage();
             message.setFrom(from);
             message.setTo(toEmail);
-            message.setSubject("New Client Position - Action Required");
-            message.setText("Hi " + (adminName != null ? adminName : "Admin") + ",\n\nNew client: " + clientName
-                + "\nRole: " + jdRole + "\nCandidates needed (" + source + "): " + candidatesNeeded
-                + "\n\n" + interviewBaseUrl.replace("/interview", "") + "/admin/clients");
+            message.setSubject("New Client Added — " + safe(req.getClientName()));
+            message.setText(buildClientCreatedPlainText(recipientName, req));
             mailSender.send(message);
         }
+    }
+
+    private String buildClientCreatedPlainText(String recipientName, ClientCreatedRequest req) {
+        return "Hi " + safe(recipientName) + ",\n\n"
+            + "A new client has been added to Bench Readiness.\n\n"
+            + "Client: " + safe(req.getClientName()) + "\n"
+            + "Role: " + safe(req.getJdRole()) + "\n"
+            + "Positions vacant: " + safeInt(req.getPositionsVacant()) + "\n"
+            + "Bench/B2B needed: " + safeInt(req.getBenchB2bCandidatesNeeded()) + "\n"
+            + "Market needed: " + safeInt(req.getMarketCandidatesNeeded()) + "\n"
+            + "JD file: " + safe(req.getJdFileName()) + "\n\n"
+            + "Job description:\n" + safe(req.getJdDescription()) + "\n\n"
+            + "Requirements:\n" + safe(req.getSkillRequirementsSummary()) + "\n\n"
+            + "Review: " + interviewBaseUrl.replace("/interview", "") + "/admin/clients";
     }
 
     public void sendInterviewCancellation(String toEmail, String candidateName, String interviewId, String jdTitle, String reason) {
@@ -211,16 +232,51 @@ public class EmailService {
             "Review Interview", reviewLink);
     }
 
-    private String buildClientCreatedTemplate(String adminName, String clientId, String clientName,
-                                              String jdRole, Integer candidatesNeeded, String source) {
-        return buildEmailTemplate("New Client Position", "#3b82f6", adminName,
-            "A new client position has been created and requires your attention for candidate matching.",
-            buildDetailsCard("Position Details", Map.of(
-                "Client", clientName, "Role", jdRole,
-                "Candidates Needed", candidatesNeeded.toString(), "Source", source, "Status", "Awaiting Candidate Match"
-            ), "#3b82f6"),
-            "Please review the position requirements and trigger AI-powered candidate matching.",
-            "View Client & Match Candidates", interviewBaseUrl.replace("/interview", "") + "/admin/clients");
+    private String buildClientCreatedTemplate(String adminName, ClientCreatedRequest req) {
+        Map<String, String> details = new LinkedHashMap<>();
+        details.put("Client", safe(req.getClientName()));
+        details.put("Role", safe(req.getJdRole()));
+        details.put("Positions Vacant", safeInt(req.getPositionsVacant()));
+        details.put("Bench/B2B Candidates Needed", safeInt(req.getBenchB2bCandidatesNeeded()));
+        details.put("Market Candidates Needed", safeInt(req.getMarketCandidatesNeeded()));
+        if (req.getJdFileName() != null && !req.getJdFileName().isBlank()) {
+            details.put("JD File", req.getJdFileName());
+        }
+
+        String jdBlock = req.getJdDescription() != null && !req.getJdDescription().isBlank()
+            ? "<div style='background:#f7fafc;border:1px solid #e2e8f0;padding:16px;margin:20px 0;border-radius:8px;'>"
+                + "<p style='margin:0 0 8px;color:#2d3748;font-size:14px;font-weight:600;'>Job Description</p>"
+                + "<p style='margin:0;color:#4a5568;font-size:14px;line-height:1.6;white-space:pre-wrap;'>"
+                + escapeHtml(req.getJdDescription()) + "</p></div>"
+            : "";
+
+        String requirementsBlock = req.getSkillRequirementsSummary() != null && !req.getSkillRequirementsSummary().isBlank()
+            ? "<div style='background:#eff6ff;border-left:4px solid #3b82f6;padding:16px;margin:20px 0;border-radius:8px;'>"
+                + "<p style='margin:0 0 8px;color:#1e3a8a;font-size:14px;font-weight:600;'>Skill &amp; Position Requirements</p>"
+                + "<pre style='margin:0;color:#1e40af;font-size:13px;line-height:1.6;white-space:pre-wrap;font-family:inherit;'>"
+                + escapeHtml(req.getSkillRequirementsSummary()) + "</pre></div>"
+            : "";
+
+        return buildEmailTemplate("New Client Added", "#3b82f6", safe(adminName),
+            "A new client has been added to the platform. Review the job description and requirements below, then start candidate matching when ready.",
+            buildDetailsCard("Client Overview", details, "#3b82f6") + jdBlock + requirementsBlock,
+            "All admins and recruiters have been notified. Please review the client and trigger matching if applicable.",
+            "View Client", interviewBaseUrl.replace("/interview", "") + "/admin/clients");
+    }
+
+    private String safe(String value) {
+        return value != null && !value.isBlank() ? value : "N/A";
+    }
+
+    private String safeInt(Integer value) {
+        return value != null ? value.toString() : "0";
+    }
+
+    private String escapeHtml(String value) {
+        return value.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;");
     }
 
     private String buildEmailTemplate(String title, String accentColor, String recipientName,

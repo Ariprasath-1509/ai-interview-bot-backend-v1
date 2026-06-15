@@ -102,6 +102,13 @@ public class AuthController {
         user.setYop(req.getYop());
         userRepository.save(user);
         
+        try {
+            emailService.sendCandidateRegistrationWelcomeEmail(user.getEmail(), user.getName());
+        } catch (Exception e) {
+            logger.warn("Failed to send registration welcome email to {}: {}",
+                PiiRedactor.maskEmail(user.getEmail()), e.getMessage());
+        }
+        
         auditService.record(user.getId(), user.getName(), "CANDIDATE", "CANDIDATE_REGISTERED",
                 "CANDIDATE", user.getId(),
                 String.format("Registered: %s (%s) - %s", user.getName(),
@@ -109,6 +116,43 @@ public class AuthController {
                         user.getSource() != null ? user.getSource() : "N/A"));
         
         return ResponseEntity.ok(new ApiMessageResponse(true, "Registration successful. You can now log in."));
+    }
+
+    /** POST /auth/candidates — ADMIN creates a single candidate account */
+    @PostMapping("/candidates")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<?> createCandidate(@Valid @RequestBody CreateCandidateRequest req,
+                                           @RequestHeader("X-User-Id") String callerId,
+                                           @RequestHeader("X-User-Role") String callerRole) {
+        String normalizedSource = masterDataService.normalizeAndValidate(
+                MasterDataCategory.CANDIDATE_SOURCE, req.getSource());
+        List<String> allowedSources = getAllowedSources(callerId, callerRole);
+        if (allowedSources != null && !allowedSources.contains(normalizedSource)) {
+            return ResponseEntity.status(403).body(Map.of(
+                    "ok", false,
+                    "error", "You cannot create candidates outside your allowed source"));
+        }
+
+        try {
+            BulkImportService.CreatedCandidate created = bulkImportService.createSingleCandidate(req);
+            auditService.record(callerId, null, callerRole, "CANDIDATE_CREATED", "CANDIDATE", created.getId(),
+                    String.format("Created candidate %s (%s)", created.getName(),
+                            PiiRedactor.maskEmail(created.getUsername())));
+
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("ok", true);
+            response.put("message", "Candidate created successfully. Welcome email sent if an address is configured.");
+            response.put("candidateId", created.getId());
+            response.put("username", created.getUsername());
+            response.put("password", created.getPassword());
+            response.put("candidate", buildCandidateMap(userRepository.findById(created.getId()).orElseThrow()));
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Failed to create candidate", e);
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Failed to create candidate"));
+        }
     }
 
     /** PATCH /auth/candidates/{id} — ADMIN updates rating, status, no_of_interviews */
@@ -423,6 +467,26 @@ public class AuthController {
         List<User> admins = userRepository.findByRoleIn(List.of(UserRole.SUPER_ADMIN, UserRole.ADMIN));
         return ResponseEntity.ok(admins.stream()
             .map(u -> Map.of("email", u.getEmail(), "name", u.getName() != null ? u.getName() : ""))
+            .toList());
+    }
+
+    /** GET /auth/internal/client-notification-recipients — service-to-service for client alerts */
+    @GetMapping("/internal/client-notification-recipients")
+    public ResponseEntity<?> listClientNotificationRecipients() {
+        List<User> recipients = userRepository.findByRoleIn(
+            List.of(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.RECRUITER));
+        return ResponseEntity.ok(recipients.stream()
+            .filter(u -> u.getEmail() != null && !u.getEmail().isBlank())
+            .map(u -> {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("email", u.getEmail());
+                map.put("name", u.getName() != null ? u.getName() : "");
+                map.put("role", u.getRole().name());
+                if (u.getAdminSource() != null) {
+                    map.put("adminSource", u.getAdminSource());
+                }
+                return map;
+            })
             .toList());
     }
 

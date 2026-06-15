@@ -487,8 +487,8 @@ flowchart LR
 
 ```bash
 # Set secrets in .env (Claude key, DB, JWT, mail)
-docker compose pull
-docker compose up -d
+docker compose --env-file .env pull
+docker compose --env-file .env up -d
 
 # Verify
 docker compose ps

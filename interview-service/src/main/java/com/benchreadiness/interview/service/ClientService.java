@@ -108,14 +108,18 @@ public class ClientService {
 
         Client savedClient = clientRepository.save(client);
 
-        // Send notification to admins
+        // Send notification to all admins and recruiters
         try {
             Map<String, Object> notificationRequest = new HashMap<>();
             notificationRequest.put("clientId", savedClient.getId().toString());
             notificationRequest.put("clientName", savedClient.getClientName());
             notificationRequest.put("jdRole", savedClient.getJdRole());
+            notificationRequest.put("jdDescription", savedClient.getJdDescription());
+            notificationRequest.put("positionsVacant", savedClient.getPositionsVacant());
             notificationRequest.put("benchB2bCandidatesNeeded", savedClient.getBenchB2bCandidatesNeeded());
             notificationRequest.put("marketCandidatesNeeded", savedClient.getMarketCandidatesNeeded());
+            notificationRequest.put("skillRequirementsSummary", buildSkillRequirementsSummary(savedClient));
+            notificationRequest.put("jdFileName", savedClient.getJdFileName());
             observerServiceClient.notifyClientCreated(notificationRequest);
         } catch (Exception e) {
             log.error("Failed to send client creation notification: {}", e.getMessage());
@@ -297,5 +301,27 @@ public class ClientService {
         );
         dto.setId(posReq.getId());
         return dto;
+    }
+
+    private String buildSkillRequirementsSummary(Client client) {
+        if (client.getSkillRequirements() == null || client.getSkillRequirements().isEmpty()) {
+            return "No specific skill requirements listed.";
+        }
+        StringBuilder summary = new StringBuilder();
+        for (SkillRequirement skillReq : client.getSkillRequirements()) {
+            summary.append("• ").append(skillReq.getSkillSet()).append('\n');
+            if (skillReq.getPositions() != null) {
+                for (PositionRequirement posReq : skillReq.getPositions()) {
+                    summary.append("  - ")
+                        .append(posReq.getCandidatesNeeded() != null ? posReq.getCandidatesNeeded() : 0)
+                        .append(" candidates, ")
+                        .append(posReq.getMinYoeRequired() != null ? posReq.getMinYoeRequired() : 0)
+                        .append("+ years experience, source: ")
+                        .append(posReq.getSource() != null ? posReq.getSource() : "N/A")
+                        .append('\n');
+                }
+            }
+        }
+        return summary.toString().trim();
     }
 }
