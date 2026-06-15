@@ -65,6 +65,15 @@ public class CategoryService {
         return toDTO(categoryRepo.save(cat));
     }
 
+    @CacheEvict(value = "categories", allEntries = true)
+    @Transactional
+    public CategoryDTO updateInterviewType(UUID id, String interviewType) {
+        Category cat = categoryRepo.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Category", id));
+        cat.setInterviewType(interviewType);
+        return toDTO(categoryRepo.save(cat));
+    }
+
     @CacheEvict(value = {"categories", "questions"}, allEntries = true)
     @Transactional
     public void deleteCategory(UUID id) {

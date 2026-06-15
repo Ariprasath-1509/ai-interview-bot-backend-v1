@@ -9,13 +9,13 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
-import java.util.Map;
 
 /**
  * Text-to-speech via Coqui service (default http://coqui-tts:5002 in Docker, host port 6014).
@@ -52,13 +52,14 @@ public class TtsService {
             trimmed = trimmed.substring(0, 2000);
         }
 
-        String body = objectMapper.writeValueAsString(Map.of("text", trimmed));
+        // Coqui tts-server expects form-urlencoded text, not JSON (JSON body yields 500).
+        String body = "text=" + URLEncoder.encode(trimmed, StandardCharsets.UTF_8);
         String url = coquiUrl.replaceAll("/$", "") + ttsPath;
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(90))
-                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header("Content-Type", MediaType.APPLICATION_FORM_URLENCODED_VALUE)
                 .header("Accept", "audio/wav, audio/mpeg, audio/*, application/octet-stream, application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();

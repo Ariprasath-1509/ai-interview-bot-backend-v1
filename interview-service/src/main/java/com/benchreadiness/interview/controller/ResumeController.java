@@ -52,8 +52,9 @@ public class ResumeController {
     }
 
     @PostMapping("/upload")
-    @PreAuthorize("hasAnyRole('CANDIDATE', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('CANDIDATE', 'ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
     public ResponseEntity<?> uploadResume(@RequestParam("resume") MultipartFile file,
+                                         @RequestParam(value = "candidateId", required = false) String candidateId,
                                          @RequestHeader("X-User-Id") String userId,
                                          @RequestHeader("X-User-Role") String userRole) {
         try {
@@ -65,10 +66,18 @@ public class ResumeController {
                 return ResponseEntity.badRequest().body(Map.of("error", "File size must be under 5MB"));
             }
 
-            Map<String, Object> candidate = authServiceClient.getUserById(userId);
+            String targetUserId = userId;
+            if (!"CANDIDATE".equals(userRole)) {
+                if (candidateId == null || candidateId.isBlank()) {
+                    return ResponseEntity.badRequest().body(Map.of("error", "candidateId is required for admin upload"));
+                }
+                targetUserId = candidateId;
+            }
+
+            Map<String, Object> candidate = authServiceClient.getUserById(targetUserId);
             String candidateName = (String) candidate.getOrDefault("name", "Unknown");
 
-            String filePath = storageService.storeResume(userId, file);
+            String filePath = storageService.storeResume(targetUserId, file);
             ResumeParsingService.ResumeParseResult parseResult = parsingService.parseResume(file);
 
             String extractedText = "";
@@ -92,7 +101,7 @@ public class ResumeController {
             updateRequest.put("resumeUpdatedAt", Instant.now().toString());
 
             try {
-                authServiceClient.updateCandidateResume(userId, updateRequest);
+                authServiceClient.updateCandidateResume(targetUserId, updateRequest);
             } catch (Exception e) {
                 System.err.println("Failed to update candidate profile: " + e.getMessage());
             }

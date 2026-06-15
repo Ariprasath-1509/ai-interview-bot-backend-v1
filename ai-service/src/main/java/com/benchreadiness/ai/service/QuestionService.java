@@ -139,6 +139,15 @@ public class QuestionService {
             return finalizeAndCache(requestCacheKey, req, result);
         }
 
+        if (isSkipOrAdvanceRequest(req.getLastAnswer())) {
+            log.info("Skip/advance request detected — progressing without probe (slot={})", req.getSlot());
+            QuestionResult result = new QuestionResult(
+                progressQuestionAvoidingRecent(req, req.getSlot()),
+                false, false, null, "AI_GENERATED"
+            );
+            return finalizeAndCache(requestCacheKey, req, result);
+        }
+
         // Priority 1: Check if custom questions are available
         if (req.getCustomQuestionsJson() != null && !req.getCustomQuestionsJson().isBlank()) {
             try {
@@ -173,7 +182,7 @@ public class QuestionService {
                     if (recentProbeCount >= 1 || lastQuestionWasProbe(req.getUtterances())
                         || countSimilarRepeatedBotQuestions(req.getUtterances()) >= 1) {
                         QuestionResult result = new QuestionResult(
-                            deterministicProgressQuestion(req),
+                            progressQuestionAvoidingRecent(req, req.getSlot()),
                             false,
                             false,
                             null,
@@ -201,7 +210,7 @@ public class QuestionService {
                 List<String> recentBot = extractRecentBotQuestions(req.getUtterances(), RECENT_BOT_QUESTIONS_FOR_DEDUP);
                 if (isQuestionSimilarToRecent(question, recentBot)) {
                     log.info("AI question too similar to recent bot questions — advancing slot theme");
-                    question = deterministicProgressQuestion(req);
+                    question = progressQuestionAvoidingRecent(req, req.getSlot());
                 }
 
                 // Cache first question if this was slot 1
@@ -269,7 +278,7 @@ public class QuestionService {
         List<String> recentBot = extractRecentBotQuestions(req.getUtterances(), RECENT_BOT_QUESTIONS_FOR_DEDUP);
         if (isQuestionSimilarToRecent(question, recentBot)) {
             log.warn("Sanitize: question repeats recent bot dialogue — forcing progression (source={})", result.source());
-            question = deterministicProgressQuestion(req);
+            question = progressQuestionAvoidingRecent(req, req.getSlot());
             return copyResult(result, question, false);
         }
 
@@ -480,24 +489,9 @@ public class QuestionService {
         
         String trimmed = answer.trim().toLowerCase();
         
-        // Check for explicit skip/next requests - these should NOT be treated as vague
-        String[] skipPatterns = {
-            "next question", "skip", "skip this", "move on", "pass", "next",
-            "i don't know this", "i dont know this", "not prepared", "can we skip",
-            "different questions", "another questions", "can you please different questions",
-            "can you please ask different questions", "hello can you please ask different questions",
-            "can we go", "lets move", "let's move"
-        };
-        
-        for (String pattern : skipPatterns) {
-            if (trimmed.equals(pattern) || 
-                trimmed.startsWith(pattern + " ") || 
-                trimmed.startsWith(pattern + ",") ||
-                trimmed.endsWith(" " + pattern) ||
-                trimmed.contains(" " + pattern + " ")) {
-                log.info("Detected skip request: '{}' - NOT treating as vague, will progress naturally", trimmed);
-                return false; // Allow moving to next question without probe
-            }
+        if (isSkipOrAdvanceRequest(answer)) {
+            log.info("Detected skip request: '{}' - NOT treating as vague, will progress naturally", trimmed);
+            return false;
         }
         
         // Check word count (under 15 words)
@@ -757,12 +751,89 @@ public class QuestionService {
         return detectCodingQuestion(questionText, questionType);
     }
 
-    private String deterministicProgressQuestion(NextQuestionRequest req) {
-        String base = fallbackQuestion(req);
-        if (base.endsWith("?")) {
-            return base + " Use one concrete production example with actions and outcome.";
+    private boolean isSkipOrAdvanceRequest(String answer) {
+        if (answer == null || answer.isBlank()) return false;
+        String lower = answer.trim().toLowerCase();
+        String[] patterns = {
+            "next question", "skip", "skip this", "move on", "go for", "pass this", "pass on",
+            "different question", "another question", "can we skip", "let's move", "lets move",
+            "i don't know this", "i dont know this", "not prepared"
+        };
+        for (String pattern : patterns) {
+            if (lower.contains(pattern)) return true;
         }
-        return base + " Please answer with one concrete production example, actions, and measurable outcome.";
+        return false;
+    }
+
+    /** Pick a fresh question for this slot that does not repeat recent bot dialogue. */
+    private String progressQuestionAvoidingRecent(NextQuestionRequest req, int startSlot) {
+        List<String> recentBot = extractRecentBotQuestions(req.getUtterances(), 6);
+        String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";
+        Map<Integer, String> slotThemes = MODE_SLOT_THEMES.getOrDefault(mode, MODE_SLOT_THEMES.get("L3"));
+
+        for (int offset = 0; offset < 6; offset++) {
+            int slot = startSlot + offset;
+            String theme = slotThemes.get(slot);
+            if (theme != null && !theme.isBlank()) {
+                String themed = themeToInterviewQuestion(theme, req.getJdTitle());
+                if (!isQuestionSimilarToRecent(themed, recentBot)) {
+                    return themed;
+                }
+            }
+            String fallback = slotFallbackQuestion(slot, req.getJdTitle(), offset);
+            if (!isQuestionSimilarToRecent(fallback, recentBot)) {
+                return fallback;
+            }
+        }
+
+        List<String> alternates = List.of(
+            "Let's switch topics — describe a technical decision you reversed after production feedback. What signal triggered the change?",
+            "Tell me about a time you had to simplify an over-engineered solution. What did you remove and why?",
+            "What's a monitoring or observability gap you discovered only after an incident, and how did you close it?",
+            "Describe how you'd onboard a new engineer to the most complex part of a system you've worked on."
+        );
+        for (String alt : alternates) {
+            if (!isQuestionSimilarToRecent(alt, recentBot)) return alt;
+        }
+        return alternates.get(startSlot % alternates.size());
+    }
+
+    private String themeToInterviewQuestion(String theme, String jdTitle) {
+        String role = jdTitle != null && !jdTitle.isBlank() ? jdTitle : "this role";
+        String cleaned = theme.trim();
+        if (cleaned.endsWith(".")) cleaned = cleaned.substring(0, cleaned.length() - 1);
+        if (!cleaned.endsWith("?")) {
+            return "For " + role + ", " + Character.toLowerCase(cleaned.charAt(0)) + cleaned.substring(1) + "?";
+        }
+        return cleaned;
+    }
+
+    private String slotFallbackQuestion(int slot, String jdTitle, int variantSeed) {
+        String role = jdTitle != null && !jdTitle.isBlank() ? jdTitle : "this role";
+        List<String> variants = switch (slot) {
+            case 2 -> List.of(
+                "Walk me through one recent project you owned for " + role + " — problem, what you built, and how you knew it worked.",
+                "What was the hardest technical call in a recent project, and what would you do differently?");
+            case 3 -> List.of(
+                "A situation where you traded speed versus correctness — how did you decide?",
+                "What broke or got messy in practice on a recent project, and how did you notice?");
+            case 4 -> List.of(
+                "Explain a technical idea you'd want a peer to understand quickly — where it shines and where it falls apart.",
+                "If that idea had to run in production tomorrow, how would you roll it out and what would you watch first?");
+            case 5 -> List.of(
+                "An edge case or incident — what breaks first, and how do you harden against it?",
+                "Sketch a system that fits what we've been discussing — components, data flow, and main risk.");
+            case 6 -> List.of(
+                "What monitoring or metrics would you add first for a system like the one you described?",
+                "What's the worst production failure you've seen in this space, and what changed afterward?");
+            case 7 -> List.of(
+                "A concrete problem in this space — your approach, complexity, and how you'd test it.",
+                "Explain a tricky technical trade-off as you would to a sharp but rushed peer.");
+            default -> List.of(
+                "What's a concept you'd defend in design review for " + role + ", and what's the main pushback you'd expect?",
+                "A vague requirement landed on your desk — how do you turn it into a concrete technical plan with checkpoints?");
+        };
+        return variants.get(Math.floorMod(variantSeed, variants.size()));
     }
 
     private QuestionResult selectFromQuestionBank(NextQuestionRequest req, String userId) throws Exception {

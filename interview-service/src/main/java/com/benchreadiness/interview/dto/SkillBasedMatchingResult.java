@@ -1,6 +1,5 @@
 package com.benchreadiness.interview.dto;
 
-import com.benchreadiness.interview.entity.SkillSet;
 import java.util.List;
 
 public class SkillBasedMatchingResult {
@@ -74,22 +73,20 @@ public class SkillBasedMatchingResult {
     }
     
     public static class SkillRequirementMatch {
-        private SkillSet skillSet;
+        private String skillSet;
         private List<PositionMatch> positions;
         
-        // Constructors
         public SkillRequirementMatch() {}
         
-        public SkillRequirementMatch(SkillSet skillSet) {
+        public SkillRequirementMatch(String skillSet) {
             this.skillSet = skillSet;
         }
         
-        // Getters and Setters
-        public SkillSet getSkillSet() {
+        public String getSkillSet() {
             return skillSet;
         }
         
-        public void setSkillSet(SkillSet skillSet) {
+        public void setSkillSet(String skillSet) {
             this.skillSet = skillSet;
         }
         

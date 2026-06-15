@@ -2,13 +2,18 @@ server:
   port: 6008
 
 spring:
+  # Optional .env at repo root (see .env.example). Override with ENV_FILE=/path/to/.env
+  config:
+    import:
+      - optional:file:${ENV_FILE:${user.dir}/../.env}[.properties]
+      - optional:file:${user.dir}/.env[.properties]
   application:
     name: review-service
   datasource:
     # socketTimeout/connectTimeout in seconds — required for remote PostgreSQL over slow networks
-    url: jdbc:postgresql://103.182.211.219:5434/aibot?tcpKeepAlive=true&connectTimeout=60&socketTimeout=300&loginTimeout=60
-    username: aibot
-    password: aibot!@#$%
+    url: ${DB_URL:${DATABASE_URL:}}
+    username: ${DB_USERNAME:${DB_USER:}}
+    password: ${DB_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 5
@@ -52,13 +57,17 @@ feign:
 
 app:
   jwt:
-    secret: dev-jwt-secret-change-in-production-min-32-chars
+    secret: ${JWT_SECRET:}
+    issuer: ${JWT_ISSUER:benchreadiness-auth}
+    audience: ${JWT_AUDIENCE:benchreadiness-api}
+  gateway:
+    shared-key: ${GATEWAY_SHARED_KEY:}
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,env,loggers
+        include: health
   endpoint:
     health:
-      show-details: always
+      show-details: never

@@ -14,9 +14,12 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableMethodSecurity
 public class SecurityConfig {
 
+    private final GatewayTrustFilter gatewayTrustFilter;
     private final HeaderAuthenticationFilter headerAuthenticationFilter;
 
-    public SecurityConfig(HeaderAuthenticationFilter headerAuthenticationFilter) {
+    public SecurityConfig(GatewayTrustFilter gatewayTrustFilter,
+                          HeaderAuthenticationFilter headerAuthenticationFilter) {
+        this.gatewayTrustFilter = gatewayTrustFilter;
         this.headerAuthenticationFilter = headerAuthenticationFilter;
     }
 
@@ -26,6 +29,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+            .addFilterBefore(gatewayTrustFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(headerAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

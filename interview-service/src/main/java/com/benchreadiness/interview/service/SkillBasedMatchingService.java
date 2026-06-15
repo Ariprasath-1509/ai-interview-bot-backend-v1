@@ -97,7 +97,7 @@ public class SkillBasedMatchingService {
                     // Get matches for this specific position requirement
                     List<CandidateMatch> matches = matchingService.findMatchingCandidates(
                         clientId, source, posReq.getCandidatesNeeded(), 
-                        skillReq.getSkillSet().name(), posReq.getMinYoeRequired(), userId, userRole);
+                        skillReq.getSkillSet(), posReq.getMinYoeRequired(), userId, userRole);
                     
                     posMatch.setMatches(matches);
                     posMatch.setMatchesFound(matches.size());

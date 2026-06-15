@@ -25,7 +25,8 @@ public class OpenApiConfig {
                                 .name("QuestionBank Team")
                                 .email("dev@qb.com")))
                 .servers(List.of(
-                        new Server().url("http://localhost:8080").description("Local Development Server")))
+                        new Server().url("http://localhost:6002").description("API Gateway"),
+                        new Server().url("http://localhost:6016").description("QuestionBank Service (direct)")))
                 .addSecurityItem(new SecurityRequirement().addList("Bearer Authentication"))
                 .components(new io.swagger.v3.oas.models.Components()
                         .addSecuritySchemes("Bearer Authentication",
@@ -33,6 +34,6 @@ public class OpenApiConfig {
                                         .type(SecurityScheme.Type.HTTP)
                                         .scheme("bearer")
                                         .bearerFormat("JWT")
-                                        .description("Enter your Supabase JWT token")));
+                                        .description("JWT access token from /auth/login")));
     }
 }

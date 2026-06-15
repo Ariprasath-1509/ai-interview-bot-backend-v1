@@ -101,7 +101,7 @@ public class MatchingService {
         // Process each skill requirement
         for (com.benchreadiness.interview.entity.SkillRequirement skillReq : client.getSkillRequirements()) {
             // If specific skill filter provided, skip non-matching skills
-            if (filterSkillSet != null && !filterSkillSet.equals(skillReq.getSkillSet().name())) {
+            if (filterSkillSet != null && !filterSkillSet.equals(skillReq.getSkillSet())) {
                 continue;
             }
             
@@ -121,7 +121,7 @@ public class MatchingService {
                     .filter(candidate -> {
                         // Check skill set match
                         String candidateSkill = (String) candidate.get("skillSet");
-                        if (!skillReq.getSkillSet().name().equals(candidateSkill)) {
+                        if (!skillReq.getSkillSet().equals(candidateSkill)) {
                             return false;
                         }
                         

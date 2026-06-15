@@ -18,17 +18,20 @@ public class AnalyticsService {
     private final InterviewRepository interviewRepository;
     private final EngineerRepository engineerRepository;
     private final JobDescriptionRepository jdRepository;
+    private final ClientRepository clientRepository;
     private final com.benchreadiness.interview.client.AuthServiceClient authServiceClient;
     private final com.benchreadiness.interview.client.ReviewServiceClient reviewServiceClient;
 
-    public AnalyticsService(InterviewRepository interviewRepository, 
+    public AnalyticsService(InterviewRepository interviewRepository,
                            EngineerRepository engineerRepository,
                            JobDescriptionRepository jdRepository,
+                           ClientRepository clientRepository,
                            com.benchreadiness.interview.client.AuthServiceClient authServiceClient,
                            com.benchreadiness.interview.client.ReviewServiceClient reviewServiceClient) {
         this.interviewRepository = interviewRepository;
         this.engineerRepository = engineerRepository;
         this.jdRepository = jdRepository;
+        this.clientRepository = clientRepository;
         this.authServiceClient = authServiceClient;
         this.reviewServiceClient = reviewServiceClient;
     }
@@ -38,10 +41,15 @@ public class AnalyticsService {
         java.util.List<Interview> interviews = getUserInterviews(userId, userRole);
         
         // Count by status
+        long draft = interviews.stream().filter(i -> i.getStatus() == InterviewStatus.DRAFT).count();
         long scheduled = interviews.stream().filter(i -> i.getStatus() == InterviewStatus.SCHEDULED).count();
         long inProgress = interviews.stream().filter(i -> i.getStatus() == InterviewStatus.IN_PROGRESS).count();
         long completed = interviews.stream().filter(i -> i.getStatus() == InterviewStatus.COMPLETED).count();
         long signedOff = interviews.stream().filter(i -> i.getStatus() == InterviewStatus.SIGNED_OFF).count();
+        long withdrawn = interviews.stream()
+                .filter(i -> i.getProposedVerdict() == ReadinessVerdict.WITHDRAWN
+                        || i.getFinalVerdict() == ReadinessVerdict.WITHDRAWN)
+                .count();
         
         // Today's interviews
         Instant startOfDay = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant();
@@ -76,10 +84,12 @@ public class AnalyticsService {
         Map<String, Object> result = new HashMap<>();
         
         Map<String, Object> statusCounts = new HashMap<>();
+        statusCounts.put("draft", draft);
         statusCounts.put("scheduled", scheduled);
         statusCounts.put("inProgress", inProgress);
         statusCounts.put("completed", completed);
         statusCounts.put("signedOff", signedOff);
+        statusCounts.put("withdrawn", withdrawn);
         statusCounts.put("total", interviews.size());
         
         Map<String, Object> timePeriods = new HashMap<>();
@@ -106,11 +116,11 @@ public class AnalyticsService {
         List<Interview> interviews = getUserInterviews(userId, userRole);
         
         Map<String, Long> verdictDistribution = new LinkedHashMap<>();
-        verdictDistribution.put("READY", 0L);
-        verdictDistribution.put("NEEDS_1_WEEK_PREP", 0L);
-        verdictDistribution.put("NEEDS_RESKILLING", 0L);
-        verdictDistribution.put("MISMATCH_WITH_JD", 0L);
         verdictDistribution.put("WITHDRAWN", 0L);
+        verdictDistribution.put("MISMATCH_WITH_JD", 0L);
+        verdictDistribution.put("NEEDS_RESKILLING", 0L);
+        verdictDistribution.put("NEEDS_1_WEEK_PREP", 0L);
+        verdictDistribution.put("READY", 0L);
         
         long totalAssessed = interviews.stream()
                 .filter(i -> i.getFinalVerdict() != null)
@@ -215,6 +225,7 @@ public class AnalyticsService {
             
             Map<String, Object> dayTrend = new HashMap<>();
             dayTrend.put("date", date.format(DateTimeFormatter.ISO_LOCAL_DATE));
+            dayTrend.put("label", date.format(DateTimeFormatter.ofPattern("EEE M/d")));
             dayTrend.put("interviews", dayInterviews);
             dayTrend.put("completed", dayCompleted);
             dayTrend.put("successRate", Math.round(successRate * 100.0) / 100.0);
@@ -248,6 +259,7 @@ public class AnalyticsService {
             
             Map<String, Object> weekTrend = new HashMap<>();
             weekTrend.put("week", weekStart.format(DateTimeFormatter.ISO_LOCAL_DATE) + " to " + weekEnd.format(DateTimeFormatter.ISO_LOCAL_DATE));
+            weekTrend.put("label", "Wk " + weekStart.format(DateTimeFormatter.ofPattern("M/d")));
             weekTrend.put("interviews", weekInterviews);
             weekTrend.put("completed", weekCompleted);
             weekTrend.put("successRate", Math.round(successRate * 100.0) / 100.0);
@@ -258,7 +270,147 @@ public class AnalyticsService {
         Map<String, Object> result = new HashMap<>();
         result.put("dailyTrends", dailyTrends);
         result.put("weeklyTrends", weeklyTrends);
+        result.put("marketTrends", buildMarketTrends());
+        result.put("hasData", dailyTrends.stream().anyMatch(d -> ((Number) d.get("interviews")).longValue() > 0)
+                || weeklyTrends.stream().anyMatch(w -> ((Number) w.get("interviews")).longValue() > 0));
+        result.put("generatedAt", Instant.now().toString());
         return result;
+    }
+
+    private Map<String, Object> buildMarketTrends() {
+        List<Client> activeClients = clientRepository.findByStatus(Client.ClientStatus.ACTIVE);
+
+        Map<String, Integer> skillBench = new HashMap<>();
+        Map<String, Integer> skillMarket = new HashMap<>();
+        Map<String, Integer> skillClientCounts = new HashMap<>();
+        Map<String, Integer> roleCounts = new HashMap<>();
+
+        int benchDemand = 0;
+        int marketDemand = 0;
+
+        for (Client client : activeClients) {
+            int clientBenchCap = client.getBenchB2bCandidatesNeeded() != null ? client.getBenchB2bCandidatesNeeded() : 0;
+            int clientMarketCap = client.getMarketCandidatesNeeded() != null ? client.getMarketCandidatesNeeded() : 0;
+
+            String role = client.getJdRole() != null ? client.getJdRole() : "Unknown";
+            roleCounts.merge(role, 1, Integer::sum);
+
+            if (client.getSkillRequirements() != null && !client.getSkillRequirements().isEmpty()) {
+                Map<String, Integer> clientSkillBench = new HashMap<>();
+                Map<String, Integer> clientSkillMarket = new HashMap<>();
+
+                for (SkillRequirement sr : client.getSkillRequirements()) {
+                    String skill = normalizeSkillCode(sr.getSkillSet());
+                    for (PositionRequirement pos : sr.getPositions()) {
+                        int needed = pos.getCandidatesNeeded() != null ? pos.getCandidatesNeeded() : 0;
+                        if ("MARKET".equalsIgnoreCase(pos.getSource())) {
+                            clientSkillMarket.merge(skill, needed, Integer::sum);
+                        } else {
+                            clientSkillBench.merge(skill, needed, Integer::sum);
+                        }
+                    }
+                }
+
+                int rawBench = clientSkillBench.values().stream().mapToInt(Integer::intValue).sum();
+                int rawMarket = clientSkillMarket.values().stream().mapToInt(Integer::intValue).sum();
+
+                double benchScale = scaleFactor(rawBench, clientBenchCap);
+                double marketScale = scaleFactor(rawMarket, clientMarketCap);
+
+                int reconciledBench = 0;
+                int reconciledMarket = 0;
+
+                Set<String> clientSkills = new HashSet<>();
+                clientSkills.addAll(clientSkillBench.keySet());
+                clientSkills.addAll(clientSkillMarket.keySet());
+
+                for (String skill : clientSkills) {
+                    int bench = scaled(clientSkillBench.getOrDefault(skill, 0), benchScale);
+                    int market = scaled(clientSkillMarket.getOrDefault(skill, 0), marketScale);
+                    if (bench > 0 || market > 0) {
+                        skillBench.merge(skill, bench, Integer::sum);
+                        skillMarket.merge(skill, market, Integer::sum);
+                        skillClientCounts.merge(skill, 1, Integer::sum);
+                    }
+                    reconciledBench += bench;
+                    reconciledMarket += market;
+                }
+
+                benchDemand += reconciledBench > 0 ? reconciledBench : clientBenchCap;
+                marketDemand += reconciledMarket > 0 ? reconciledMarket : clientMarketCap;
+            } else {
+                benchDemand += clientBenchCap;
+                marketDemand += clientMarketCap;
+            }
+        }
+
+        Set<String> allSkills = new HashSet<>();
+        allSkills.addAll(skillBench.keySet());
+        allSkills.addAll(skillMarket.keySet());
+
+        List<Map<String, Object>> topSkills = allSkills.stream()
+                .map(skill -> {
+                    int bench = skillBench.getOrDefault(skill, 0);
+                    int market = skillMarket.getOrDefault(skill, 0);
+                    Map<String, Object> row = new HashMap<>();
+                    row.put("skill", skill);
+                    row.put("positionsNeeded", bench + market);
+                    row.put("benchNeeded", bench);
+                    row.put("marketNeeded", market);
+                    row.put("clientCount", skillClientCounts.getOrDefault(skill, 0));
+                    return row;
+                })
+                .sorted((a, b) -> Integer.compare(
+                        (Integer) b.get("positionsNeeded"),
+                        (Integer) a.get("positionsNeeded")))
+                .limit(8)
+                .collect(Collectors.toList());
+
+        List<Map<String, Object>> topRoles = roleCounts.entrySet().stream()
+                .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                .limit(6)
+                .map(entry -> {
+                    Map<String, Object> row = new HashMap<>();
+                    row.put("role", entry.getKey());
+                    row.put("count", entry.getValue());
+                    return row;
+                })
+                .collect(Collectors.toList());
+
+        Map<String, Object> market = new HashMap<>();
+        market.put("period", "Current open demand from active clients (reconciled to client totals)");
+        market.put("activeClients", activeClients.size());
+        market.put("benchDemand", benchDemand);
+        market.put("marketDemand", marketDemand);
+        market.put("topSkills", topSkills);
+        market.put("topRoles", topRoles);
+        market.put("hasData", !topSkills.isEmpty() || benchDemand > 0 || marketDemand > 0);
+        return market;
+    }
+
+    /** Scale skill-level position counts down when they exceed the client-level cap. */
+    private static double scaleFactor(int rawSkillTotal, int clientCap) {
+        if (rawSkillTotal <= 0) {
+            return 0;
+        }
+        if (clientCap <= 0) {
+            return 1.0;
+        }
+        return Math.min(1.0, (double) clientCap / rawSkillTotal);
+    }
+
+    private static int scaled(int raw, double scale) {
+        if (raw <= 0 || scale <= 0) {
+            return 0;
+        }
+        return Math.max(0, (int) Math.round(raw * scale));
+    }
+
+    private static String normalizeSkillCode(String skill) {
+        if (skill == null || skill.isBlank()) {
+            return "UNKNOWN";
+        }
+        return skill.trim().toUpperCase(Locale.ROOT);
     }
 
     public Map<String, Object> getInterviewModeAnalytics(String userId, String userRole) {
@@ -304,11 +456,11 @@ public class AnalyticsService {
         
         // Candidate performance by verdict
         Map<String, Long> performanceByVerdict = new LinkedHashMap<>();
-        performanceByVerdict.put("READY", 0L);
-        performanceByVerdict.put("NEEDS_1_WEEK_PREP", 0L);
-        performanceByVerdict.put("NEEDS_RESKILLING", 0L);
-        performanceByVerdict.put("MISMATCH_WITH_JD", 0L);
         performanceByVerdict.put("WITHDRAWN", 0L);
+        performanceByVerdict.put("MISMATCH_WITH_JD", 0L);
+        performanceByVerdict.put("NEEDS_RESKILLING", 0L);
+        performanceByVerdict.put("NEEDS_1_WEEK_PREP", 0L);
+        performanceByVerdict.put("READY", 0L);
         
         assessedInterviews.forEach(i -> {
             String verdict = i.getFinalVerdict().name();
@@ -336,80 +488,93 @@ public class AnalyticsService {
             performanceByMode.put(mode.name(), modeStats);
         }
         
-        // Top performing candidates (highest average scores)
-        List<Map<String, Object>> topCandidates = assessedInterviews.stream()
-                .map(interview -> {
-                    // Get engineer details
-                    Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
-                    JobDescription jd = jdRepository.findById(interview.getJdId()).orElse(null);
-                    
-                    String candidateName = engineer != null && engineer.getName() != null && !engineer.getName().isBlank()
-                            ? engineer.getName()
-                            : (engineer != null ? engineer.getEmail() : "Unknown");
-                    String candidateEmail = engineer != null ? engineer.getEmail() : "";
-                    String jdTitle = jd != null ? jd.getTitle() : "";
-                    
-                    List<Map<String, Object>> scores;
-                    try {
-                        scores = reviewServiceClient.getScores(interview.getId());
-                    } catch (Exception e) {
-                        System.err.println("Failed to get scores for interview " + interview.getId() + ": " + e.getMessage());
-                        scores = List.of();
-                    }
-                    
-                    double avgScore = scores.stream()
-                            .mapToInt(score -> (Integer) score.get("value"))
-                            .average()
-                            .orElse(0.0);
-                    
-                    Map<String, Object> candidate = new HashMap<>();
-                    candidate.put("candidateName", candidateName);
-                    candidate.put("candidateEmail", candidateEmail);
-                    candidate.put("interviewMode", interview.getInterviewMode().name());
-                    candidate.put("averageScore", Math.round(avgScore * 100.0) / 100.0);
-                    candidate.put("verdict", interview.getFinalVerdict().name());
-                    candidate.put("jdTitle", jdTitle);
-                    candidate.put("interviewDate", interview.getCreatedAt().toString().substring(0, 10));
-                    
-                    return candidate;
-                })
-                .sorted((a, b) -> Double.compare((Double) b.get("averageScore"), (Double) a.get("averageScore")))
+        // Per-interview records, then group by candidate email for the dashboard
+        List<Map<String, Object>> interviewRecords = assessedInterviews.stream()
+                .map(this::buildCandidateInterviewRecord)
+                .sorted((a, b) -> Double.compare(
+                        (Double) b.get("averageScore"),
+                        (Double) a.get("averageScore")))
+                .collect(Collectors.toList());
+
+        Map<String, List<Map<String, Object>>> interviewsByEmail = interviewRecords.stream()
+                .collect(Collectors.groupingBy(r -> (String) r.get("candidateEmail")));
+
+        List<Map<String, Object>> candidateSummaries = interviewsByEmail.entrySet().stream()
+                .map(e -> buildCandidateSummary(e.getValue()))
+                .sorted((a, b) -> Double.compare(
+                        (Double) b.get("bestAverageScore"),
+                        (Double) a.get("bestAverageScore")))
+                .limit(15)
+                .collect(Collectors.toList());
+
+        // Legacy flat list (one row per interview) — kept for compatibility
+        List<Map<String, Object>> topCandidates = interviewRecords.stream()
                 .limit(10)
                 .collect(Collectors.toList());
         
-        // Skill gap analysis - most common weak areas
-        Map<String, Integer> skillGaps = new HashMap<>();
+        // Skill gap analysis — unique candidates per weak dimension (normalized keys)
+        Map<String, Map<String, Map<String, Object>>> skillGapCandidates = new LinkedHashMap<>();
+        Map<String, String> skillGapDisplayNames = new LinkedHashMap<>();
+        int uniqueCandidateCount = (int) interviewsByEmail.keySet().stream()
+                .filter(email -> email != null && !email.isBlank())
+                .count();
+
         assessedInterviews.forEach(interview -> {
+            Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
+            String candidateEmail = engineer != null ? engineer.getEmail() : "";
+            String candidateName = engineer != null && engineer.getName() != null && !engineer.getName().isBlank()
+                    ? engineer.getName()
+                    : candidateEmail;
+            if (candidateEmail == null || candidateEmail.isBlank()) {
+                return;
+            }
+
             List<Map<String, Object>> scores;
             try {
                 scores = reviewServiceClient.getScores(interview.getId());
             } catch (Exception e) {
-                System.err.println("Failed to get scores for interview " + interview.getId() + ": " + e.getMessage());
                 scores = List.of();
             }
             scores.stream()
-                    .filter(score -> (Integer) score.get("value") < 3) // Below average performance
+                    .filter(score -> (Integer) score.get("value") < 3)
                     .forEach(score -> {
                         String dimension = (String) score.get("dimension");
-                        skillGaps.put(dimension, skillGaps.getOrDefault(dimension, 0) + 1);
+                        String normalizedKey = normalizeDimensionKey(dimension);
+                        if (normalizedKey.isEmpty()) {
+                            return;
+                        }
+                        skillGapDisplayNames.merge(normalizedKey, dimension, this::preferDimensionLabel);
+                        skillGapCandidates
+                                .computeIfAbsent(normalizedKey, k -> new LinkedHashMap<>())
+                                .putIfAbsent(candidateEmail, Map.of(
+                                        "candidateName", candidateName,
+                                        "candidateEmail", candidateEmail
+                                ));
                     });
         });
         
-        List<Map<String, Object>> commonWeaknesses = skillGaps.entrySet().stream()
-                .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
-                .limit(5)
+        List<Map<String, Object>> commonWeaknesses = skillGapCandidates.entrySet().stream()
+                .sorted((a, b) -> Integer.compare(b.getValue().size(), a.getValue().size()))
+                .limit(8)
                 .map(entry -> {
                     Map<String, Object> weakness = new HashMap<>();
-                    weakness.put("skill", entry.getKey());
-                    weakness.put("candidateCount", entry.getValue());
-                    weakness.put("percentage", Math.round((double) entry.getValue() / assessedInterviews.size() * 100 * 100.0) / 100.0);
+                    int count = entry.getValue().size();
+                    String displaySkill = formatDimensionLabel(
+                            skillGapDisplayNames.getOrDefault(entry.getKey(), entry.getKey()));
+                    weakness.put("skill", displaySkill);
+                    weakness.put("candidateCount", count);
+                    weakness.put("percentage", uniqueCandidateCount > 0
+                            ? Math.round((double) count / uniqueCandidateCount * 100 * 100.0) / 100.0
+                            : 0);
+                    weakness.put("candidates", new ArrayList<>(entry.getValue().values()));
                     return weakness;
                 })
                 .collect(Collectors.toList());
         
-        // Average scores by skill dimension
+        // Average scores by skill dimension (normalized keys)
         Map<String, Double> avgScoresByDimension = new HashMap<>();
         Map<String, Integer> dimensionCounts = new HashMap<>();
+        Map<String, String> avgScoreDisplayNames = new LinkedHashMap<>();
         
         assessedInterviews.forEach(interview -> {
             List<Map<String, Object>> scores;
@@ -421,31 +586,170 @@ public class AnalyticsService {
             }
             scores.forEach(score -> {
                 String dimension = (String) score.get("dimension");
+                String normalizedKey = normalizeDimensionKey(dimension);
+                if (normalizedKey.isEmpty()) {
+                    return;
+                }
                 Integer value = (Integer) score.get("value");
-                
-                avgScoresByDimension.put(dimension, avgScoresByDimension.getOrDefault(dimension, 0.0) + value);
-                dimensionCounts.put(dimension, dimensionCounts.getOrDefault(dimension, 0) + 1);
+                avgScoreDisplayNames.merge(normalizedKey, dimension, this::preferDimensionLabel);
+                avgScoresByDimension.put(normalizedKey, avgScoresByDimension.getOrDefault(normalizedKey, 0.0) + value);
+                dimensionCounts.put(normalizedKey, dimensionCounts.getOrDefault(normalizedKey, 0) + 1);
             });
         });
         
         Map<String, Double> finalAvgScores = avgScoresByDimension.entrySet().stream()
                 .collect(Collectors.toMap(
-                    Map.Entry::getKey,
-                    entry -> Math.round(entry.getValue() / dimensionCounts.get(entry.getKey()) * 100.0) / 100.0
+                    entry -> formatDimensionLabel(avgScoreDisplayNames.getOrDefault(entry.getKey(), entry.getKey())),
+                    entry -> Math.round(entry.getValue() / dimensionCounts.get(entry.getKey()) * 100.0) / 100.0,
+                    (a, b) -> a,
+                    LinkedHashMap::new
                 ));
         
         Map<String, Object> result = new HashMap<>();
         result.put("performanceByVerdict", performanceByVerdict);
         result.put("performanceByMode", performanceByMode);
         result.put("topCandidates", topCandidates);
+        result.put("candidateSummaries", candidateSummaries);
         result.put("commonWeaknesses", commonWeaknesses);
         result.put("averageScoresBySkill", finalAvgScores);
         result.put("totalAssessedCandidates", assessedInterviews.size());
+        result.put("uniqueCandidates", uniqueCandidateCount);
         result.put("overallSuccessRate", assessedInterviews.size() > 0 ? 
             Math.round((double) performanceByVerdict.get("READY") / assessedInterviews.size() * 100 * 100.0) / 100.0 : 0);
         result.put("hasData", !assessedInterviews.isEmpty());
         
         return result;
+    }
+
+    private Map<String, Object> buildCandidateInterviewRecord(Interview interview) {
+        Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
+        JobDescription jd = jdRepository.findById(interview.getJdId()).orElse(null);
+
+        String candidateName = engineer != null && engineer.getName() != null && !engineer.getName().isBlank()
+                ? engineer.getName()
+                : (engineer != null ? engineer.getEmail() : "Unknown");
+        String candidateEmail = engineer != null ? engineer.getEmail() : "";
+        String jdTitle = jd != null ? jd.getTitle() : "";
+
+        List<Map<String, Object>> scores;
+        try {
+            scores = reviewServiceClient.getScores(interview.getId());
+        } catch (Exception e) {
+            scores = List.of();
+        }
+
+        double avgScore = scores.stream()
+                .mapToInt(score -> (Integer) score.get("value"))
+                .average()
+                .orElse(0.0);
+
+        Map<String, Object> record = new HashMap<>();
+        record.put("interviewId", interview.getId().toString());
+        record.put("candidateName", candidateName);
+        record.put("candidateEmail", candidateEmail);
+        record.put("interviewMode", interview.getInterviewMode().name());
+        record.put("averageScore", Math.round(avgScore * 100.0) / 100.0);
+        record.put("verdict", interview.getFinalVerdict().name());
+        record.put("jdTitle", jdTitle);
+        record.put("interviewDate", interview.getCreatedAt().toString().substring(0, 10));
+        record.put("scores", scores.stream()
+                .map(score -> Map.of(
+                        "dimension", score.get("dimension"),
+                        "value", score.get("value")))
+                .collect(Collectors.toList()));
+        return record;
+    }
+
+    private Map<String, Object> buildCandidateSummary(List<Map<String, Object>> interviews) {
+        List<Map<String, Object>> sorted = interviews.stream()
+                .sorted((a, b) -> ((String) b.get("interviewDate")).compareTo((String) a.get("interviewDate")))
+                .collect(Collectors.toList());
+
+        Map<String, Object> first = sorted.get(0);
+        String candidateName = (String) first.get("candidateName");
+        String candidateEmail = (String) first.get("candidateEmail");
+
+        Map<String, Integer> roundCounts = new LinkedHashMap<>();
+        for (Map<String, Object> interview : sorted) {
+            String mode = (String) interview.get("interviewMode");
+            roundCounts.merge(mode, 1, Integer::sum);
+        }
+
+        double bestAverageScore = sorted.stream()
+                .mapToDouble(i -> (Double) i.get("averageScore"))
+                .max()
+                .orElse(0.0);
+        double overallAverageScore = Math.round(sorted.stream()
+                .mapToDouble(i -> (Double) i.get("averageScore"))
+                .average()
+                .orElse(0.0) * 100.0) / 100.0;
+
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("candidateName", candidateName);
+        summary.put("candidateEmail", candidateEmail);
+        summary.put("interviewCount", sorted.size());
+        summary.put("roundCounts", roundCounts);
+        summary.put("bestAverageScore", Math.round(bestAverageScore * 100.0) / 100.0);
+        summary.put("overallAverageScore", overallAverageScore);
+        summary.put("latestVerdict", first.get("verdict"));
+        summary.put("latestJdTitle", first.get("jdTitle"));
+        summary.put("interviews", sorted);
+        return summary;
+    }
+
+    /** Collapse casing/spacing variants such as "communication" vs "Communication". */
+    private String normalizeDimensionKey(String dimension) {
+        if (dimension == null || dimension.isBlank()) {
+            return "";
+        }
+        return dimension.replaceAll("[\\s_-]+", "").toLowerCase(Locale.ROOT);
+    }
+
+    private String preferDimensionLabel(String existing, String incoming) {
+        if (existing == null || existing.isBlank()) {
+            return incoming;
+        }
+        if (incoming == null || incoming.isBlank()) {
+            return existing;
+        }
+        boolean existingCamel = Character.isLowerCase(existing.charAt(0));
+        boolean incomingCamel = Character.isLowerCase(incoming.charAt(0));
+        if (existingCamel && !incomingCamel) {
+            return existing;
+        }
+        if (incomingCamel && !existingCamel) {
+            return incoming;
+        }
+        return existing.length() >= incoming.length() ? existing : incoming;
+    }
+
+    private String formatDimensionLabel(String dimension) {
+        if (dimension == null || dimension.isBlank()) {
+            return "";
+        }
+        String spaced = dimension
+                .replaceAll("([a-z])([A-Z])", "$1 $2")
+                .replace('_', ' ')
+                .trim();
+        if (spaced.isEmpty()) {
+            return dimension;
+        }
+        String[] words = spaced.split("\\s+");
+        StringBuilder label = new StringBuilder();
+        for (int i = 0; i < words.length; i++) {
+            String word = words[i];
+            if (word.isEmpty()) {
+                continue;
+            }
+            if (i > 0) {
+                label.append(' ');
+            }
+            label.append(Character.toUpperCase(word.charAt(0)));
+            if (word.length() > 1) {
+                label.append(word.substring(1).toLowerCase(Locale.ROOT));
+            }
+        }
+        return label.toString();
     }
 
     public Map<String, Object> getDebugInfo(String userId, String userRole) {

@@ -1,18 +1,20 @@
 package com.benchreadiness.auth.service;
 
 import com.benchreadiness.auth.dto.DeploymentBulkRequest;
-import com.benchreadiness.auth.entity.*;
+import com.benchreadiness.auth.entity.DeploymentHistory;
+import com.benchreadiness.auth.entity.User;
+import com.benchreadiness.auth.entity.UserRole;
 import com.benchreadiness.auth.repository.DeploymentHistoryRepository;
 import com.benchreadiness.auth.repository.UserRepository;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
@@ -22,17 +24,17 @@ public class DeploymentService {
 
     private final UserRepository userRepository;
     private final DeploymentHistoryRepository deploymentHistoryRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient;
+    private final PasswordService passwordService;
+    private final AuditService auditService;
 
     public DeploymentService(UserRepository userRepository, 
                            DeploymentHistoryRepository deploymentHistoryRepository,
-                           PasswordEncoder passwordEncoder,
-                           com.benchreadiness.auth.client.ComplianceServiceClient complianceServiceClient) {
+                           PasswordService passwordService,
+                           AuditService auditService) {
         this.userRepository = userRepository;
         this.deploymentHistoryRepository = deploymentHistoryRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.complianceServiceClient = complianceServiceClient;
+        this.passwordService = passwordService;
+        this.auditService = auditService;
     }
 
     @Transactional
@@ -197,11 +199,11 @@ public class DeploymentService {
                         // Set default password (email username + @123)
                         String username = email.split("@")[0];
                         String defaultPassword = username + "@123";
-                        candidate.setPassword(passwordEncoder.encode(defaultPassword));
+                        candidate.setPassword(passwordService.encode(defaultPassword));
                         
                         candidate.setRole(UserRole.CANDIDATE);
-                        candidate.setSource(CandidateSource.B2B);
-                        candidate.setCandidateStatus(CandidateStatus.DEPLOYED);
+                        candidate.setSource("B2B");
+                        candidate.setCandidateStatus("DEPLOYED");
                         candidate.setNoOfInterviews(0);
                         candidate.setSystemInterviewCount(0);
                         
@@ -214,12 +216,12 @@ public class DeploymentService {
                         isNewCandidate = true;
                     } else {
                         candidate = candidateOpt.get();
-                        hadPreviousDeployment = candidate.getCandidateStatus() == CandidateStatus.DEPLOYED;
+                        hadPreviousDeployment = "DEPLOYED".equals(candidate.getCandidateStatus());
                         
                         // Check if this is historical data (candidate is RFD/WFD/DOB but we're importing deployment history)
-                        if (candidate.getCandidateStatus() == CandidateStatus.RFD || 
-                            candidate.getCandidateStatus() == CandidateStatus.WFD || 
-                            candidate.getCandidateStatus() == CandidateStatus.DOB) {
+                        if ("RFD".equals(candidate.getCandidateStatus())
+                            || "WFD".equals(candidate.getCandidateStatus())
+                            || "DOB".equals(candidate.getCandidateStatus())) {
                             isHistoricalDeployment = true;
                         }
                     }
@@ -259,7 +261,7 @@ public class DeploymentService {
                         candidate.setDeployedClientName(clientName.trim());
                         candidate.setDeployedDate(deployedDate);
                         candidate.setMentor(mentor != null && !mentor.trim().isEmpty() ? mentor.trim() : null);
-                        candidate.setCandidateStatus(CandidateStatus.DEPLOYED);
+                        candidate.setCandidateStatus("DEPLOYED");
                         userRepository.save(candidate);
                     }
                     
@@ -350,7 +352,7 @@ public class DeploymentService {
         User candidate = userRepository.findById(candidateId)
                 .orElseThrow(() -> new RuntimeException("Candidate not found"));
         
-        String oldStatus = candidate.getCandidateStatus() != null ? candidate.getCandidateStatus().name() : "N/A";
+        String oldStatus = candidate.getCandidateStatus() != null ? candidate.getCandidateStatus() : "N/A";
         String oldClient = candidate.getDeployedClientName();
         
         // End active deployment in history
@@ -367,14 +369,14 @@ public class DeploymentService {
         candidate.setDeployedClientName(null);
         candidate.setDeployedDate(null);
         candidate.setMentor(null);
-        candidate.setCandidateStatus(CandidateStatus.RFD);
+        candidate.setCandidateStatus("RFD");
         
         User saved = userRepository.save(candidate);
         
         // Log audit trail
-        logAudit("system", "System", "ADMIN", "DEPLOYMENT_ENDED", candidateId,
-            String.format("%s - %s → RFD", candidate.getName(), oldClient),
-            oldStatus, "RFD");
+        auditService.record("system", "System", "ADMIN", "DEPLOYMENT_ENDED", "DEPLOYMENT",
+                candidateId, String.format("%s - %s → RFD", candidate.getName(), oldClient),
+                oldStatus, "RFD");
         
         return saved;
     }
@@ -397,7 +399,7 @@ public class DeploymentService {
         candidate.setDeployedClientName(clientName);
         candidate.setDeployedDate(deployedDate);
         candidate.setMentor(mentor);
-        candidate.setCandidateStatus(CandidateStatus.DEPLOYED);
+        candidate.setCandidateStatus("DEPLOYED");
         userRepository.save(candidate);
         
         // Create new deployment history record
@@ -419,16 +421,16 @@ public class DeploymentService {
         return endDeployment(candidateId, LocalDate.now());
     }
 
-    private SkillSet mapTechnologyToSkillSet(String technology) {
+    private String mapTechnologyToSkillSet(String technology) {
         String tech = technology.toLowerCase();
         if (tech.contains("java") || tech.contains("spring")) {
-            return SkillSet.JAVA_SB;
+            return "JAVA_SB";
         } else if (tech.contains("react")) {
-            return SkillSet.REACT_JS;
+            return "REACT_JS";
         } else if (tech.contains("full") || tech.contains("jfsr")) {
-            return SkillSet.JFSR;
+            return "JFSR";
         }
-        return SkillSet.JAVA_SB; // Default
+        return "JAVA_SB";
     }
 
     /**
@@ -459,13 +461,13 @@ public class DeploymentService {
                     if (months <= 12) {
                         // Convert to decimal: years + (months / 12)
                         double totalYears = years + (months / 12.0);
-                        return BigDecimal.valueOf(totalYears).setScale(2, BigDecimal.ROUND_HALF_UP);
+                        return BigDecimal.valueOf(totalYears).setScale(2, RoundingMode.HALF_UP);
                     }
                 }
             }
             
             // Fallback: parse as decimal number
-            return new BigDecimal(cleaned).setScale(2, BigDecimal.ROUND_HALF_UP);
+            return new BigDecimal(cleaned).setScale(2, RoundingMode.HALF_UP);
             
         } catch (NumberFormatException e) {
             return null;
@@ -511,23 +513,4 @@ public class DeploymentService {
         return null;
     }
 
-    private void logAudit(String actorId, String actorName, String actorRole, String action, 
-                         String resourceId, String detail, String oldValue, String newValue) {
-        try {
-            Map<String, Object> auditLog = new HashMap<>();
-            auditLog.put("actorId", actorId);
-            if (actorName != null) auditLog.put("actorName", actorName);
-            auditLog.put("actorRole", actorRole);
-            auditLog.put("action", action);
-            auditLog.put("resource", "DEPLOYMENT");
-            auditLog.put("resourceId", resourceId);
-            if (detail != null) auditLog.put("detail", detail);
-            if (oldValue != null) auditLog.put("oldValue", oldValue);
-            if (newValue != null) auditLog.put("newValue", newValue);
-            auditLog.put("ipAddress", "system");
-            complianceServiceClient.recordAuditLog(auditLog);
-        } catch (Exception e) {
-            // Silent fail - don't break deployment operations
-        }
-    }
 }

@@ -1,7 +1,5 @@
 package com.benchreadiness.auth.dto;
 
-import com.benchreadiness.auth.entity.CandidateSource;
-import com.benchreadiness.auth.entity.SkillSet;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -30,10 +28,10 @@ public class RegisterRequest {
     private String batch;
 
     @NotNull
-    private CandidateSource source;
+    private String source;
 
     @NotNull
-    private SkillSet skillSet;
+    private String skillSet;
 
     @NotNull
     private BigDecimal yoeActual;
@@ -44,7 +42,6 @@ public class RegisterRequest {
     @NotNull
     private Integer yop;
 
-    // Getters and setters
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getEmail() { return email; }
@@ -59,10 +56,10 @@ public class RegisterRequest {
     public void setPersonalEmail(String personalEmail) { this.personalEmail = personalEmail; }
     public String getBatch() { return batch; }
     public void setBatch(String batch) { this.batch = batch; }
-    public CandidateSource getSource() { return source; }
-    public void setSource(CandidateSource source) { this.source = source; }
-    public SkillSet getSkillSet() { return skillSet; }
-    public void setSkillSet(SkillSet skillSet) { this.skillSet = skillSet; }
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
+    public String getSkillSet() { return skillSet; }
+    public void setSkillSet(String skillSet) { this.skillSet = skillSet; }
     public BigDecimal getYoeActual() { return yoeActual; }
     public void setYoeActual(BigDecimal yoeActual) { this.yoeActual = yoeActual; }
     public BigDecimal getYoePortrayed() { return yoePortrayed; }

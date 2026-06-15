@@ -15,10 +15,23 @@ RUN mkdir -p /home/ttsuser/.local/share/tts && chown -R ttsuser:ttsuser /home/tt
 USER ttsuser
 WORKDIR /home/ttsuser
 
-# Pin your packages to prevent random upstream pipeline breaks
-RUN pip install --no-cache-dir --user TTS==0.22.0
+# Install CPU-only PyTorch first — avoids pulling CUDA wheels and shrinks the image ~2GB
+RUN pip install --no-cache-dir --user \
+    torch==2.1.2+cpu torchaudio==2.1.2+cpu \
+    --index-url https://download.pytorch.org/whl/cpu
+
+# Pin TTS; extra-index-url keeps pip from replacing CPU torch with CUDA wheels
+RUN pip install --no-cache-dir --user TTS==0.22.0 \
+    --extra-index-url https://download.pytorch.org/whl/cpu
+
+# Bake VITS weights into the image so deploy does not wait on runtime download (volume mount would hide this).
+RUN /home/ttsuser/.local/bin/tts \
+    --model_name tts_models/en/ljspeech/vits \
+    --text "Model warmup." \
+    --out_path /tmp/warmup.wav \
+    && rm -f /tmp/warmup.wav
 
 EXPOSE 5002
 
 # tts-server 0.22.0 has no --host flag; it listens on 0.0.0.0 by default
-CMD ["/home/ttsuser/.local/bin/tts-server", "--model_name", "tts_models/en/ljspeech/tacotron2-DDC", "--port", "5002"]
+CMD ["/home/ttsuser/.local/bin/tts-server", "--model_name", "tts_models/en/ljspeech/vits", "--port", "5002"]

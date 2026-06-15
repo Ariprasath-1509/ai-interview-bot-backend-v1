@@ -1,6 +1,5 @@
 package com.benchreadiness.interview.dto;
 
-import com.benchreadiness.interview.entity.SkillSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -8,17 +7,15 @@ import java.util.UUID;
 public class SkillRequirementDTO {
     
     private UUID id;
-    private SkillSet skillSet;
+    private String skillSet;
     private List<PositionRequirementDTO> positions = new ArrayList<>();
     
-    // Constructors
     public SkillRequirementDTO() {}
     
-    public SkillRequirementDTO(SkillSet skillSet) {
+    public SkillRequirementDTO(String skillSet) {
         this.skillSet = skillSet;
     }
     
-    // Getters and Setters
     public UUID getId() {
         return id;
     }
@@ -27,11 +24,11 @@ public class SkillRequirementDTO {
         this.id = id;
     }
     
-    public SkillSet getSkillSet() {
+    public String getSkillSet() {
         return skillSet;
     }
     
-    public void setSkillSet(SkillSet skillSet) {
+    public void setSkillSet(String skillSet) {
         this.skillSet = skillSet;
     }
     

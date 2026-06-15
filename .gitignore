@@ -40,7 +40,12 @@ logs/
 
 # Environment / secrets
 .env
+.env.local
+.env.prod
+.env.production
 *.env
+!*.env.example
+!*.env.prod.example
 application-local.yml
 application-local.properties
 

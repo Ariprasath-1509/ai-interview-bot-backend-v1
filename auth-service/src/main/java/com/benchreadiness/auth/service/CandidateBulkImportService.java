@@ -2,7 +2,10 @@ package com.benchreadiness.auth.service;
 
 import com.benchreadiness.auth.dto.BulkImportResponse;
 import com.benchreadiness.auth.dto.CandidateImportRow;
-import com.benchreadiness.auth.entity.*;
+import com.benchreadiness.auth.entity.User;
+import com.benchreadiness.auth.entity.UserRole;
+import com.benchreadiness.auth.masterdata.MasterDataCategory;
+import com.benchreadiness.auth.masterdata.MasterDataService;
 import com.benchreadiness.auth.repository.UserRepository;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -34,6 +37,12 @@ public class CandidateBulkImportService {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private MasterDataService masterDataService;
+
+    @Autowired
+    private PasswordService passwordService;
 
     public BulkImportResponse importFromThirdPartyApi(String gdriveFileUrl, String userId) {
         try {
@@ -255,23 +264,11 @@ public class CandidateBulkImportService {
     }
 
     private boolean isValidSource(String source) {
-        if (!StringUtils.hasText(source)) return false;
-        try {
-            CandidateSource.valueOf(source.toUpperCase());
-            return true;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
+        return masterDataService.isValid(MasterDataCategory.CANDIDATE_SOURCE, source);
     }
 
     private boolean isValidSkillSet(String skillSet) {
-        if (!StringUtils.hasText(skillSet)) return false;
-        try {
-            SkillSet.valueOf(skillSet.toUpperCase());
-            return true;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
+        return masterDataService.isValid(MasterDataCategory.SKILL_SET, skillSet);
     }
 
     private boolean candidateExists(CandidateImportRow candidate) {
@@ -311,32 +308,21 @@ public class CandidateBulkImportService {
         
         // Source (required)
         if (isValidSource(row.getSource())) {
-            candidate.setSource(CandidateSource.valueOf(row.getSource().toUpperCase()));
+            candidate.setSource(masterDataService.normalizeCode(row.getSource()));
         }
-        
-        // Skill Set (required)
+
         if (isValidSkillSet(row.getSkillSet())) {
-            candidate.setSkillSet(SkillSet.valueOf(row.getSkillSet().toUpperCase()));
+            candidate.setSkillSet(masterDataService.normalizeCode(row.getSkillSet()));
         }
-        
-        // Status (optional, default to RFD if invalid)
-        if (StringUtils.hasText(row.getStatus())) {
-            try {
-                candidate.setCandidateStatus(CandidateStatus.valueOf(row.getStatus().toUpperCase()));
-            } catch (IllegalArgumentException e) {
-                candidate.setCandidateStatus(CandidateStatus.RFD);
-            }
+
+        if (StringUtils.hasText(row.getStatus()) && masterDataService.isValid(MasterDataCategory.CANDIDATE_STATUS, row.getStatus())) {
+            candidate.setCandidateStatus(masterDataService.normalizeCode(row.getStatus()));
         } else {
-            candidate.setCandidateStatus(CandidateStatus.RFD);
+            candidate.setCandidateStatus("RFD");
         }
-        
-        // Rating (optional)
-        if (StringUtils.hasText(row.getRating())) {
-            try {
-                candidate.setRating(CandidateRating.valueOf(row.getRating().toUpperCase()));
-            } catch (IllegalArgumentException e) {
-                // Leave null if invalid
-            }
+
+        if (StringUtils.hasText(row.getRating()) && masterDataService.isValid(MasterDataCategory.CANDIDATE_RATING, row.getRating())) {
+            candidate.setRating(masterDataService.normalizeCode(row.getRating()));
         }
         
         // Experience fields
@@ -349,8 +335,7 @@ public class CandidateBulkImportService {
         candidate.setInterviewMentorName(row.getInterviewMentorName());
         candidate.setClientName(row.getClientName());
         
-        // Generate default password
-        candidate.setPassword(generateDefaultPassword());
+        candidate.setPassword(passwordService.encode(generateDefaultPassword()));
         
         // Timestamps are handled by @PrePersist and @PreUpdate in User entity
         // No need to set them manually

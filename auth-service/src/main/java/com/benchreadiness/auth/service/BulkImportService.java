@@ -1,19 +1,17 @@
 package com.benchreadiness.auth.service;
 
 import com.benchreadiness.auth.dto.BulkImportRequest;
-import com.benchreadiness.auth.dto.BulkImportResponse;
-import com.benchreadiness.auth.entity.*;
+import com.benchreadiness.auth.entity.User;
+import com.benchreadiness.auth.entity.UserRole;
 import com.benchreadiness.auth.repository.UserRepository;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,17 +22,17 @@ import java.util.concurrent.ConcurrentHashMap;
 public class BulkImportService {
 
     private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
+    private final PasswordService passwordService;
     private final ExcelParserService excelParserService;
     
     // Store import results temporarily (in production, use Redis or database)
     private final Map<String, BulkImportResult> importResults = new ConcurrentHashMap<>();
 
-    public BulkImportService(UserRepository userRepository, 
-                           PasswordEncoder passwordEncoder,
+    public BulkImportService(UserRepository userRepository,
+                           PasswordService passwordService,
                            ExcelParserService excelParserService) {
         this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
+        this.passwordService = passwordService;
         this.excelParserService = excelParserService;
     }
 
@@ -103,15 +101,18 @@ public class BulkImportService {
         User user = new User();
         user.setName(candidateData.getName());
         user.setEmail(username); // Set the primary email field
-        user.setPassword(plainPassword); // Store plain text password (auth uses plain equals)
+        user.setPassword(passwordService.encode(plainPassword));
         user.setRole(UserRole.CANDIDATE);
         
         // Set candidate-specific fields
         user.setBatch(candidateData.getBatch());
         user.setBatchMentor(candidateData.getBatchMentor());
-        user.setSource(candidateData.getSource() != null ? CandidateSource.valueOf(candidateData.getSource()) : null);
-        user.setCandidateStatus(candidateData.getStatus() != null ? CandidateStatus.valueOf(candidateData.getStatus()) : CandidateStatus.TRAINING);
-        user.setRating(candidateData.getRating() != null ? CandidateRating.valueOf(candidateData.getRating()) : null);
+        user.setSource(candidateData.getSource() != null
+                ? candidateData.getSource().toUpperCase() : null);
+        user.setCandidateStatus(candidateData.getStatus() != null
+                ? candidateData.getStatus().toUpperCase() : "TRAINING");
+        user.setRating(candidateData.getRating() != null
+                ? candidateData.getRating().toUpperCase() : null);
         user.setContactNumber(candidateData.getContactNumber());
         user.setOfficialEmail(candidateData.getOfficialEmail());
         user.setPersonalEmail(candidateData.getPersonalEmail());
@@ -125,7 +126,7 @@ public class BulkImportService {
         }
         
         if (candidateData.getSkillSet() != null) {
-            try { user.setSkillSet(SkillSet.valueOf(candidateData.getSkillSet())); } catch (IllegalArgumentException ignored) {}
+            user.setSkillSet(candidateData.getSkillSet().toUpperCase());
         }
         user.setNoOfInterviews(candidateData.getNoOfInterviews() != null ? candidateData.getNoOfInterviews() : 0);
         user.setYop(candidateData.getYop());
@@ -183,7 +184,7 @@ public class BulkImportService {
                 row.createCell(3).setCellValue(candidate.getSource());
                 row.createCell(4).setCellValue(candidate.getUsername());
                 row.createCell(5).setCellValue(candidate.getPassword());
-                row.createCell(6).setCellValue("http://localhost:6001/login");
+                row.createCell(6).setCellValue("https://prod.voiceaibot.in/login");
                 row.createCell(7).setCellValue("Created Successfully");
             }
 

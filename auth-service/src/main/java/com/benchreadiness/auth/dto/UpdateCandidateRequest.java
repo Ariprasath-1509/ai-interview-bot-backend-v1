@@ -1,9 +1,5 @@
 package com.benchreadiness.auth.dto;
 
-import com.benchreadiness.auth.entity.CandidateRating;
-import com.benchreadiness.auth.entity.CandidateSource;
-import com.benchreadiness.auth.entity.CandidateStatus;
-import com.benchreadiness.auth.entity.SkillSet;
 import java.math.BigDecimal;
 
 public class UpdateCandidateRequest {
@@ -15,10 +11,10 @@ public class UpdateCandidateRequest {
     private String contactNumber;
     private String batch;
     private String batchMentor;
-    private CandidateSource source;
-    private CandidateStatus candidateStatus;
-    private CandidateRating rating;
-    private SkillSet skillSet;
+    private String source;
+    private String candidateStatus;
+    private String rating;
+    private String skillSet;
     private BigDecimal yoeActual;
     private BigDecimal yoePortrayed;
     private Integer yop;
@@ -40,14 +36,14 @@ public class UpdateCandidateRequest {
     public void setBatch(String batch) { this.batch = batch; }
     public String getBatchMentor() { return batchMentor; }
     public void setBatchMentor(String batchMentor) { this.batchMentor = batchMentor; }
-    public CandidateSource getSource() { return source; }
-    public void setSource(CandidateSource source) { this.source = source; }
-    public CandidateStatus getCandidateStatus() { return candidateStatus; }
-    public void setCandidateStatus(CandidateStatus candidateStatus) { this.candidateStatus = candidateStatus; }
-    public CandidateRating getRating() { return rating; }
-    public void setRating(CandidateRating rating) { this.rating = rating; }
-    public SkillSet getSkillSet() { return skillSet; }
-    public void setSkillSet(SkillSet skillSet) { this.skillSet = skillSet; }
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
+    public String getCandidateStatus() { return candidateStatus; }
+    public void setCandidateStatus(String candidateStatus) { this.candidateStatus = candidateStatus; }
+    public String getRating() { return rating; }
+    public void setRating(String rating) { this.rating = rating; }
+    public String getSkillSet() { return skillSet; }
+    public void setSkillSet(String skillSet) { this.skillSet = skillSet; }
     public BigDecimal getYoeActual() { return yoeActual; }
     public void setYoeActual(BigDecimal yoeActual) { this.yoeActual = yoeActual; }
     public BigDecimal getYoePortrayed() { return yoePortrayed; }

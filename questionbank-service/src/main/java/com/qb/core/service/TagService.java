@@ -41,6 +41,19 @@ public class TagService {
 
     @CacheEvict(value = "tags", allEntries = true)
     @Transactional
+    public TagDTO renameTag(UUID id, String newName) {
+        Tag tag = tagRepo.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Tag", id));
+        String normalized = newName.toLowerCase().trim();
+        if (tagRepo.existsByNameIgnoreCase(normalized) && !normalized.equalsIgnoreCase(tag.getName())) {
+            throw new IllegalArgumentException("Tag already exists: " + normalized);
+        }
+        tag.setName(normalized);
+        return new TagDTO(tag.getId(), tagRepo.save(tag).getName());
+    }
+
+    @CacheEvict(value = "tags", allEntries = true)
+    @Transactional
     public void deleteTag(UUID id) {
         Tag tag = tagRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Tag", id));

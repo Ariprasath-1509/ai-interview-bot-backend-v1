@@ -46,10 +46,19 @@ public class ResumeParsingService {
     
     public void validateFileType(MultipartFile file) throws IOException {
         String mimeType = file.getContentType();
-        if (!isSupportedFileType(mimeType)) {
-            throw new IOException("Unsupported file type: " + mimeType + 
-                ". Supported types: PDF, DOC, DOCX");
+        if (isSupportedFileType(mimeType) || isSupportedExtension(file.getOriginalFilename())) {
+            return;
         }
+        throw new IOException("Unsupported file type: " + mimeType +
+            ". Supported types: PDF, DOC, DOCX");
+    }
+
+    private boolean isSupportedExtension(String filename) {
+        if (filename == null || filename.isBlank()) {
+            return false;
+        }
+        String lower = filename.toLowerCase();
+        return lower.endsWith(".pdf") || lower.endsWith(".doc") || lower.endsWith(".docx");
     }
     
     private String cleanExtractedText(String text) {

@@ -108,6 +108,14 @@ public class Interview {
     @Column(name = "proctoring_snapshots_json", columnDefinition = "TEXT")
     private String proctoringSnapshotsJson;
 
+    /** Resolved from auth candidate profile — not persisted. */
+    @Transient
+    private String candidateSource;
+
+    /** "video" or "light" based on admin proctoring settings for candidate source — not persisted. */
+    @Transient
+    private String proctoringMode;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -183,6 +191,10 @@ public class Interview {
     public void setProctoringScore(Integer proctoringScore) { this.proctoringScore = proctoringScore; }
     public String getProctoringSnapshotsJson() { return proctoringSnapshotsJson; }
     public void setProctoringSnapshotsJson(String proctoringSnapshotsJson) { this.proctoringSnapshotsJson = proctoringSnapshotsJson; }
+    public String getCandidateSource() { return candidateSource; }
+    public void setCandidateSource(String candidateSource) { this.candidateSource = candidateSource; }
+    public String getProctoringMode() { return proctoringMode; }
+    public void setProctoringMode(String proctoringMode) { this.proctoringMode = proctoringMode; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

@@ -109,13 +109,6 @@
 			<optional>true</optional>
 			<!-- Lombok for reducing boilerplate code (@Getter, @Builder, etc.) -->
 		</dependency>
-		<dependency>
-			<groupId>me.paulschwarz</groupId>
-			<artifactId>spring-dotenv</artifactId>
-			<version>4.0.0</version>
-			<!-- Load environment variables from .env file -->
-		</dependency>
-
 		<!-- Swagger/OpenAPI Documentation -->
 		<dependency>
 			<groupId>org.springdoc</groupId>

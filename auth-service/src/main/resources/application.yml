@@ -2,13 +2,18 @@ server:
   port: 6004
 
 spring:
+  # Optional .env at repo root (see .env.example). Override with ENV_FILE=/path/to/.env
+  config:
+    import:
+      - optional:file:${ENV_FILE:${user.dir}/../.env}[.properties]
+      - optional:file:${user.dir}/.env[.properties]
   application:
     name: auth-service
   datasource:
     # socketTimeout/connectTimeout in seconds — required for remote PostgreSQL over slow networks
-    url: jdbc:postgresql://103.182.211.219:5434/aibot?tcpKeepAlive=true&connectTimeout=60&socketTimeout=300&loginTimeout=60
-    username: aibot
-    password: aibot!@#$%
+    url: ${DB_URL:${DATABASE_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5434}/${DB_NAME:aibot}?tcpKeepAlive=true&connectTimeout=60&socketTimeout=300&loginTimeout=60}}
+    username: ${DB_USERNAME:${DB_USER:}}
+    password: ${DB_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 5
@@ -29,15 +34,15 @@ spring:
         default_schema: auth_svc
     open-in-view: false
   flyway:
-    schemas: auth_svc
+    schemas: auth_svc,master_data_svc
     locations: classpath:db/migration
     connect-retries: 5
     connect-retries-interval: 10s
   mail:
-    host: smtp.gmail.com
-    port: 587
-    username: learningdevelopment.tyss@gmail.com
-    password: xcbc bgrj lbql tgkd
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:learningdevelopment.tyss@gmail.com}
+    password: ${MAIL_PASSWORD:"xcbc bgrj lbql tgkd"}
     properties:
       mail:
         smtp:
@@ -59,21 +64,32 @@ eureka:
 
 app:
   jwt:
-    secret: dev-jwt-secret-change-in-production-min-32-chars
-    expiry-ms: 86400000
-  demo:
-    username: Demo
-    password: Demo123
+    secret: ${JWT_SECRET:}
+    issuer: ${JWT_ISSUER:benchreadiness-auth}
+    audience: ${JWT_AUDIENCE:benchreadiness-api}
+    access-expiry-ms: ${JWT_ACCESS_EXPIRY_MS:1800000}
+    refresh-expiry-ms: ${JWT_REFRESH_EXPIRY_MS:604800000}
+  auth:
+    max-login-attempts: ${AUTH_MAX_LOGIN_ATTEMPTS:10}
+    lockout-seconds: ${AUTH_LOCKOUT_SECONDS:900}
+  gateway:
+    shared-key: ${GATEWAY_SHARED_KEY:}
   third-party:
     excel-api:
       base-url: http://localhost:8000
       timeout-seconds: 30
 
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,env,loggers
+        include: health
   endpoint:
     health:
-      show-details: always
+      show-details: never

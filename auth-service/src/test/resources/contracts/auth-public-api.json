@@ -1,0 +1,34 @@
+{
+  "version": "1.0.0",
+  "service": "auth-service",
+  "publicEndpoints": [
+    {
+      "path": "/auth/login",
+      "method": "POST",
+      "requestSchema": "LoginRequest",
+      "successSchema": "AuthTokenResponse",
+      "requiredResponseFields": ["ok", "token", "refreshToken", "expiresIn", "role", "name"]
+    },
+    {
+      "path": "/auth/refresh",
+      "method": "POST",
+      "requestSchema": "RefreshTokenRequest",
+      "successSchema": "AuthTokenResponse",
+      "requiredResponseFields": ["ok", "token", "refreshToken", "expiresIn"]
+    },
+    {
+      "path": "/auth/logout",
+      "method": "POST",
+      "requestSchema": "LogoutRequest",
+      "successSchema": "ApiSuccessResponse",
+      "requiredResponseFields": ["ok"]
+    },
+    {
+      "path": "/auth/register",
+      "method": "POST",
+      "requestSchema": "RegisterRequest",
+      "successSchema": "ApiMessageResponse",
+      "requiredResponseFields": ["ok", "message"]
+    }
+  ]
+}
