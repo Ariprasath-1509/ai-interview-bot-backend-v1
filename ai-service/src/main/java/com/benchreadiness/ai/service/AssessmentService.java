@@ -20,16 +20,20 @@ public class AssessmentService {
     private final LlmClient llmClient;
     private final RubricService rubricService;
     private final ComplianceServiceClient complianceServiceClient;
+    private final TutoringService tutoringService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ConcurrentHashMap<String, CachedAssessmentResult> assessmentCache = new ConcurrentHashMap<>();
     private static final long ASSESSMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
     private record CachedAssessmentResult(String payloadJson, long createdAtMs) {}
 
-    public AssessmentService(LlmClient llmClient, RubricService rubricService, ComplianceServiceClient complianceServiceClient) {
+    public AssessmentService(LlmClient llmClient, RubricService rubricService,
+                             ComplianceServiceClient complianceServiceClient,
+                             TutoringService tutoringService) {
         this.llmClient = llmClient;
         this.rubricService = rubricService;
         this.complianceServiceClient = complianceServiceClient;
+        this.tutoringService = tutoringService;
     }
 
     public Map<String, Object> assess(AssessmentRequest req, String userId) {
@@ -352,6 +356,11 @@ public class AssessmentService {
         // ── Stage 4: Java aggregator — merge all stages, no LLM call ──────────
         log.info("Stage 4: aggregating results for interview {}", req.getInterviewId());
         Map<String, Object> result = aggregateStages(scoresJson, behavioralJson, feedbackJson, categories, evidence, req, userId);
+
+        // ── Stage 5: Q&A tutoring (non-fatal) ───────────────────────────────
+        log.info("Stage 5: Q&A tutoring for interview {}", req.getInterviewId());
+        tutoringService.attachQuestionTutorials(result, req, scoresJson, categories, utterances, userId);
+
         applyReadinessGates(result, categories, evidence, req.getInterviewMode());
 
         try {
@@ -1090,6 +1099,10 @@ public class AssessmentService {
                 "note", "Session ended with code submission; voice portion not completed"
         ));
         result.put("source", "coding-only");
+
+        JsonNode emptyScores = objectMapper.createObjectNode();
+        tutoringService.attachQuestionTutorials(
+                result, req, emptyScores, defaultCategories(), utterances, "coding-only");
         return result;
     }
 
