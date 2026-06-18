@@ -38,8 +38,7 @@ public class ObserverController {
     @PostMapping("/notify/client-created")
     public ResponseEntity<?> notifyClientCreated(@Valid @RequestBody ClientCreatedRequest req) {
         try {
-            emailService.sendClientCreatedNotification(req.getClientId(), req.getClientName(), req.getJdRole(),
-                req.getBenchB2bCandidatesNeeded(), req.getMarketCandidatesNeeded());
+            emailService.sendClientCreatedNotification(req);
             return ResponseEntity.ok(Map.of("ok", true));
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of("error", "Failed to send notifications: " + e.getMessage()));

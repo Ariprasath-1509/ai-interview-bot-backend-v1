@@ -1,11 +1,14 @@
 package com.benchreadiness.auth.service;
 
 import com.benchreadiness.auth.dto.BulkImportRequest;
+import com.benchreadiness.auth.dto.CreateCandidateRequest;
 import com.benchreadiness.auth.entity.User;
 import com.benchreadiness.auth.entity.UserRole;
 import com.benchreadiness.auth.repository.UserRepository;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,19 +24,53 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class BulkImportService {
 
+    private static final Logger log = LoggerFactory.getLogger(BulkImportService.class);
+
     private final UserRepository userRepository;
     private final PasswordService passwordService;
     private final ExcelParserService excelParserService;
+    private final EmailService emailService;
     
     // Store import results temporarily (in production, use Redis or database)
     private final Map<String, BulkImportResult> importResults = new ConcurrentHashMap<>();
 
     public BulkImportService(UserRepository userRepository,
                            PasswordService passwordService,
-                           ExcelParserService excelParserService) {
+                           ExcelParserService excelParserService,
+                           EmailService emailService) {
         this.userRepository = userRepository;
         this.passwordService = passwordService;
         this.excelParserService = excelParserService;
+        this.emailService = emailService;
+    }
+
+    @Transactional
+    public CreatedCandidate createSingleCandidate(CreateCandidateRequest req) {
+        if ((req.getOfficialEmail() == null || req.getOfficialEmail().isBlank())
+                && (req.getPersonalEmail() == null || req.getPersonalEmail().isBlank())) {
+            throw new IllegalArgumentException("Official email or personal email is required");
+        }
+
+        BulkImportRequest.CandidateBulkData candidateData = new BulkImportRequest.CandidateBulkData();
+        candidateData.setRowNumber(1);
+        candidateData.setName(req.getName());
+        candidateData.setOfficialEmail(req.getOfficialEmail());
+        candidateData.setPersonalEmail(req.getPersonalEmail());
+        candidateData.setContactNumber(req.getContactNumber());
+        candidateData.setBatch(req.getBatch());
+        candidateData.setBatchMentor(req.getBatchMentor());
+        candidateData.setSource(req.getSource());
+        candidateData.setStatus(req.getCandidateStatus());
+        candidateData.setRating(req.getRating());
+        candidateData.setSkillSet(req.getSkillSet());
+        candidateData.setYoeActual(req.getYoeActual());
+        candidateData.setYoePortrayed(req.getYoePortrayed());
+        candidateData.setYop(req.getYop());
+        candidateData.setNoOfInterviews(req.getNoOfInterviews());
+        candidateData.setInterviewMentorName(req.getInterviewMentorName());
+        candidateData.setClientName(req.getClientName());
+
+        return createCandidate(candidateData);
     }
 
     @Transactional
@@ -136,6 +173,8 @@ public class BulkImportService {
         // Save user (timestamps are set automatically via @PrePersist)
         User savedUser = userRepository.save(user);
 
+        sendWelcomeEmail(candidateData, savedUser.getName(), username, plainPassword);
+
         return new CreatedCandidate(
             savedUser.getId(),
             savedUser.getName(),
@@ -145,6 +184,35 @@ public class BulkImportService {
             candidateData.getBatch(),
             candidateData.getRowNumber()
         );
+    }
+
+    private void sendWelcomeEmail(BulkImportRequest.CandidateBulkData candidateData,
+                                  String candidateName,
+                                  String username,
+                                  String plainPassword) {
+        String notifyEmail = resolveNotifyEmail(candidateData, username);
+        if (notifyEmail == null) {
+            return;
+        }
+        try {
+            emailService.sendCandidateWelcomeEmail(notifyEmail, candidateName, username, plainPassword);
+        } catch (Exception e) {
+            log.warn("Failed to send welcome email for bulk import row {}: {}",
+                candidateData.getRowNumber(), e.getMessage());
+        }
+    }
+
+    private String resolveNotifyEmail(BulkImportRequest.CandidateBulkData candidateData, String username) {
+        if (candidateData.getPersonalEmail() != null && !candidateData.getPersonalEmail().trim().isEmpty()) {
+            return candidateData.getPersonalEmail().trim();
+        }
+        if (candidateData.getOfficialEmail() != null && !candidateData.getOfficialEmail().trim().isEmpty()) {
+            return candidateData.getOfficialEmail().trim();
+        }
+        if (username != null && username.contains("@")) {
+            return username.trim();
+        }
+        return null;
     }
 
     public byte[] generateCredentialsExcel(List<CreatedCandidate> candidates) throws IOException {

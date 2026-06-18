@@ -63,6 +63,7 @@ eureka:
     lease-expiration-duration-in-seconds: 30
 
 app:
+  login-url: ${APP_LOGIN_URL:https://prod.voiceaibot.in/login}
   jwt:
     secret: ${JWT_SECRET:}
     issuer: ${JWT_ISSUER:benchreadiness-auth}

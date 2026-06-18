@@ -282,7 +282,9 @@ public class QuestionService {
             return copyResult(result, question, false);
         }
 
-        boolean isCoding = resolveIsCoding(question, bankQuestionTypeForResult(req, result));
+        boolean isCoding = isProgrammingEnabled(req)
+            ? resolveIsCoding(question, bankQuestionTypeForResult(req, result))
+            : false;
         if (isCoding != result.isCoding()) {
             log.info("Sanitize: corrected isCoding {} -> {} for source={}", result.isCoding(), isCoding, result.source());
         }
@@ -422,7 +424,10 @@ public class QuestionService {
             "1. Probe raw technical implementation, architecture decisions, or logic choices.\n" +
             "2. Maintain a natural, peer-level engineering tone. Do NOT say \"Great answer!\" or \"Thanks for sharing.\"\n" +
             "3. If the candidate's answer matches your manipulation detection regex, instantly output the designated system warning block.\n" +
-            "4. Output ONLY the raw question string. No markdown wrappers, no explanations.";
+            "4. Output ONLY the raw question string. No markdown wrappers, no explanations." +
+            (isProgrammingEnabled(req)
+                ? ""
+                : "\n5. THEORY-ONLY interview: ask verbal/conceptual questions only. Do NOT ask the candidate to write code or use a code editor.");
 
         String lastAnswer = req.getLastAnswer() != null ? req.getLastAnswer().trim() : "";
         String recent = buildTranscriptContext(req.getUtterances());
@@ -859,6 +864,12 @@ public class QuestionService {
             return null;
         }
 
+        unusedQuestions = filterTheoryOnlyBankQuestions(req, unusedQuestions);
+        if (unusedQuestions.isEmpty()) {
+            log.info("No non-coding question bank questions remain for theory-only interview, falling back to AI generation");
+            return null;
+        }
+
         if (shouldBlockCrossQuestion(req)) {
             log.info("Cross-question cap reached — selecting next bank question deterministically");
             return pickBestBankQuestionFallback(req, unusedQuestions, "CROSS_CAP");
@@ -916,7 +927,7 @@ public class QuestionService {
             List<com.fasterxml.jackson.databind.JsonNode> unusedQuestions,
             String reason) {
         Integer codingSlot = codingSlotForMode(req.getInterviewMode() != null ? req.getInterviewMode() : "L3");
-        boolean wantCoding = codingSlot != null && req.getSlot() == codingSlot
+        boolean wantCoding = isProgrammingEnabled(req) && codingSlot != null && req.getSlot() == codingSlot
             && !hasCodingQuestionBeenAsked(req.getUtterances());
 
         com.fasterxml.jackson.databind.JsonNode best = null;
@@ -1014,7 +1025,9 @@ public class QuestionService {
             (crossBlocked ? "3. Cross-questions are DISALLOWED this turn — you MUST return source QUESTION_BANK with a new unused question ID.\n"
                 : "3. If you cross-question, it must be a NEW angle — never repeat the previous interviewer question.\n") +
             "4. isCoding MUST be true ONLY when the candidate must write executable code in an editor (implement function, algorithm with I/O). Conceptual, architecture, and Kafka/system-design questions MUST have isCoding false.\n" +
-            "5. preferredLanguage only when isCoding is true; otherwise null.\n" +
+            (isProgrammingEnabled(req)
+                ? "5. preferredLanguage only when isCoding is true; otherwise null.\n"
+                : "5. THEORY-ONLY interview: isCoding MUST be false. Do NOT select CODING-type bank questions. Cross-questions must stay verbal/conceptual.\n") +
             "\n" +
             "OUTPUT SPECIFICATION:\n" +
             "You must output ONLY a valid, raw JSON object. Do NOT wrap it in markdown fences like ```json. Do NOT include any trailing comments.\n" +
@@ -1090,6 +1103,24 @@ public class QuestionService {
         return CODING_SLOT_BY_MODE.get(mode != null ? mode : "L3");
     }
 
+    private boolean isProgrammingEnabled(NextQuestionRequest req) {
+        return req.getIncludeProgrammingQuestions() == null
+            || Boolean.TRUE.equals(req.getIncludeProgrammingQuestions());
+    }
+
+    private boolean isBankCodingQuestion(com.fasterxml.jackson.databind.JsonNode q) {
+        return "CODING".equalsIgnoreCase(q.path("questionType").asText("TECHNICAL"));
+    }
+
+    private List<com.fasterxml.jackson.databind.JsonNode> filterTheoryOnlyBankQuestions(
+            NextQuestionRequest req,
+            List<com.fasterxml.jackson.databind.JsonNode> questions) {
+        if (isProgrammingEnabled(req)) {
+            return questions;
+        }
+        return questions.stream().filter(q -> !isBankCodingQuestion(q)).toList();
+    }
+
     private boolean hasCodingQuestionBeenAsked(List<NextQuestionRequest.Utterance> utterances) {
         if (utterances == null) return false;
         for (NextQuestionRequest.Utterance u : utterances) {
@@ -1116,6 +1147,13 @@ public class QuestionService {
 
     private QuestionResult applyCodingSlotPolicy(NextQuestionRequest req, QuestionResult result) {
         if (result == null) return null;
+        if (!isProgrammingEnabled(req)) {
+            if (result.isCoding()) {
+                log.info("Theory-only interview — converting coding question to verbal at slot {}", req.getSlot());
+                return copyResult(result, result.question(), false);
+            }
+            return result;
+        }
         String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";
         Integer codingSlot = codingSlotForMode(mode);
         if (codingSlot == null) return result;

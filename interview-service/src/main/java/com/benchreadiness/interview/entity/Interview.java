@@ -78,6 +78,9 @@ public class Interview {
     @Column(name = "custom_questions_json", columnDefinition = "TEXT")
     private String customQuestionsJson;
 
+    @Column(name = "include_programming_questions", nullable = false)
+    private boolean includeProgrammingQuestions = true;
+
     @Column(name = "used_question_ids", columnDefinition = "TEXT")
     private String usedQuestionIds = "";
 
@@ -166,6 +169,10 @@ public class Interview {
     public void setQuestionBankQuestionsJson(String questionBankQuestionsJson) { this.questionBankQuestionsJson = questionBankQuestionsJson; }
     public String getCustomQuestionsJson() { return customQuestionsJson; }
     public void setCustomQuestionsJson(String customQuestionsJson) { this.customQuestionsJson = customQuestionsJson; }
+    public boolean isIncludeProgrammingQuestions() { return includeProgrammingQuestions; }
+    public void setIncludeProgrammingQuestions(boolean includeProgrammingQuestions) {
+        this.includeProgrammingQuestions = includeProgrammingQuestions;
+    }
     public String getUsedQuestionIds() { return usedQuestionIds; }
     public void setUsedQuestionIds(String usedQuestionIds) { this.usedQuestionIds = usedQuestionIds; }
     public String getRecordingPath() { return recordingPath; }

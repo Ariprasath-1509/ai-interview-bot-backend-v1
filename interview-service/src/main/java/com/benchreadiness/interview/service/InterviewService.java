@@ -130,6 +130,11 @@ public class InterviewService {
         }
 
         // Step 2: Now do all DB work in a single short transaction
+        boolean includeProgramming = req.getIncludeProgrammingQuestions() == null
+            || Boolean.TRUE.equals(req.getIncludeProgrammingQuestions());
+        if (!includeProgramming && questionBankQuestionsJson != null) {
+            questionBankQuestionsJson = filterProgrammingFromQuestionBankJson(questionBankQuestionsJson);
+        }
         return persistInterview(req, createdByUserId, rubricJson, candidateProfileJson, questionBankQuestionsJson);
     }
 
@@ -186,6 +191,9 @@ public class InterviewService {
         interview.setCreatedByUserId(createdByUserId);
         interview.setStatus(InterviewStatus.SCHEDULED);
         interview.setScheduledAt(Instant.now());
+        boolean includeProgramming = req.getIncludeProgrammingQuestions() == null
+            || Boolean.TRUE.equals(req.getIncludeProgrammingQuestions());
+        interview.setIncludeProgrammingQuestions(includeProgramming);
         if (questionBankQuestionsJson != null) {
             interview.setQuestionBankQuestionsJson(questionBankQuestionsJson);
             interview.setUsedQuestionIds("");
@@ -528,6 +536,25 @@ public class InterviewService {
             interview.setAssessmentResultJson(resultJson.isBlank() ? null : resultJson);
         }
         return interviewRepository.save(interview);
+    }
+
+    private String filterProgrammingFromQuestionBankJson(String questionBankQuestionsJson) throws Exception {
+        com.fasterxml.jackson.databind.JsonNode arr = objectMapper.readTree(questionBankQuestionsJson);
+        if (!arr.isArray()) {
+            return questionBankQuestionsJson;
+        }
+        com.fasterxml.jackson.databind.node.ArrayNode filtered = objectMapper.createArrayNode();
+        for (com.fasterxml.jackson.databind.JsonNode q : arr) {
+            String type = q.path("questionType").asText("TECHNICAL");
+            if (!"CODING".equalsIgnoreCase(type)) {
+                filtered.add(q);
+            }
+        }
+        if (filtered.isEmpty()) {
+            log.info("All selected question-bank items were CODING type — none stored for theory-only interview");
+            return null;
+        }
+        return objectMapper.writeValueAsString(filtered);
     }
 
     private Map<String, Object> slot(int num, String theme, String difficulty, int minutes) {

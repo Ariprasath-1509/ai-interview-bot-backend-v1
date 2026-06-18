@@ -16,6 +16,9 @@ public interface AuthServiceClient {
     @GetMapping("/auth/staff")
     List<Map<String, Object>> getAllStaff();
 
+    @GetMapping("/auth/internal/client-notification-recipients")
+    List<Map<String, Object>> getClientNotificationRecipients();
+
     @GetMapping("/auth/admins")
     List<Map<String, String>> getAdmins();
 

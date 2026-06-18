@@ -20,6 +20,8 @@ public class NextQuestionRequest {
     private String questionBankQuestionsJson;
     private String customQuestionsJson;
     private String usedQuestionIds;
+    /** When false, theory/verbal only — no coding slot or code editor. Null defaults to true. */
+    private Boolean includeProgrammingQuestions;
 
     public record Utterance(String speaker, String text) {}
 
@@ -55,4 +57,8 @@ public class NextQuestionRequest {
     public void setCustomQuestionsJson(String customQuestionsJson) { this.customQuestionsJson = customQuestionsJson; }
     public String getUsedQuestionIds() { return usedQuestionIds; }
     public void setUsedQuestionIds(String usedQuestionIds) { this.usedQuestionIds = usedQuestionIds; }
+    public Boolean getIncludeProgrammingQuestions() { return includeProgrammingQuestions; }
+    public void setIncludeProgrammingQuestions(Boolean includeProgrammingQuestions) {
+        this.includeProgrammingQuestions = includeProgrammingQuestions;
+    }
 }

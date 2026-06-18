@@ -44,6 +44,9 @@ public class CandidateBulkImportService {
     @Autowired
     private PasswordService passwordService;
 
+    @Autowired
+    private EmailService emailService;
+
     public BulkImportResponse importFromThirdPartyApi(String gdriveFileUrl, String userId) {
         try {
             log.info("Starting bulk import from third-party API for user: {}", userId);
@@ -222,8 +225,10 @@ public class CandidateBulkImportService {
                 }
                 
                 // Create new candidate
-                User newCandidate = createCandidateFromRow(candidate, userId);
+                String plainPassword = generateDefaultPassword(candidate.getName());
+                User newCandidate = createCandidateFromRow(candidate, userId, plainPassword);
                 userRepository.save(newCandidate);
+                sendWelcomeEmail(candidate, newCandidate, plainPassword);
                 
                 response.addSuccess(candidate.getRowNumber(), newCandidate.getId());
                 
@@ -287,7 +292,7 @@ public class CandidateBulkImportService {
         return candidate.getContactNumber();
     }
 
-    private User createCandidateFromRow(CandidateImportRow row, String createdByUserId) {
+    private User createCandidateFromRow(CandidateImportRow row, String createdByUserId, String plainPassword) {
         User candidate = new User();
         
         // Basic required fields
@@ -335,12 +340,43 @@ public class CandidateBulkImportService {
         candidate.setInterviewMentorName(row.getInterviewMentorName());
         candidate.setClientName(row.getClientName());
         
-        candidate.setPassword(passwordService.encode(generateDefaultPassword()));
+        candidate.setPassword(passwordService.encode(plainPassword));
         
         // Timestamps are handled by @PrePersist and @PreUpdate in User entity
         // No need to set them manually
         
         return candidate;
+    }
+
+    private void sendWelcomeEmail(CandidateImportRow row, User candidate, String plainPassword) {
+        String notifyEmail = resolveNotifyEmail(row, candidate.getEmail());
+        if (notifyEmail == null) {
+            return;
+        }
+        try {
+            emailService.sendCandidateWelcomeEmail(
+                notifyEmail,
+                candidate.getName(),
+                candidate.getEmail(),
+                plainPassword
+            );
+        } catch (Exception e) {
+            log.warn("Failed to send welcome email for API bulk import row {}: {}",
+                row.getRowNumber(), e.getMessage());
+        }
+    }
+
+    private String resolveNotifyEmail(CandidateImportRow row, String primaryEmail) {
+        if (StringUtils.hasText(row.getPersonalEmail())) {
+            return row.getPersonalEmail().trim();
+        }
+        if (StringUtils.hasText(row.getOfficialEmail())) {
+            return row.getOfficialEmail().trim();
+        }
+        if (StringUtils.hasText(primaryEmail) && primaryEmail.contains("@")) {
+            return primaryEmail.trim();
+        }
+        return null;
     }
 
     private BigDecimal parseDecimal(String value) {
@@ -361,8 +397,10 @@ public class CandidateBulkImportService {
         }
     }
 
-    private String generateDefaultPassword() {
-        // Generate a simple default password
-        return "Candidate@" + System.currentTimeMillis() % 10000;
+    private String generateDefaultPassword(String candidateName) {
+        String firstName = candidateName != null && !candidateName.isBlank()
+            ? candidateName.split(" ")[0]
+            : "Candidate";
+        return firstName + "@" + LocalDateTime.now().getYear();
     }
 }
