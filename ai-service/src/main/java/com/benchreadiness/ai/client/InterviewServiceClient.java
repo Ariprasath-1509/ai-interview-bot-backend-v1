@@ -8,7 +8,7 @@ import java.util.Map;
 @FeignClient(name = "interview-service")
 public interface InterviewServiceClient {
 
-    @PatchMapping("/interviews/{id}/assessment-status")
+    @PutMapping("/interviews/{id}/assessment-status")
     void updateAssessmentStatus(@PathVariable("id") String interviewId,
                                 @RequestBody Map<String, Object> body);
 

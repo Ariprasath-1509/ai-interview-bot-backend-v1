@@ -12,6 +12,15 @@ spring:
   cloud:
     compatibility-verifier:
       enabled: false
+    openfeign:
+      client:
+        config:
+          default:
+            connectTimeout: 30000
+            readTimeout: 120000
+          aiServiceClient:
+            connectTimeout: 30000
+            readTimeout: 600000
   cache:
     type: caffeine
     caffeine:

@@ -549,17 +549,24 @@ public class InterviewService {
     }
 
     @Transactional
-    public Interview updateAssessmentStatus(String id, String status, String error, String resultJson) {
+    public Interview updateAssessmentStatus(String id, String status, String error, String resultJson, String runId) {
         Interview interview = interviewRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
         if (status != null && !status.isBlank()) {
             interview.setAssessmentStatus(status);
+            if ("PROCESSING".equalsIgnoreCase(status)) {
+                interview.setAssessmentResultJson(null);
+                interview.setAssessmentError(null);
+            }
         }
         if (error != null) {
             interview.setAssessmentError(error.isBlank() ? null : error);
         }
         if (resultJson != null) {
             interview.setAssessmentResultJson(resultJson.isBlank() ? null : resultJson);
+        }
+        if (runId != null) {
+            interview.setAssessmentRunId(runId.isBlank() ? null : runId);
         }
         return interviewRepository.save(interview);
     }

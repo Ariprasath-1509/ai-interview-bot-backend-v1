@@ -354,13 +354,11 @@ public class AssessmentService {
         log.info("Stage 3: candidate feedback for interview {}", req.getInterviewId());
         JsonNode feedbackJson = runStage3Feedback(scoresJson, categories, jdSnippet, req);
 
-        // ── Stage 3b: Client-facing brief (staff-only, shareable with clients) ─
-        log.info("Stage 3b: client brief for interview {}", req.getInterviewId());
-        JsonNode clientBriefJson = runStage3bClientBrief(scoresJson, behavioralJson, feedbackJson, categories, jdSnippet, req);
+        // Client brief (Stage 3b) is generated on demand when staff prepares client feedback — not during assess.
 
         // ── Stage 4: Java aggregator — merge all stages, no LLM call ──────────
         log.info("Stage 4: aggregating results for interview {}", req.getInterviewId());
-        Map<String, Object> result = aggregateStages(scoresJson, behavioralJson, feedbackJson, clientBriefJson,
+        Map<String, Object> result = aggregateStages(scoresJson, behavioralJson, feedbackJson, null,
             categories, evidence, req, userId);
         applyReadinessGates(result, categories, evidence, req.getInterviewMode());
 
@@ -606,16 +604,99 @@ public class AssessmentService {
         }
         result.put("candidateFeedback", feedback);
 
+        if (clientBriefJson != null && !clientBriefJson.isMissingNode()) {
+            Map<String, Object> clientBrief = parseClientBrief(clientBriefJson);
+            if (clientBrief.get("executiveSummary") == null
+                    || clientBrief.get("executiveSummary").toString().isBlank()) {
+                log.warn("Stage 3b client brief empty for interview {} — using fallback", req.getInterviewId());
+                clientBrief = buildFallbackClientBrief(scoresJson, result.get("summary").toString(), req.getJdTitle());
+            }
+            clientBrief.put("source", "ai");
+            result.put("clientBrief", clientBrief);
+        }
+        result.put("source", "ollama-four-stage");
+        return result;
+    }
+
+    /**
+     * Generate a client-facing evaluation brief from a completed assessment (on-demand, staff-only).
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> generateClientBriefFromAssessment(String interviewId, String jdTitle,
+                                                                 String jdText, String assessmentJson,
+                                                                 String userId) throws Exception {
+        if (!llmClient.isConfigured()) {
+            throw new IllegalStateException("LLM provider not configured");
+        }
+        if (assessmentJson == null || assessmentJson.isBlank()) {
+            throw new IllegalArgumentException("No assessment available for this interview");
+        }
+
+        Map<String, Object> assessment = objectMapper.readValue(assessmentJson, Map.class);
+        com.fasterxml.jackson.databind.node.ObjectNode scoresJson = objectMapper.createObjectNode();
+        scoresJson.put("summary", stringOrEmpty(assessment.get("summary")));
+        scoresJson.put("proposedVerdict", stringOrEmpty(assessment.get("proposedVerdict")));
+
+        com.fasterxml.jackson.databind.node.ObjectNode categoryScores = objectMapper.createObjectNode();
+        Object rowsObj = assessment.get("categoryScores");
+        if (rowsObj instanceof List<?> rows) {
+            for (Object rowObj : rows) {
+                if (!(rowObj instanceof Map<?, ?> row)) continue;
+                String dim = stringOrEmpty(row.get("dimension"));
+                if (dim.isBlank() || "communication".equals(dim)) continue;
+                com.fasterxml.jackson.databind.node.ObjectNode catNode = objectMapper.createObjectNode();
+                Object value = row.get("value");
+                if (value != null) {
+                    try {
+                        catNode.put("score", Integer.parseInt(String.valueOf(value)));
+                    } catch (NumberFormatException ignored) {
+                        catNode.putNull("score");
+                    }
+                } else {
+                    catNode.putNull("score");
+                }
+                categoryScores.set(dim, catNode);
+            }
+        }
+        scoresJson.set("categoryScores", categoryScores);
+
+        com.fasterxml.jackson.databind.node.ObjectNode behavioralJson = objectMapper.createObjectNode();
+        Object behObj = assessment.get("behavioralSignals");
+        if (behObj instanceof Map<?, ?> beh) {
+            com.fasterxml.jackson.databind.node.ObjectNode signals = objectMapper.createObjectNode();
+            signals.put("summary", stringOrEmpty(beh.get("summary")));
+            behavioralJson.set("behavioralSignals", signals);
+        }
+
+        List<Map<String, Object>> categories = new ArrayList<>();
+        List<Map<String, Object>> finalCategories = categories;
+        categoryScores.fieldNames().forEachRemaining(key ->
+            finalCategories.add(Map.of("key", key, "label", key)));
+        if (categories.isEmpty()) {
+            categories = defaultCategories();
+        }
+
+        String jdSnippet = jdText != null && !jdText.isBlank()
+            ? jdText.substring(0, Math.min(400, jdText.length())) : "";
+        AssessmentRequest req = new AssessmentRequest();
+        req.setInterviewId(interviewId);
+        req.setJdTitle(jdTitle != null && !jdTitle.isBlank() ? jdTitle : "Position");
+
+        log.info("Generating on-demand client brief for interview {}", interviewId);
+        JsonNode clientBriefJson = runStage3bClientBrief(scoresJson, behavioralJson,
+            objectMapper.createObjectNode(), categories, jdSnippet, req);
+
         Map<String, Object> clientBrief = parseClientBrief(clientBriefJson);
         if (clientBrief.get("executiveSummary") == null
                 || clientBrief.get("executiveSummary").toString().isBlank()) {
-            log.warn("Stage 3b client brief empty for interview {} — using fallback", req.getInterviewId());
-            clientBrief = buildFallbackClientBrief(scoresJson, result.get("summary").toString(), req.getJdTitle());
+            clientBrief = buildFallbackClientBrief(scoresJson, scoresJson.path("summary").asText(""), jdTitle);
         }
         clientBrief.put("source", "ai");
-        result.put("clientBrief", clientBrief);
-        result.put("source", "ollama-four-stage");
-        return result;
+        return clientBrief;
+    }
+
+    private static String stringOrEmpty(Object value) {
+        return value != null ? value.toString() : "";
     }
 
     private Map<String, Object> parseClientBrief(JsonNode node) {

@@ -1,6 +1,7 @@
 package com.benchreadiness.interview.service;
 
 import com.benchreadiness.interview.client.AuthServiceClient;
+import com.benchreadiness.interview.client.AiServiceClient;
 import com.benchreadiness.interview.client.ComplianceServiceClient;
 import com.benchreadiness.interview.dto.ClientBriefDto;
 import com.benchreadiness.interview.entity.Engineer;
@@ -30,6 +31,7 @@ public class ClientBriefService {
     private final JobDescriptionRepository jdRepository;
     private final ComplianceServiceClient complianceServiceClient;
     private final AuthServiceClient authServiceClient;
+    private final AiServiceClient aiServiceClient;
     private final ObjectMapper objectMapper;
 
     public ClientBriefService(InterviewRepository interviewRepository,
@@ -37,18 +39,23 @@ public class ClientBriefService {
                               JobDescriptionRepository jdRepository,
                               ComplianceServiceClient complianceServiceClient,
                               AuthServiceClient authServiceClient,
+                              AiServiceClient aiServiceClient,
                               ObjectMapper objectMapper) {
         this.interviewRepository = interviewRepository;
         this.engineerRepository = engineerRepository;
         this.jdRepository = jdRepository;
         this.complianceServiceClient = complianceServiceClient;
         this.authServiceClient = authServiceClient;
+        this.aiServiceClient = aiServiceClient;
         this.objectMapper = objectMapper;
     }
 
+    /** Returns saved client brief only — does not auto-load from assessment. */
     public ClientBriefResponse getClientBrief(String interviewId, String userId) {
         Interview interview = interviewRepository.findById(interviewId)
             .orElseThrow(() -> new IllegalArgumentException("Interview not found"));
+
+        ClientBriefContext context = buildContext(interview);
 
         if (interview.getClientBriefJson() != null && !interview.getClientBriefJson().isBlank()) {
             try {
@@ -56,17 +63,48 @@ public class ClientBriefService {
                     interview.getClientBriefJson(), new TypeReference<>() {});
                 ClientBriefDto brief = ClientBriefDto.fromMap(stored);
                 brief.setSaved(true);
-                return new ClientBriefResponse(brief, buildContext(interview));
+                return new ClientBriefResponse(brief, context, true);
             } catch (Exception e) {
                 log.warn("Failed to parse saved client brief for {}: {}", interviewId, e.getMessage());
             }
         }
 
-        Map<String, Object> assessmentBrief = loadAiClientBrief(interview, userId);
-        ClientBriefDto brief = ClientBriefDto.fromMap(assessmentBrief);
+        return new ClientBriefResponse(null, context, false);
+    }
+
+    /** Generate a new AI client brief draft from the completed assessment (on demand). */
+    public ClientBriefResponse generateClientBrief(String interviewId, String userId) {
+        Interview interview = interviewRepository.findById(interviewId)
+            .orElseThrow(() -> new IllegalArgumentException("Interview not found"));
+
+        String assessmentJson = resolveAssessmentJson(interview, userId);
+        if (assessmentJson == null || assessmentJson.isBlank()) {
+            throw new IllegalArgumentException(
+                "No AI assessment found. Run assessment before generating a client brief.");
+        }
+
+        JobDescription jd = jdRepository.findById(interview.getJdId()).orElse(null);
+        String jdTitle = jd != null ? jd.getTitle() : "Position";
+        String jdText = jd != null && jd.getText() != null ? jd.getText() : "";
+
+        Map<String, Object> aiPayload = new LinkedHashMap<>();
+        aiPayload.put("interviewId", interviewId);
+        aiPayload.put("jdTitle", jdTitle);
+        aiPayload.put("jdText", jdText);
+        aiPayload.put("assessmentJson", assessmentJson);
+
+        Map<String, Object> generated = aiServiceClient.generateClientBrief(aiPayload, userId);
+        if (generated == null || generated.isEmpty()) {
+            throw new IllegalArgumentException("AI returned an empty client brief");
+        }
+        if (generated.get("error") != null) {
+            throw new IllegalArgumentException(String.valueOf(generated.get("error")));
+        }
+
+        ClientBriefDto brief = ClientBriefDto.fromMap(generated);
         brief.setSaved(false);
         brief.setSource(brief.getSource() != null && !brief.getSource().isBlank() ? brief.getSource() : "ai");
-        return new ClientBriefResponse(brief, buildContext(interview));
+        return new ClientBriefResponse(brief, buildContext(interview), false);
     }
 
     @Transactional
@@ -86,7 +124,7 @@ public class ClientBriefService {
             saved.setLastEditedByName(userName);
             saved.setLastEditedAt(Instant.now());
             saved.setSource("manual");
-            return new ClientBriefResponse(saved, buildContext(interview));
+            return new ClientBriefResponse(saved, buildContext(interview), true);
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to save client brief: " + e.getMessage());
         }
@@ -94,42 +132,46 @@ public class ClientBriefService {
 
     public ClientBriefPdfContext getPdfContext(String interviewId, String userId) {
         ClientBriefResponse response = getClientBrief(interviewId, userId);
-        if (!response.brief().isSaved()) {
+        if (response.brief() == null || !response.brief().isSaved()) {
             throw new IllegalArgumentException(
                 "Save the client brief before downloading. Review and edit the draft, then click Save.");
         }
         return new ClientBriefPdfContext(response.brief(), response.context());
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> loadAiClientBrief(Interview interview, String userId) {
+    private String resolveAssessmentJson(Interview interview, String userId) {
         String json = interview.getAssessmentResultJson();
-        if (json == null || json.isBlank()) {
-            try {
-                Map<String, Object> compliance = complianceServiceClient.getAssessmentResponse(
-                    interview.getId(), userId);
-                if (compliance != null && compliance.get("assessmentJson") != null) {
-                    json = compliance.get("assessmentJson").toString();
-                }
-            } catch (Exception e) {
-                log.warn("Compliance assessment fetch failed for {}: {}", interview.getId(), e.getMessage());
-            }
-        }
-        if (json == null || json.isBlank()) {
-            return Map.of();
+        if (json != null && !json.isBlank()) {
+            return json;
         }
         try {
-            Map<String, Object> assessment = objectMapper.readValue(json, Map.class);
-            Object brief = assessment.get("clientBrief");
-            if (brief instanceof Map<?, ?> map) {
-                Map<String, Object> copy = new LinkedHashMap<>();
-                map.forEach((k, v) -> copy.put(String.valueOf(k), v));
-                return copy;
+            Map<String, Object> compliance = complianceServiceClient.getAssessmentResponse(
+                interview.getId(), userId);
+            if (compliance != null && compliance.get("assessmentJson") != null) {
+                return compliance.get("assessmentJson").toString();
             }
         } catch (Exception e) {
-            log.warn("Failed to extract clientBrief from assessment for {}: {}", interview.getId(), e.getMessage());
+            log.warn("Compliance assessment fetch failed for {}: {}", interview.getId(), e.getMessage());
         }
-        return Map.of();
+        return extractAssessmentFromTranscript(interview.getTranscriptJson());
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractAssessmentFromTranscript(String transcriptJson) {
+        if (transcriptJson == null || transcriptJson.isBlank()) return null;
+        try {
+            Map<String, Object> doc = objectMapper.readValue(transcriptJson, Map.class);
+            Object meta = doc.get("meta");
+            if (meta instanceof Map<?, ?> metaMap) {
+                Object assessment = metaMap.get("assessment");
+                if (assessment != null) {
+                    return assessment instanceof String s ? s : objectMapper.writeValueAsString(assessment);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("No assessment in transcript for interview: {}", e.getMessage());
+        }
+        return null;
     }
 
     private Map<String, Object> toStorageMap(ClientBriefDto brief, String userId, String userName) {
@@ -200,7 +242,7 @@ public class ClientBriefService {
         );
     }
 
-    public record ClientBriefResponse(ClientBriefDto brief, ClientBriefContext context) {}
+    public record ClientBriefResponse(ClientBriefDto brief, ClientBriefContext context, boolean hasSavedBrief) {}
 
     public record ClientBriefContext(
         String candidateName,

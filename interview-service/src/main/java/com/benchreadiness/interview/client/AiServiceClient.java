@@ -19,4 +19,8 @@ public interface AiServiceClient {
 
     @PostMapping("/ai/resume-summary")
     Map<String, Object> generateResumeSummary(@RequestBody Map<String, Object> request);
+
+    @PostMapping("/ai/generate-client-brief")
+    Map<String, Object> generateClientBrief(@RequestBody Map<String, Object> request,
+                                            @RequestHeader("X-User-Id") String userId);
 }

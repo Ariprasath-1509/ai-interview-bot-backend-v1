@@ -102,6 +102,9 @@ public class Interview {
     @Column(name = "assessment_result_json", columnDefinition = "TEXT")
     private String assessmentResultJson;
 
+    @Column(name = "assessment_run_id", length = 36)
+    private String assessmentRunId;
+
     @Column(name = "client_brief_json", columnDefinition = "TEXT")
     private String clientBriefJson;
 
@@ -196,6 +199,8 @@ public class Interview {
     public void setAssessmentError(String assessmentError) { this.assessmentError = assessmentError; }
     public String getAssessmentResultJson() { return assessmentResultJson; }
     public void setAssessmentResultJson(String assessmentResultJson) { this.assessmentResultJson = assessmentResultJson; }
+    public String getAssessmentRunId() { return assessmentRunId; }
+    public void setAssessmentRunId(String assessmentRunId) { this.assessmentRunId = assessmentRunId; }
     public String getClientBriefJson() { return clientBriefJson; }
     public void setClientBriefJson(String clientBriefJson) { this.clientBriefJson = clientBriefJson; }
     public Long getRecordingBytes() { return recordingBytes; }

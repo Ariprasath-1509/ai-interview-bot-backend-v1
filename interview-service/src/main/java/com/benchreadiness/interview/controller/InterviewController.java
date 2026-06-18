@@ -190,6 +190,7 @@ public class InterviewController {
         }
     }
 
+    @PutMapping("/{id}/assessment-status")
     @PatchMapping("/{id}/assessment-status")
     public ResponseEntity<?> updateAssessmentStatus(@PathVariable String id,
                                                     @RequestBody Map<String, Object> body) {
@@ -197,7 +198,8 @@ public class InterviewController {
             String status = body.get("status") != null ? String.valueOf(body.get("status")) : null;
             String error = body.get("error") != null ? String.valueOf(body.get("error")) : null;
             String resultJson = body.get("resultJson") != null ? String.valueOf(body.get("resultJson")) : null;
-            Interview updated = interviewService.updateAssessmentStatus(id, status, error, resultJson);
+            String runId = body.get("runId") != null ? String.valueOf(body.get("runId")) : null;
+            Interview updated = interviewService.updateAssessmentStatus(id, status, error, resultJson, runId);
             return ResponseEntity.ok(updated);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
@@ -329,6 +331,27 @@ public class InterviewController {
                 .orElse(ResponseEntity.notFound().build());
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/{id}/client-brief/generate")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    public ResponseEntity<?> generateClientBrief(@PathVariable String id,
+                                               @RequestHeader("X-User-Id") String userId,
+                                               @RequestHeader("X-User-Role") String userRole) {
+        try {
+            return interviewService.findByIdForRole(id, userId, userRole)
+                .map(interview -> ResponseEntity.ok(clientBriefService.generateClientBrief(id, userId)))
+                .orElse(ResponseEntity.notFound().build());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (feign.RetryableException e) {
+            return ResponseEntity.status(504).body(Map.of(
+                "error", "Client brief generation timed out. The AI may still be processing — try again in a minute."));
+        } catch (Exception e) {
+            org.slf4j.LoggerFactory.getLogger(InterviewController.class)
+                .error("Client brief generation failed for {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "Failed to generate client brief"));
         }
     }
 

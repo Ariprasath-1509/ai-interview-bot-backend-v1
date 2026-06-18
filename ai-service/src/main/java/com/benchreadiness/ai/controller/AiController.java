@@ -165,42 +165,81 @@ public class AiController {
     public ResponseEntity<?> assessAsync(@RequestBody AssessmentRequest req,
                                         @RequestHeader("X-User-Id") String userId) {
         asyncAssessmentService.clearAssessmentStatus(req.getInterviewId());
-        asyncAssessmentService.markProcessing(req.getInterviewId());
-        asyncAssessmentService.processAssessmentAsync(req, userId);
+        String runId = asyncAssessmentService.prepareAssessmentRun(req.getInterviewId());
+        // Must invoke @Async method from the controller so Spring proxy applies (not self-invocation).
+        asyncAssessmentService.processAssessmentAsync(req, userId, runId);
         return ResponseEntity.ok(Map.of(
             "status", "ASSESSMENT_PENDING",
             "message", "Assessment queued for processing",
-            "interviewId", req.getInterviewId()
+            "interviewId", req.getInterviewId(),
+            "runId", runId
         ));
+    }
+
+    @PostMapping("/generate-client-brief")
+    public ResponseEntity<?> generateClientBrief(@RequestBody Map<String, Object> body,
+                                                 @RequestHeader("X-User-Id") String userId) {
+        try {
+            String interviewId = body.get("interviewId") != null ? body.get("interviewId").toString() : null;
+            String jdTitle = body.get("jdTitle") != null ? body.get("jdTitle").toString() : "Position";
+            String jdText = body.get("jdText") != null ? body.get("jdText").toString() : "";
+            String assessmentJson = body.get("assessmentJson") != null ? body.get("assessmentJson").toString() : null;
+            if (interviewId == null || interviewId.isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "interviewId is required"));
+            }
+            Map<String, Object> brief = assessmentService.generateClientBriefFromAssessment(
+                interviewId, jdTitle, jdText, assessmentJson, userId);
+            return ResponseEntity.ok(brief);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Client brief generation failed: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().body(Map.of("error", "Failed to generate client brief"));
+        }
     }
     
     @GetMapping("/assess-status/{interviewId}")
-    public ResponseEntity<?> getAssessmentStatus(@PathVariable String interviewId) {
+    public ResponseEntity<?> getAssessmentStatus(@PathVariable String interviewId,
+                                                 @RequestParam(required = false) String runId) {
         AsyncAssessmentService.AssessmentStatus status = asyncAssessmentService.getAssessmentStatus(interviewId);
-        
+        String statusRunId = status.getRunId();
+
+        if ("COMPLETED".equals(status.getStatus()) && runId != null && !runId.isBlank()
+                && (statusRunId == null || !statusRunId.equals(runId))) {
+            return ResponseEntity.ok(Map.of(
+                "status", "PROCESSING",
+                "message", "A newer assessment run is in progress",
+                "runId", statusRunId != null ? statusRunId : ""
+            ));
+        }
+
         if ("COMPLETED".equals(status.getStatus())) {
             try {
                 Map<String, Object> result = objectMapper.readValue(status.getResult(), 
                     new com.fasterxml.jackson.core.type.TypeReference<>() {});
                 return ResponseEntity.ok(Map.of(
                     "status", "COMPLETED",
-                    "result", result
+                    "result", result,
+                    "runId", statusRunId != null ? statusRunId : ""
                 ));
             } catch (Exception e) {
                 return ResponseEntity.ok(Map.of(
                     "status", "FAILED",
-                    "error", "Failed to parse assessment result"
+                    "error", "Failed to parse assessment result",
+                    "runId", statusRunId != null ? statusRunId : ""
                 ));
             }
         } else if ("FAILED".equals(status.getStatus())) {
             return ResponseEntity.ok(Map.of(
                 "status", "FAILED",
-                "error", status.getError()
+                "error", status.getError(),
+                "runId", statusRunId != null ? statusRunId : ""
             ));
         } else if ("PROCESSING".equals(status.getStatus())) {
             return ResponseEntity.ok(Map.of(
                 "status", "PROCESSING",
-                "message", "Assessment in progress"
+                "message", "Assessment in progress",
+                "runId", statusRunId != null ? statusRunId : ""
             ));
         } else {
             return ResponseEntity.ok(Map.of(

@@ -13,6 +13,8 @@ spring:
     compatibility-verifier:
       enabled: false
     gateway:
+      httpclient:
+        response-timeout: 600s
       globalcors:
         corsConfigurations:
           '[/**]':
