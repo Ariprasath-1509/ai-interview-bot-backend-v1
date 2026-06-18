@@ -6,6 +6,7 @@ import com.benchreadiness.ops.observer.dto.InjectRequest;
 import com.benchreadiness.ops.observer.dto.InterviewAbandonedRequest;
 import com.benchreadiness.ops.observer.dto.InterviewCreatedRequest;
 import com.benchreadiness.ops.observer.entity.ObserverEvent;
+import com.benchreadiness.ops.observer.service.DigestService;
 import com.benchreadiness.ops.observer.service.EmailService;
 import com.benchreadiness.ops.observer.service.ObserverService;
 import jakarta.validation.Valid;
@@ -24,12 +25,14 @@ public class ObserverController {
     private final ObserverService observerService;
     private final SimpMessagingTemplate messagingTemplate;
     private final EmailService emailService;
+    private final DigestService digestService;
 
     public ObserverController(ObserverService observerService, SimpMessagingTemplate messagingTemplate,
-                               EmailService emailService) {
+                               EmailService emailService, DigestService digestService) {
         this.observerService = observerService;
         this.messagingTemplate = messagingTemplate;
         this.emailService = emailService;
+        this.digestService = digestService;
     }
 
     @PostMapping("/notify/client-created")
@@ -108,5 +111,14 @@ public class ObserverController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
+    }
+
+    /** POST /observer/digest/send — manually trigger the daily platform report (admin only). */
+    @PostMapping("/digest/send")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    public ResponseEntity<?> triggerDailyDigest(@RequestHeader("X-User-Id") String userId,
+                                                 @RequestHeader("X-User-Role") String role) {
+        digestService.sendDailyDigest();
+        return ResponseEntity.ok(Map.of("ok", true, "message", "Daily digest triggered"));
     }
 }

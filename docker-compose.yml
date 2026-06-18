@@ -123,6 +123,8 @@ services:
     memswap_limit: 1536m
     ports:
       - "6005:6005"
+    env_file:
+      - ${ENV_FILE:-.env}
     environment:
       SPRING_PROFILES_ACTIVE: docker
       DB_URL: ${DB_URL:-}
@@ -136,8 +138,6 @@ services:
       GATEWAY_SHARED_KEY: ${GATEWAY_SHARED_KEY:-}
       MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
       MAIL_PORT: ${MAIL_PORT:-587}
-      MAIL_USERNAME: ${MAIL_USERNAME:-}
-      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       JAVA_OPTS: "-Xms512m -Xmx1280m -XX:+UseG1GC"
     depends_on:
       eureka-server:
@@ -167,6 +167,8 @@ services:
     memswap_limit: 1536m
     ports:
       - "6004:6004"
+    env_file:
+      - ${ENV_FILE:-.env}
     environment:
       SPRING_PROFILES_ACTIVE: docker
       DB_URL: ${DB_URL:-}
@@ -182,8 +184,6 @@ services:
       GATEWAY_SHARED_KEY: ${GATEWAY_SHARED_KEY:-}
       MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
       MAIL_PORT: ${MAIL_PORT:-587}
-      MAIL_USERNAME: ${MAIL_USERNAME:-}
-      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       AUTH_MAX_LOGIN_ATTEMPTS: ${AUTH_MAX_LOGIN_ATTEMPTS:-10}
       AUTH_LOCKOUT_SECONDS: ${AUTH_LOCKOUT_SECONDS:-900}
       JAVA_OPTS: "-Xms1g -Xmx1536m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
@@ -472,6 +472,8 @@ services:
     memswap_limit: 1g
     ports:
       - "6016:6016"
+    env_file:
+      - ${ENV_FILE:-.env}
     environment:
       SPRING_PROFILES_ACTIVE: docker
       DB_URL: ${DB_URL:-}
@@ -486,8 +488,6 @@ services:
       GATEWAY_SHARED_KEY: ${GATEWAY_SHARED_KEY:-}
       MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
       MAIL_PORT: ${MAIL_PORT:-587}
-      MAIL_USERNAME: ${MAIL_USERNAME:-}
-      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       APP_CLAUDE_API_KEY: ${APP_CLAUDE_API_KEY:-}
       APP_CLAUDE_MODEL: ${APP_CLAUDE_MODEL:-claude-haiku-4-5}
       JAVA_OPTS: "-Xms512m -Xmx1024m -XX:+UseG1GC"

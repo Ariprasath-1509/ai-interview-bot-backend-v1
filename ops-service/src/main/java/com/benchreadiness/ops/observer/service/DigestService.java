@@ -39,6 +39,10 @@ public class DigestService {
     @Scheduled(cron = "${app.digest.cron}")
     public void sendDailyDigest() {
         log.info("Sending daily platform report...");
+        if (from == null || from.isBlank()) {
+            log.error("Daily digest skipped: spring.mail.username is not configured");
+            return;
+        }
         try {
             List<Map<String, String>> recipients = authServiceClient.getAdmins();
             if (recipients.isEmpty()) {
@@ -59,17 +63,22 @@ public class DigestService {
             String htmlBody = buildHtmlReport(reportData, pipelineStatus);
 
             for (Map<String, String> recipient : recipients) {
+                String email = recipient.get("email");
+                if (email == null || email.isBlank()) {
+                    log.warn("Skipping admin with no email address");
+                    continue;
+                }
                 try {
                     MimeMessage message = mailSender.createMimeMessage();
                     MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
                     helper.setFrom(from);
-                    helper.setTo(recipient.get("email"));
+                    helper.setTo(email);
                     helper.setSubject(subject);
                     helper.setText(htmlBody, true);
                     mailSender.send(message);
-                    log.info("Daily report sent to: {}", recipient.get("email"));
+                    log.info("Daily report sent to: {}", email);
                 } catch (Exception e) {
-                    log.warn("Failed to send report to {}: {}", recipient.get("email"), e.getMessage());
+                    log.warn("Failed to send report to {}: {}", email, e.getMessage());
                 }
             }
         } catch (Exception e) {
