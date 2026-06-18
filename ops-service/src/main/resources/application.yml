@@ -74,6 +74,8 @@ app:
     audience: ${JWT_AUDIENCE:benchreadiness-api}
   gateway:
     shared-key: ${GATEWAY_SHARED_KEY:}
+  branch-segregation:
+    enabled: ${APP_BRANCH_SEGREGATION_ENABLED:true}
   interview-base-url: https://prod.voiceaibot.in/interview
   frontend-url: https://prod.voiceaibot.in
   digest:

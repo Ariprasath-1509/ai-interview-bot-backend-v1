@@ -17,17 +17,68 @@ public interface UserRepository extends JpaRepository<User, String> {
     
     boolean existsByEmailIgnoreCase(String email);
 
+    @Query("SELECT u FROM User u WHERE u.role = 'CANDIDATE' AND (" +
+           "LOWER(u.email) = LOWER(:email) OR " +
+           "LOWER(COALESCE(u.officialEmail, '')) = LOWER(:email) OR " +
+           "LOWER(COALESCE(u.personalEmail, '')) = LOWER(:email))")
+    List<User> findCandidatesByAnyEmailIgnoreCase(@Param("email") String email);
+
+    @Query("SELECT CASE WHEN COUNT(u) > 0 THEN true ELSE false END FROM User u WHERE u.role = 'CANDIDATE' AND (" +
+           "(:officialEmail IS NOT NULL AND (" +
+           "LOWER(u.email) = LOWER(:officialEmail) OR " +
+           "LOWER(COALESCE(u.officialEmail, '')) = LOWER(:officialEmail) OR " +
+           "LOWER(COALESCE(u.personalEmail, '')) = LOWER(:officialEmail))) OR " +
+           "(:personalEmail IS NOT NULL AND (" +
+           "LOWER(u.email) = LOWER(:personalEmail) OR " +
+           "LOWER(COALESCE(u.officialEmail, '')) = LOWER(:personalEmail) OR " +
+           "LOWER(COALESCE(u.personalEmail, '')) = LOWER(:personalEmail))) OR " +
+           "(:contactNumber IS NOT NULL AND u.contactNumber = :contactNumber))")
+    boolean existsCandidateByEmailsOrContact(
+        @Param("officialEmail") String officialEmail,
+        @Param("personalEmail") String personalEmail,
+        @Param("contactNumber") String contactNumber);
+
     @Query("SELECT u FROM User u WHERE u.role = 'CANDIDATE' AND " +
            "(LOWER(u.name) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
            "LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%')))")
     List<User> searchCandidates(@Param("search") String search);
 
-    List<User> findByRoleAndSourceIn(UserRole role, Collection<String> sources);
+    List<User> findByRoleAndBranch(UserRole role, String branch);
 
-    @Query("SELECT u FROM User u WHERE u.role = 'CANDIDATE' AND u.source IN :sources AND " +
+    @Query("SELECT u FROM User u WHERE u.role = :role AND u.branch = :branch AND "
+           + "(u.source IN :sources OR (:includeNullSource = true AND u.source IS NULL))")
+    List<User> findCandidatesByBranchAndSources(@Param("role") UserRole role,
+                                                @Param("branch") String branch,
+                                                @Param("sources") Collection<String> sources,
+                                                @Param("includeNullSource") boolean includeNullSource);
+
+    @Query("SELECT u FROM User u WHERE u.role = :role AND "
+           + "(u.source IN :sources OR (:includeNullSource = true AND u.source IS NULL))")
+    List<User> findCandidatesBySources(@Param("role") UserRole role,
+                                         @Param("sources") Collection<String> sources,
+                                         @Param("includeNullSource") boolean includeNullSource);
+
+    @Query("SELECT u FROM User u WHERE u.role = 'CANDIDATE' AND u.branch = :branch AND " +
            "(LOWER(u.name) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
            "LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%')))")
-    List<User> searchCandidatesBySource(@Param("search") String search, @Param("sources") Collection<String> sources);
+    List<User> searchCandidatesByBranch(@Param("search") String search, @Param("branch") String branch);
+
+    @Query("SELECT u FROM User u WHERE u.role = 'CANDIDATE' AND u.branch = :branch AND "
+           + "(u.source IN :sources OR (:includeNullSource = true AND u.source IS NULL)) AND "
+           + "(LOWER(u.name) LIKE LOWER(CONCAT('%', :search, '%')) OR "
+           + "LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%')))")
+    List<User> searchCandidatesByBranchAndSources(@Param("search") String search,
+                                                    @Param("branch") String branch,
+                                                    @Param("sources") Collection<String> sources,
+                                                    @Param("includeNullSource") boolean includeNullSource);
+
+    @Query("SELECT u FROM User u WHERE u.role = 'CANDIDATE' AND "
+           + "(u.source IN :sources OR (:includeNullSource = true AND u.source IS NULL)) AND "
+           + "(LOWER(u.name) LIKE LOWER(CONCAT('%', :search, '%')) OR "
+           + "LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%')))")
+    List<User> searchCandidatesBySources(@Param("search") String search,
+                                           @Param("sources") Collection<String> sources,
+                                                    @Param("includeNullSource") boolean includeNullSource);
 
     List<User> findByIdIn(Collection<String> ids);
 
@@ -37,17 +88,4 @@ public interface UserRepository extends JpaRepository<User, String> {
     
     @Query("SELECT u FROM User u WHERE u.role = 'CANDIDATE' AND u.candidateStatus = 'DEPLOYED'")
     List<User> findDeployedCandidates();
-    
-    // Bulk import duplicate check
-    @Query("SELECT CASE WHEN COUNT(u) > 0 THEN true ELSE false END FROM User u WHERE " +
-           "u.email = :email1 OR u.email = :email2 OR " +
-           "u.officialEmail = :email1 OR u.officialEmail = :email2 OR " +
-           "u.personalEmail = :email1 OR u.personalEmail = :email2 OR " +
-           "u.contactNumber = :contactNumber")
-    boolean existsByEmailOrOfficialEmailOrPersonalEmailOrContactNumber(
-        @Param("email1") String email1, 
-        @Param("email2") String email2, 
-        @Param("email1") String officialEmail1, 
-        @Param("email2") String officialEmail2, 
-        @Param("contactNumber") String contactNumber);
 }

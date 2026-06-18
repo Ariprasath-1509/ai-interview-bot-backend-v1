@@ -30,8 +30,20 @@ public class GatewayTrustFilter extends OncePerRequestFilter {
 
         String userId = request.getHeader("X-User-Id");
         String userRole = request.getHeader("X-User-Role");
+        String path = request.getRequestURI();
+        String gatewayKey = request.getHeader("X-Gateway-Key");
+
+        if (path.startsWith("/analytics/internal/")) {
+            if (gatewaySharedKey == null || gatewaySharedKey.isBlank()
+                    || !gatewaySharedKey.equals(gatewayKey)) {
+                response.sendError(HttpStatus.FORBIDDEN.value(), "Internal endpoint requires gateway authentication");
+                return;
+            }
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         if ((userId != null && !userId.isBlank()) || (userRole != null && !userRole.isBlank())) {
-            String gatewayKey = request.getHeader("X-Gateway-Key");
             if (!gatewaySharedKey.equals(gatewayKey)) {
                 response.sendError(HttpStatus.FORBIDDEN.value(), "Untrusted identity headers");
                 return;

@@ -52,7 +52,7 @@ public class ResumeController {
     }
 
     @PostMapping("/upload")
-    @PreAuthorize("hasAnyRole('CANDIDATE', 'ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('CANDIDATE', 'ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN', 'RECRUITER', 'TESTING_RECRUITER')")
     public ResponseEntity<?> uploadResume(@RequestParam("resume") MultipartFile file,
                                          @RequestParam(value = "candidateId", required = false) String candidateId,
                                          @RequestHeader("X-User-Id") String userId,
@@ -120,7 +120,7 @@ public class ResumeController {
     }
 
     @GetMapping("/{candidateId}")
-    @PreAuthorize("hasAnyRole('CANDIDATE', 'ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('CANDIDATE', 'ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN', 'RECRUITER', 'TESTING_RECRUITER')")
     public ResponseEntity<?> downloadResume(@PathVariable String candidateId,
                                            @RequestHeader("X-User-Id") String userId,
                                            @RequestHeader("X-User-Role") String userRole) {
@@ -155,7 +155,7 @@ public class ResumeController {
     }
 
     @PostMapping("/{candidateId}/summary")
-    @PreAuthorize("hasAnyRole('CANDIDATE', 'ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('CANDIDATE', 'ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN', 'RECRUITER', 'TESTING_RECRUITER')")
     public ResponseEntity<?> updateResumeSummary(@PathVariable String candidateId,
                                                  @RequestBody Map<String, String> request,
                                                  @RequestHeader("X-User-Id") String userId,
@@ -179,7 +179,7 @@ public class ResumeController {
     }
 
     @GetMapping("/{candidateId}/history")
-    @PreAuthorize("hasAnyRole('CANDIDATE', 'ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('CANDIDATE', 'ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN', 'RECRUITER', 'TESTING_RECRUITER')")
     public ResponseEntity<?> getResumeHistory(@PathVariable String candidateId,
                                              @RequestHeader("X-User-Id") String userId,
                                              @RequestHeader("X-User-Role") String userRole) {
@@ -195,7 +195,7 @@ public class ResumeController {
     }
 
     @PostMapping("/bulk-process")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<?> bulkProcessResumes(@RequestHeader("X-User-Id") String userId,
                                                @RequestHeader("X-User-Role") String userRole) {
         try {
@@ -208,7 +208,7 @@ public class ResumeController {
     }
 
     @GetMapping("/processing-stats")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN', 'RECRUITER', 'TESTING_RECRUITER')")
     public ResponseEntity<?> getProcessingStats(@RequestHeader("X-User-Id") String userId,
                                                @RequestHeader("X-User-Role") String userRole) {
         try {
@@ -221,7 +221,7 @@ public class ResumeController {
     }
 
     @GetMapping("/analytics")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN', 'RECRUITER', 'TESTING_RECRUITER')")
     public ResponseEntity<?> getResumeAnalytics(@RequestHeader("X-User-Id") String userId,
                                                @RequestHeader("X-User-Role") String userRole) {
         try {
@@ -234,7 +234,7 @@ public class ResumeController {
     }
 
     @GetMapping("/analytics/trends")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN', 'RECRUITER', 'TESTING_RECRUITER')")
     public ResponseEntity<?> getUploadTrends(@RequestParam(defaultValue = "30") int days,
                                             @RequestHeader("X-User-Id") String userId,
                                             @RequestHeader("X-User-Role") String userRole) {

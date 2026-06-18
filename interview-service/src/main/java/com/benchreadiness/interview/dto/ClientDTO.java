@@ -15,6 +15,7 @@ public class ClientDTO {
     private Integer marketCandidatesNeeded;
     private Integer benchB2bCandidatesNeeded;
     private String status;
+    private String branch;
     private Boolean benchReviewed;
     private Boolean recruitmentReviewed;
     private LocalDateTime createdAt;
@@ -81,6 +82,10 @@ public class ClientDTO {
     public String getStatus() {
         return status;
     }
+
+    public String getBranch() {
+        return branch;
+    }
     
     public Boolean getBenchReviewed() {
         return benchReviewed;
@@ -129,6 +134,10 @@ public class ClientDTO {
     
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public void setBranch(String branch) {
+        this.branch = branch;
     }
     
     public void setBenchReviewed(Boolean benchReviewed) {

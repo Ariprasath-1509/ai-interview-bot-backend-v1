@@ -1,5 +1,6 @@
 package com.benchreadiness.interview.controller;
 
+import com.benchreadiness.interview.security.StaffSecurityRoles;
 import com.benchreadiness.interview.service.AnalyticsService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -9,7 +10,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/analytics")
-@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+@PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
 public class AnalyticsController {
 
     private final AnalyticsService analyticsService;
@@ -68,7 +69,7 @@ public class AnalyticsController {
     }
 
     @GetMapping("/daily-report")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
     public ResponseEntity<Map<String, Object>> getDailyReportData(
             @RequestHeader("X-User-Id") String userId,
             @RequestHeader("X-User-Role") String userRole) {

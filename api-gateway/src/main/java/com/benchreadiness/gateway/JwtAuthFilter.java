@@ -97,6 +97,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         String userId = claims.getSubject();
         String role = claims.get("role", String.class);
         String email = claims.get("email", String.class);
+        String branch = claims.get("branch", String.class);
 
         return introspectionClient.isActive(token).flatMap(active -> {
             if (!active) {
@@ -111,6 +112,9 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                         h.set("X-User-Role", role);
                         if (email != null) {
                             h.set("X-User-Email", email);
+                        }
+                        if (branch != null && !branch.isBlank()) {
+                            h.set("X-User-Branch", branch);
                         }
                         if (gatewaySharedKey != null && !gatewaySharedKey.isBlank()) {
                             h.set("X-Gateway-Key", gatewaySharedKey);

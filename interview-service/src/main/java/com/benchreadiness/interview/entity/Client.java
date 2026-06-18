@@ -37,6 +37,9 @@ public class Client {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ClientStatus status;
+
+    @Column(nullable = false, length = 32)
+    private String branch = "DEVELOPMENT";
     
     @Column(nullable = false)
     private Boolean benchReviewed = false;
@@ -112,6 +115,10 @@ public class Client {
     public ClientStatus getStatus() {
         return status;
     }
+
+    public String getBranch() {
+        return branch;
+    }
     
     public Boolean getBenchReviewed() {
         return benchReviewed;
@@ -172,6 +179,10 @@ public class Client {
     
     public void setStatus(ClientStatus status) {
         this.status = status;
+    }
+
+    public void setBranch(String branch) {
+        this.branch = branch;
     }
     
     public void setBenchReviewed(Boolean benchReviewed) {

@@ -1,5 +1,6 @@
 package com.benchreadiness.ops.compliance.controller;
 
+import com.benchreadiness.ops.security.StaffSecurityRoles;
 import com.benchreadiness.ops.compliance.dto.AuditLogRequest;
 import com.benchreadiness.ops.compliance.entity.AuditLog;
 import com.benchreadiness.ops.compliance.entity.RetentionPolicy;
@@ -24,7 +25,7 @@ public class ComplianceController {
     }
 
     @GetMapping("/audit-logs")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
     public ResponseEntity<?> getAuditLogs(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
@@ -39,14 +40,14 @@ public class ComplianceController {
     }
 
     @GetMapping("/audit-logs/actor/{actorId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
     public ResponseEntity<?> getLogsByActor(@PathVariable String actorId,
                                              @RequestHeader("X-User-Role") String role) {
         return ResponseEntity.ok(complianceService.getLogsByActor(actorId));
     }
 
     @GetMapping("/audit-logs/resource/{resourceId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
     public ResponseEntity<?> getLogsByResource(@PathVariable String resourceId,
                                                 @RequestHeader("X-User-Role") String role) {
         return ResponseEntity.ok(complianceService.getLogsByResource(resourceId));

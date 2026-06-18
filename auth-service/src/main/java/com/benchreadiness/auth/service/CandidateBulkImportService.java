@@ -1,5 +1,6 @@
 package com.benchreadiness.auth.service;
 
+import com.benchreadiness.auth.branch.BranchAccess;
 import com.benchreadiness.auth.dto.BulkImportResponse;
 import com.benchreadiness.auth.dto.CandidateImportRow;
 import com.benchreadiness.auth.entity.User;
@@ -47,7 +48,7 @@ public class CandidateBulkImportService {
     @Autowired
     private EmailService emailService;
 
-    public BulkImportResponse importFromThirdPartyApi(String gdriveFileUrl, String userId) {
+    public BulkImportResponse importFromThirdPartyApi(String gdriveFileUrl, String userId, String callerRole) {
         try {
             log.info("Starting bulk import from third-party API for user: {}", userId);
             
@@ -58,7 +59,7 @@ public class CandidateBulkImportService {
             List<CandidateImportRow> candidates = parseExcelCandidateSheet(excelData);
             
             // 3. Process candidates
-            return processCandidates(candidates, userId);
+            return processCandidates(candidates, userId, BranchAccess.resolveBranchForCreate(callerRole, null));
             
         } catch (Exception e) {
             log.error("Bulk import failed for user: {}", userId, e);
@@ -201,7 +202,7 @@ public class CandidateBulkImportService {
                getCellValueAsString(row.getCell(9)) == null;   // Personal Email
     }
 
-    private BulkImportResponse processCandidates(List<CandidateImportRow> candidates, String userId) {
+    private BulkImportResponse processCandidates(List<CandidateImportRow> candidates, String userId, String branch) {
         BulkImportResponse response = new BulkImportResponse();
         response.setTotalRows(candidates.size());
         
@@ -226,7 +227,7 @@ public class CandidateBulkImportService {
                 
                 // Create new candidate
                 String plainPassword = generateDefaultPassword(candidate.getName());
-                User newCandidate = createCandidateFromRow(candidate, userId, plainPassword);
+                User newCandidate = createCandidateFromRow(candidate, userId, plainPassword, branch);
                 userRepository.save(newCandidate);
                 sendWelcomeEmail(candidate, newCandidate, plainPassword);
                 
@@ -277,13 +278,15 @@ public class CandidateBulkImportService {
     }
 
     private boolean candidateExists(CandidateImportRow candidate) {
-        return userRepository.existsByEmailOrOfficialEmailOrPersonalEmailOrContactNumber(
-            candidate.getOfficialEmail(),
-            candidate.getPersonalEmail(),
-            candidate.getOfficialEmail(),
-            candidate.getPersonalEmail(),
-            candidate.getContactNumber()
+        return userRepository.existsCandidateByEmailsOrContact(
+            blankToNull(candidate.getOfficialEmail()),
+            blankToNull(candidate.getPersonalEmail()),
+            blankToNull(candidate.getContactNumber())
         );
+    }
+
+    private String blankToNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 
     private String getExistingIdentifier(CandidateImportRow candidate) {
@@ -292,12 +295,13 @@ public class CandidateBulkImportService {
         return candidate.getContactNumber();
     }
 
-    private User createCandidateFromRow(CandidateImportRow row, String createdByUserId, String plainPassword) {
+    private User createCandidateFromRow(CandidateImportRow row, String createdByUserId, String plainPassword, String branch) {
         User candidate = new User();
         
         // Basic required fields
         candidate.setName(row.getName());
         candidate.setRole(UserRole.CANDIDATE);
+        candidate.setBranch(branch != null ? branch : BranchAccess.defaultBranch());
         
         // Email handling - prefer official, fallback to personal
         String primaryEmail = StringUtils.hasText(row.getOfficialEmail()) ? 

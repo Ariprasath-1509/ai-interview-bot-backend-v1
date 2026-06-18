@@ -60,8 +60,8 @@ public class MatchingService {
      * Get all eligible candidates (RFD status with at least 1 completed interview)
      * Cached for 5 minutes to speed up repeated calls
      */
-    @Cacheable(value = "eligibleCandidates", key = "'all'")
-    public List<Map<String, Object>> getAllEligibleCandidates() {
+    @Cacheable(value = "eligibleCandidates", key = "#userRole != null ? #userRole : 'anonymous'")
+    public List<Map<String, Object>> getAllEligibleCandidates(String userRole) {
         try {
             List<Map<String, Object>> allCandidates = authServiceClient.searchCandidates("");
             

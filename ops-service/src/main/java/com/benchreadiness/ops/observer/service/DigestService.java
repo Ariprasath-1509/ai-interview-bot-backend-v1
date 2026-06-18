@@ -1,5 +1,6 @@
 package com.benchreadiness.ops.observer.service;
 
+import com.benchreadiness.ops.branch.BranchSegregation;
 import com.benchreadiness.ops.observer.client.AuthServiceClient;
 import com.benchreadiness.ops.observer.client.InterviewServiceClient;
 import jakarta.mail.internet.MimeMessage;
@@ -44,30 +45,36 @@ public class DigestService {
             return;
         }
         try {
-            List<Map<String, String>> recipients = authServiceClient.getAdmins();
+            List<Map<String, Object>> recipients = authServiceClient.getAdmins();
             if (recipients.isEmpty()) {
                 log.warn("No SUPER_ADMIN or ADMIN users found — skipping digest");
                 return;
             }
 
-            Map<String, Object> reportData = interviewServiceClient.getDailyReportData();
-
-            Map<String, Object> pipelineStatus = null;
-            try {
-                pipelineStatus = authServiceClient.getCandidatePipelineStatus();
-            } catch (Exception e) {
-                log.warn("Failed to fetch pipeline status: {}", e.getMessage());
-            }
-
-            String subject = buildSubject(reportData);
-            String htmlBody = buildHtmlReport(reportData, pipelineStatus);
-
-            for (Map<String, String> recipient : recipients) {
-                String email = recipient.get("email");
+            for (Map<String, Object> recipient : recipients) {
+                String email = recipient.get("email") != null ? recipient.get("email").toString() : null;
                 if (email == null || email.isBlank()) {
                     log.warn("Skipping admin with no email address");
                     continue;
                 }
+                String branch = recipient.get("branch") != null ? recipient.get("branch").toString() : null;
+                String digestBranch = null;
+                if (BranchSegregation.isEnabled() && !"SUPER_ADMIN".equals(recipient.get("role"))) {
+                    digestBranch = branch;
+                }
+
+                Map<String, Object> reportData = interviewServiceClient.getDailyReportDataForBranch(digestBranch);
+
+                Map<String, Object> pipelineStatus = null;
+                try {
+                    pipelineStatus = authServiceClient.getCandidatePipelineStatus(digestBranch);
+                } catch (Exception e) {
+                    log.warn("Failed to fetch pipeline status for {}: {}", email, e.getMessage());
+                }
+
+                String subject = buildSubject(reportData, digestBranch);
+                String htmlBody = buildHtmlReport(reportData, pipelineStatus, digestBranch);
+
                 try {
                     MimeMessage message = mailSender.createMimeMessage();
                     MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
@@ -76,7 +83,7 @@ public class DigestService {
                     helper.setSubject(subject);
                     helper.setText(htmlBody, true);
                     mailSender.send(message);
-                    log.info("Daily report sent to: {}", email);
+                    log.info("Daily report sent to: {} (branch={})", email, digestBranch != null ? digestBranch : "ALL");
                 } catch (Exception e) {
                     log.warn("Failed to send report to {}: {}", email, e.getMessage());
                 }
@@ -86,7 +93,7 @@ public class DigestService {
         }
     }
 
-    private String buildSubject(Map<String, Object> reportData) {
+    private String buildSubject(Map<String, Object> reportData, String branch) {
         String date = LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy"));
         @SuppressWarnings("unchecked")
         Map<String, Object> metrics = (Map<String, Object>) reportData.get("interviewMetrics");
@@ -94,15 +101,20 @@ public class DigestService {
         @SuppressWarnings("unchecked")
         Map<String, Object> violations = (Map<String, Object>) reportData.get("violations");
         int withdrawn = violations != null ? ((Number) violations.getOrDefault("totalWithdrawn", 0)).intValue() : 0;
-        String base = "Daily Platform Report — " + date + " (" + total + " interview" + (total != 1 ? "s" : "") + ")";
+        String branchLabel = branch != null ? " [" + branch + "]" : "";
+        String base = "Daily Platform Report" + branchLabel + " — " + date + " (" + total + " interview" + (total != 1 ? "s" : "") + ")";
         if (withdrawn > 0) base += " ⚠️ " + withdrawn + " violation" + (withdrawn != 1 ? "s" : "");
         return base;
     }
 
     @SuppressWarnings("unchecked")
-    private String buildHtmlReport(Map<String, Object> reportData, Map<String, Object> pipelineStatus) {
+    private String buildHtmlReport(Map<String, Object> reportData, Map<String, Object> pipelineStatus,
+                                   String branch) {
         String date = LocalDate.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy"));
         String dashboardUrl = interviewBaseUrl.replace("/interview", "") + "/admin/review";
+        String branchBanner = branch != null
+                ? "<p style='margin:8px 0 0;color:rgba(255,255,255,0.85);font-size:13px;font-weight:600;'>Branch: " + esc(branch) + "</p>"
+                : "";
 
         Map<String, Object> metrics = (Map<String, Object>) reportData.getOrDefault("interviewMetrics", Map.of());
         Map<String, Object> violations = (Map<String, Object>) reportData.getOrDefault("violations", Map.of());
@@ -143,7 +155,9 @@ public class DigestService {
         // Header
         html.append("<tr><td style='background:linear-gradient(135deg,#1e3a5f 0%,#2d6a9f 100%);padding:32px 30px;text-align:center;'>")
             .append("<h1 style='margin:0;color:#ffffff;font-size:26px;font-weight:700;'>Daily Platform Report</h1>")
-            .append("<p style='margin:8px 0 0;color:rgba(255,255,255,0.75);font-size:14px;'>").append(date).append("</p></td></tr>");
+            .append("<p style='margin:8px 0 0;color:rgba(255,255,255,0.75);font-size:14px;'>").append(date).append("</p>")
+            .append(branchBanner)
+            .append("</td></tr>");
 
         // Alerts banner
         if (totalWithdrawn > 0 || pendingReviewCount > 0) {

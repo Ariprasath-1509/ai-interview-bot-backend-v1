@@ -1,5 +1,6 @@
 package com.benchreadiness.auth.service;
 
+import com.benchreadiness.auth.branch.BranchAccess;
 import com.benchreadiness.auth.client.ComplianceServiceClient;
 import com.benchreadiness.auth.util.PiiRedactor;
 import org.slf4j.Logger;
@@ -49,6 +50,7 @@ public class AuditService {
             if (newValue != null) {
                 auditLog.put("newValue", newValue);
             }
+            auditLog.put("branch", resolveActorBranch(actorRole));
             auditLog.put("ipAddress", resolveClientIp());
             complianceServiceClient.recordAuditLog(auditLog);
             log.info("audit action={} resource={} actorId={}", action, resource, actorId);
@@ -95,5 +97,21 @@ public class AuditService {
         } catch (Exception e) {
             return "unknown";
         }
+    }
+
+    private String resolveActorBranch(String actorRole) {
+        try {
+            ServletRequestAttributes attrs =
+                    (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attrs != null) {
+                String headerBranch = attrs.getRequest().getHeader("X-User-Branch");
+                if (headerBranch != null && !headerBranch.isBlank()) {
+                    return headerBranch.trim().toUpperCase();
+                }
+            }
+        } catch (Exception ignored) {
+            /* fall through */
+        }
+        return BranchAccess.resolveStaffBranch(actorRole);
     }
 }

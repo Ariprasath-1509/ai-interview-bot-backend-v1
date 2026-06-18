@@ -1,5 +1,6 @@
 package com.benchreadiness.interview.controller;
 
+import com.benchreadiness.interview.security.StaffSecurityRoles;
 import com.benchreadiness.interview.client.DocumentServiceClient;
 import com.benchreadiness.interview.service.ClientService;
 import org.springframework.http.ResponseEntity;
@@ -7,6 +8,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
 @RestController
@@ -22,8 +24,9 @@ public class RecruiterBotController {
     }
 
     @PostMapping("/query")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
-    public ResponseEntity<Map<String, String>> queryBot(@RequestBody Map<String, String> request) {
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    public ResponseEntity<Map<String, String>> queryBot(@RequestBody Map<String, String> request,
+                                                        @RequestHeader("X-User-Role") String userRole) {
         String clientId = request.get("clientId");
         String query = request.get("query");
         String systemPrompt = request.get("systemPrompt");
@@ -34,7 +37,9 @@ public class RecruiterBotController {
 
         String docId;
         try {
-            docId = clientService.getDocId(UUID.fromString(clientId));
+            docId = clientService.getDocId(UUID.fromString(clientId), userRole);
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.notFound().build();
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", "Invalid client ID: " + e.getMessage()));
         }

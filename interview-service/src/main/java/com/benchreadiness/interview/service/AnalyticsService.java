@@ -1,5 +1,9 @@
 package com.benchreadiness.interview.service;
 
+import com.benchreadiness.interview.branch.Branch;
+import com.benchreadiness.interview.branch.BranchAccess;
+import com.benchreadiness.interview.branch.InterviewBranchFilter;
+import com.benchreadiness.interview.branch.InterviewCandidateBranchLookup;
 import com.benchreadiness.interview.entity.*;
 import com.benchreadiness.interview.repository.*;
 
@@ -21,19 +25,22 @@ public class AnalyticsService {
     private final ClientRepository clientRepository;
     private final com.benchreadiness.interview.client.AuthServiceClient authServiceClient;
     private final com.benchreadiness.interview.client.ReviewServiceClient reviewServiceClient;
+    private final InterviewCandidateBranchLookup candidateBranchLookup;
 
     public AnalyticsService(InterviewRepository interviewRepository,
                            EngineerRepository engineerRepository,
                            JobDescriptionRepository jdRepository,
                            ClientRepository clientRepository,
                            com.benchreadiness.interview.client.AuthServiceClient authServiceClient,
-                           com.benchreadiness.interview.client.ReviewServiceClient reviewServiceClient) {
+                           com.benchreadiness.interview.client.ReviewServiceClient reviewServiceClient,
+                           InterviewCandidateBranchLookup candidateBranchLookup) {
         this.interviewRepository = interviewRepository;
         this.engineerRepository = engineerRepository;
         this.jdRepository = jdRepository;
         this.clientRepository = clientRepository;
         this.authServiceClient = authServiceClient;
         this.reviewServiceClient = reviewServiceClient;
+        this.candidateBranchLookup = candidateBranchLookup;
     }
 
     public Map<String, Object> getRealTimeAnalytics(String userId, String userRole) {
@@ -270,15 +277,21 @@ public class AnalyticsService {
         Map<String, Object> result = new HashMap<>();
         result.put("dailyTrends", dailyTrends);
         result.put("weeklyTrends", weeklyTrends);
-        result.put("marketTrends", buildMarketTrends());
+        result.put("marketTrends", buildMarketTrends(userRole));
         result.put("hasData", dailyTrends.stream().anyMatch(d -> ((Number) d.get("interviews")).longValue() > 0)
                 || weeklyTrends.stream().anyMatch(w -> ((Number) w.get("interviews")).longValue() > 0));
         result.put("generatedAt", Instant.now().toString());
         return result;
     }
 
-    private Map<String, Object> buildMarketTrends() {
+    private Map<String, Object> buildMarketTrends(String userRole) {
+        String allowedBranch = BranchAccess.resolveAllowedBranch(userRole);
         List<Client> activeClients = clientRepository.findByStatus(Client.ClientStatus.ACTIVE);
+        if (allowedBranch != null) {
+            activeClients = activeClients.stream()
+                    .filter(c -> allowedBranch.equals(Branch.normalize(c.getBranch())))
+                    .collect(Collectors.toList());
+        }
 
         Map<String, Integer> skillBench = new HashMap<>();
         Map<String, Integer> skillMarket = new HashMap<>();
@@ -428,27 +441,161 @@ public class AnalyticsService {
         return result;
     }
 
-    private java.util.List<Interview> getUserInterviews(String userId, String userRole) {
-        // SUPER_ADMIN and ADMIN see all interviews
-        if ("SUPER_ADMIN".equals(userRole) || "ADMIN".equals(userRole)) {
-            return interviewRepository.findAll();
+    private List<Interview> getUserInterviews(String userId, String userRole) {
+        List<Interview> all = interviewRepository.findAll();
+        return InterviewBranchFilter.filterForRole(all, userId, userRole, candidateBranchLookup.forInterviews(all));
+    }
+
+    /** Branch-scoped daily report for digest (null branch = all branches). */
+    public Map<String, Object> getDailyReportDataForBranch(String branch) {
+        String normalizedBranch = branch != null && !branch.isBlank() ? Branch.normalize(branch) : null;
+        Instant startOfDay = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant endOfDay = startOfDay.plusSeconds(24 * 3600);
+
+        List<Interview> allInterviews = interviewRepository.findAll().stream()
+                .filter(i -> normalizedBranch == null || normalizedBranch.equals(Branch.normalize(i.getBranch())))
+                .collect(Collectors.toList());
+        List<Interview> todayInterviews = allInterviews.stream()
+                .filter(i -> i.getCreatedAt().isAfter(startOfDay) && i.getCreatedAt().isBefore(endOfDay))
+                .collect(Collectors.toList());
+
+        return buildDailyReport(allInterviews, todayInterviews, normalizedBranch);
+    }
+
+    public Map<String, Object> getDailyReportData(String userId, String userRole) {
+        List<Interview> scopedInterviews = getUserInterviews(userId, userRole);
+        Instant startOfDay = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant endOfDay = startOfDay.plusSeconds(24 * 3600);
+        List<Interview> todayInterviews = scopedInterviews.stream()
+                .filter(i -> i.getCreatedAt().isAfter(startOfDay) && i.getCreatedAt().isBefore(endOfDay))
+                .collect(Collectors.toList());
+
+        String branch = BranchAccess.resolveAllowedBranch(userRole);
+        return buildDailyReport(scopedInterviews, todayInterviews, branch);
+    }
+
+    private Map<String, Object> buildDailyReport(List<Interview> scopedInterviews,
+                                                  List<Interview> todayInterviews,
+                                                  String branchScope) {
+        Map<String, Object> report = new HashMap<>();
+
+        Map<String, Object> interviewMetrics = new HashMap<>();
+        interviewMetrics.put("totalToday", todayInterviews.size());
+        interviewMetrics.put("scheduled", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.SCHEDULED).count());
+        interviewMetrics.put("inProgress", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.IN_PROGRESS).count());
+        interviewMetrics.put("completed", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.COMPLETED).count());
+        interviewMetrics.put("reviewPending", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.REVIEW_PENDING).count());
+        interviewMetrics.put("signedOff", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.SIGNED_OFF).count());
+
+        Map<String, Long> modeDistribution = todayInterviews.stream()
+                .collect(Collectors.groupingBy(
+                    i -> i.getInterviewMode() != null ? i.getInterviewMode().name() : "UNKNOWN",
+                    Collectors.counting()
+                ));
+        interviewMetrics.put("modeDistribution", modeDistribution);
+
+        long readyCount = todayInterviews.stream()
+                .filter(i -> i.getFinalVerdict() == ReadinessVerdict.READY)
+                .count();
+        long totalAssessed = todayInterviews.stream()
+                .filter(i -> i.getFinalVerdict() != null)
+                .count();
+        double successRate = totalAssessed > 0 ? (double) readyCount / totalAssessed * 100 : 0;
+        interviewMetrics.put("readyCount", readyCount);
+        interviewMetrics.put("totalAssessed", totalAssessed);
+        interviewMetrics.put("successRate", Math.round(successRate * 100.0) / 100.0);
+        report.put("interviewMetrics", interviewMetrics);
+
+        Map<String, Object> violations = new HashMap<>();
+        long withdrawnCount = todayInterviews.stream()
+                .filter(i -> i.getProposedVerdict() == ReadinessVerdict.WITHDRAWN || i.getFinalVerdict() == ReadinessVerdict.WITHDRAWN)
+                .count();
+        violations.put("totalWithdrawn", withdrawnCount);
+
+        List<Map<String, Object>> violationDetails = todayInterviews.stream()
+                .filter(i -> i.getProposedVerdict() == ReadinessVerdict.WITHDRAWN || i.getFinalVerdict() == ReadinessVerdict.WITHDRAWN)
+                .map(i -> {
+                    Engineer engineer = engineerRepository.findById(i.getEngineerId()).orElse(null);
+                    String candidateName = engineer != null ? engineer.getName() : "Unknown";
+                    String candidateEmail = engineer != null ? engineer.getEmail() : "";
+
+                    String reason = "Unknown";
+                    if (i.getTranscriptJson() != null && i.getTranscriptJson().contains("tab switching")) {
+                        reason = "Tab Switching Violation";
+                    } else if (i.getTranscriptJson() != null && i.getTranscriptJson().contains("AI manipulation")) {
+                        reason = "AI Manipulation";
+                    } else if (i.getTranscriptJson() != null && i.getTranscriptJson().contains("not prepared")) {
+                        reason = "Not Prepared";
+                    } else if (i.getTranscriptJson() != null && i.getTranscriptJson().contains("time expired")) {
+                        reason = "Time Expired";
+                    }
+
+                    Map<String, Object> detail = new HashMap<>();
+                    detail.put("candidateName", candidateName);
+                    detail.put("candidateEmail", candidateEmail);
+                    detail.put("reason", reason);
+                    detail.put("interviewId", i.getId());
+                    detail.put("timestamp", i.getEndedAt() != null ? i.getEndedAt().toString() : i.getCreatedAt().toString());
+                    return detail;
+                })
+                .collect(Collectors.toList());
+        violations.put("details", violationDetails);
+        report.put("violations", violations);
+
+        Instant oneDayAgo = Instant.now().minusSeconds(24 * 3600);
+        List<Map<String, Object>> pendingReviews = scopedInterviews.stream()
+                .filter(i -> i.getStatus() == InterviewStatus.REVIEW_PENDING)
+                .filter(i -> i.getEndedAt() != null && i.getEndedAt().isBefore(oneDayAgo))
+                .map(i -> {
+                    Engineer engineer = engineerRepository.findById(i.getEngineerId()).orElse(null);
+                    JobDescription jd = jdRepository.findById(i.getJdId()).orElse(null);
+
+                    Map<String, Object> pending = new HashMap<>();
+                    pending.put("interviewId", i.getId());
+                    pending.put("candidateName", engineer != null ? engineer.getName() : "Unknown");
+                    pending.put("jdTitle", jd != null ? jd.getTitle() : "Unknown");
+                    pending.put("completedAt", i.getEndedAt().toString());
+                    pending.put("hoursWaiting", (Instant.now().getEpochSecond() - i.getEndedAt().getEpochSecond()) / 3600);
+                    return pending;
+                })
+                .collect(Collectors.toList());
+
+        Map<String, Object> alerts = new HashMap<>();
+        alerts.put("pendingReviewCount", pendingReviews.size());
+        alerts.put("pendingReviews", pendingReviews);
+        report.put("alerts", alerts);
+
+        List<Map<String, Object>> interviewList = todayInterviews.stream()
+                .map(i -> {
+                    Engineer engineer = engineerRepository.findById(i.getEngineerId()).orElse(null);
+                    JobDescription jd = jdRepository.findById(i.getJdId()).orElse(null);
+
+                    Map<String, Object> interview = new HashMap<>();
+                    interview.put("id", i.getId());
+                    interview.put("candidateName", engineer != null ? engineer.getName() : "Unknown");
+                    interview.put("candidateEmail", engineer != null ? engineer.getEmail() : "");
+                    interview.put("jdTitle", jd != null ? jd.getTitle() : "Unknown");
+                    interview.put("status", i.getStatus().name());
+                    interview.put("mode", i.getInterviewMode() != null ? i.getInterviewMode().name() : "UNKNOWN");
+                    interview.put("proposedVerdict", i.getProposedVerdict() != null ? i.getProposedVerdict().name() : null);
+                    interview.put("finalVerdict", i.getFinalVerdict() != null ? i.getFinalVerdict().name() : null);
+                    interview.put("createdAt", i.getCreatedAt().toString());
+                    return interview;
+                })
+                .collect(Collectors.toList());
+
+        report.put("interviewList", interviewList);
+        report.put("reportDate", LocalDate.now().toString());
+        report.put("generatedAt", Instant.now().toString());
+        if (branchScope != null) {
+            report.put("branch", branchScope);
         }
-        
-        // RECRUITER sees only interviews they created
-        if ("RECRUITER".equals(userRole)) {
-            return interviewRepository.findAll().stream()
-                    .filter(i -> userId.equals(i.getCreatedByUserId()))
-                    .collect(Collectors.toList());
-        }
-        
-        // Default: return all interviews
-        return interviewRepository.findAll();
+        return report;
     }
 
     public Map<String, Object> getCandidatePerformanceAnalytics(String userId, String userRole) {
         List<Interview> interviews = getUserInterviews(userId, userRole);
-        
-        // Filter to completed interviews with assessments
+
         List<Interview> assessedInterviews = interviews.stream()
                 .filter(i -> i.getStatus() == InterviewStatus.COMPLETED || i.getStatus() == InterviewStatus.SIGNED_OFF)
                 .filter(i -> i.getFinalVerdict() != null)
@@ -783,138 +930,5 @@ public class AnalyticsService {
         }).toList());
         
         return debug;
-    }
-
-    public Map<String, Object> getDailyReportData(String userId, String userRole) {
-        Instant startOfDay = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant endOfDay = startOfDay.plusSeconds(24 * 3600);
-        
-        List<Interview> allInterviews = interviewRepository.findAll();
-        List<Interview> todayInterviews = allInterviews.stream()
-                .filter(i -> i.getCreatedAt().isAfter(startOfDay) && i.getCreatedAt().isBefore(endOfDay))
-                .collect(Collectors.toList());
-        
-        Map<String, Object> report = new HashMap<>();
-        
-        // 1. Interview Metrics
-        Map<String, Object> interviewMetrics = new HashMap<>();
-        interviewMetrics.put("totalToday", todayInterviews.size());
-        interviewMetrics.put("scheduled", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.SCHEDULED).count());
-        interviewMetrics.put("inProgress", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.IN_PROGRESS).count());
-        interviewMetrics.put("completed", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.COMPLETED).count());
-        interviewMetrics.put("reviewPending", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.REVIEW_PENDING).count());
-        interviewMetrics.put("signedOff", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.SIGNED_OFF).count());
-        
-        // Mode distribution
-        Map<String, Long> modeDistribution = todayInterviews.stream()
-                .collect(Collectors.groupingBy(
-                    i -> i.getInterviewMode() != null ? i.getInterviewMode().name() : "UNKNOWN",
-                    Collectors.counting()
-                ));
-        interviewMetrics.put("modeDistribution", modeDistribution);
-        
-        // Success metrics
-        long readyCount = todayInterviews.stream()
-                .filter(i -> i.getFinalVerdict() == ReadinessVerdict.READY)
-                .count();
-        long totalAssessed = todayInterviews.stream()
-                .filter(i -> i.getFinalVerdict() != null)
-                .count();
-        double successRate = totalAssessed > 0 ? (double) readyCount / totalAssessed * 100 : 0;
-        interviewMetrics.put("readyCount", readyCount);
-        interviewMetrics.put("totalAssessed", totalAssessed);
-        interviewMetrics.put("successRate", Math.round(successRate * 100.0) / 100.0);
-        
-        report.put("interviewMetrics", interviewMetrics);
-        
-        // 2. Malpractice & Violations
-        Map<String, Object> violations = new HashMap<>();
-        long withdrawnCount = todayInterviews.stream()
-                .filter(i -> i.getProposedVerdict() == ReadinessVerdict.WITHDRAWN || i.getFinalVerdict() == ReadinessVerdict.WITHDRAWN)
-                .count();
-        violations.put("totalWithdrawn", withdrawnCount);
-        
-        // Parse transcripts for violation reasons
-        List<Map<String, Object>> violationDetails = todayInterviews.stream()
-                .filter(i -> i.getProposedVerdict() == ReadinessVerdict.WITHDRAWN || i.getFinalVerdict() == ReadinessVerdict.WITHDRAWN)
-                .map(i -> {
-                    Engineer engineer = engineerRepository.findById(i.getEngineerId()).orElse(null);
-                    String candidateName = engineer != null ? engineer.getName() : "Unknown";
-                    String candidateEmail = engineer != null ? engineer.getEmail() : "";
-                    
-                    String reason = "Unknown";
-                    if (i.getTranscriptJson() != null && i.getTranscriptJson().contains("tab switching")) {
-                        reason = "Tab Switching Violation";
-                    } else if (i.getTranscriptJson() != null && i.getTranscriptJson().contains("AI manipulation")) {
-                        reason = "AI Manipulation";
-                    } else if (i.getTranscriptJson() != null && i.getTranscriptJson().contains("not prepared")) {
-                        reason = "Not Prepared";
-                    } else if (i.getTranscriptJson() != null && i.getTranscriptJson().contains("time expired")) {
-                        reason = "Time Expired";
-                    }
-                    
-                    Map<String, Object> detail = new HashMap<>();
-                    detail.put("candidateName", candidateName);
-                    detail.put("candidateEmail", candidateEmail);
-                    detail.put("reason", reason);
-                    detail.put("interviewId", i.getId());
-                    detail.put("timestamp", i.getEndedAt() != null ? i.getEndedAt().toString() : i.getCreatedAt().toString());
-                    return detail;
-                })
-                .collect(Collectors.toList());
-        violations.put("details", violationDetails);
-        
-        report.put("violations", violations);
-        
-        // 3. Interviews Pending Review
-        Instant oneDayAgo = Instant.now().minusSeconds(24 * 3600);
-        List<Map<String, Object>> pendingReviews = allInterviews.stream()
-                .filter(i -> i.getStatus() == InterviewStatus.REVIEW_PENDING)
-                .filter(i -> i.getEndedAt() != null && i.getEndedAt().isBefore(oneDayAgo))
-                .map(i -> {
-                    Engineer engineer = engineerRepository.findById(i.getEngineerId()).orElse(null);
-                    JobDescription jd = jdRepository.findById(i.getJdId()).orElse(null);
-                    
-                    Map<String, Object> pending = new HashMap<>();
-                    pending.put("interviewId", i.getId());
-                    pending.put("candidateName", engineer != null ? engineer.getName() : "Unknown");
-                    pending.put("jdTitle", jd != null ? jd.getTitle() : "Unknown");
-                    pending.put("completedAt", i.getEndedAt().toString());
-                    pending.put("hoursWaiting", (Instant.now().getEpochSecond() - i.getEndedAt().getEpochSecond()) / 3600);
-                    return pending;
-                })
-                .collect(Collectors.toList());
-        
-        Map<String, Object> alerts = new HashMap<>();
-        alerts.put("pendingReviewCount", pendingReviews.size());
-        alerts.put("pendingReviews", pendingReviews);
-        
-        report.put("alerts", alerts);
-        
-        // 4. Today's Interview List
-        List<Map<String, Object>> interviewList = todayInterviews.stream()
-                .map(i -> {
-                    Engineer engineer = engineerRepository.findById(i.getEngineerId()).orElse(null);
-                    JobDescription jd = jdRepository.findById(i.getJdId()).orElse(null);
-                    
-                    Map<String, Object> interview = new HashMap<>();
-                    interview.put("id", i.getId());
-                    interview.put("candidateName", engineer != null ? engineer.getName() : "Unknown");
-                    interview.put("candidateEmail", engineer != null ? engineer.getEmail() : "");
-                    interview.put("jdTitle", jd != null ? jd.getTitle() : "Unknown");
-                    interview.put("status", i.getStatus().name());
-                    interview.put("mode", i.getInterviewMode() != null ? i.getInterviewMode().name() : "UNKNOWN");
-                    interview.put("proposedVerdict", i.getProposedVerdict() != null ? i.getProposedVerdict().name() : null);
-                    interview.put("finalVerdict", i.getFinalVerdict() != null ? i.getFinalVerdict().name() : null);
-                    interview.put("createdAt", i.getCreatedAt().toString());
-                    return interview;
-                })
-                .collect(Collectors.toList());
-        
-        report.put("interviewList", interviewList);
-        report.put("reportDate", LocalDate.now().toString());
-        report.put("generatedAt", Instant.now().toString());
-        
-        return report;
     }
 }

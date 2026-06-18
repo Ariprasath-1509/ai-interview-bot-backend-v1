@@ -3,6 +3,7 @@ package com.benchreadiness.interview.service;
 import com.benchreadiness.interview.client.AiMatchingClient;
 import com.benchreadiness.interview.client.AuthServiceClient;
 import com.benchreadiness.interview.dto.CandidateMatch;
+import com.benchreadiness.interview.branch.BranchAccess;
 import com.benchreadiness.interview.dto.ClientMatchingOverview;
 import com.benchreadiness.interview.dto.ClientMatchingResult;
 import com.benchreadiness.interview.entity.Client;
@@ -34,10 +35,12 @@ public class ClientMatchingDashboardService {
     /**
      * Get all clients with matching summary (cached for 5 minutes)
      */
-    @Cacheable(value = "clientOverviews", key = "'all-clients'")
+    @Cacheable(value = "clientOverviews", key = "#userRole + '-clients'")
     public List<ClientMatchingOverview> getAllClientsWithMatchingSummary(String userId, String userRole) {
-        // Fetch all clients in a separate transaction to avoid holding DB connection
-        List<Client> allClients = fetchAllClients();
+        String allowedBranch = BranchAccess.resolveAllowedBranch(userRole);
+        List<Client> allClients = allowedBranch == null
+            ? fetchAllClients()
+            : clientRepository.findByBranch(allowedBranch);
         
         List<Client> activeClients = allClients.stream()
             .filter(client -> client.getStatus() == Client.ClientStatus.ACTIVE)
@@ -59,11 +62,12 @@ public class ClientMatchingDashboardService {
     /**
      * Get detailed matches for a specific client (cached per client+source)
      */
-    @Cacheable(value = "clientMatches", key = "#clientId + '-' + #source")
+    @Cacheable(value = "clientMatches", key = "#clientId + '-' + #source + '-' + #userRole")
     public ClientMatchingResult getClientMatches(String clientId, String source, 
                                                 String userId, String userRole) {
         // Fetch client data in separate transaction
         Client client = fetchClientById(clientId);
+        assertClientBranchAccess(userRole, client);
 
         // Get matches from matching service (which calls AI) - no DB transaction here
         List<CandidateMatch> matches = matchingService.findMatchingCandidates(
@@ -91,6 +95,12 @@ public class ClientMatchingDashboardService {
     private Client fetchClientById(String clientId) {
         return clientRepository.findById(UUID.fromString(clientId))
             .orElseThrow(() -> new IllegalArgumentException("Client not found: " + clientId));
+    }
+
+    private void assertClientBranchAccess(String userRole, Client client) {
+        if (!BranchAccess.canAccessBranch(userRole, client.getBranch())) {
+            throw new IllegalArgumentException("Client not found: " + client.getId());
+        }
     }
 
     /**

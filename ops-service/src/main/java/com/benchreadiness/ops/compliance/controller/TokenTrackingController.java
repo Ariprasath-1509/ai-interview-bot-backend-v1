@@ -1,6 +1,7 @@
 package com.benchreadiness.ops.compliance.controller;
 
 import com.benchreadiness.ops.compliance.entity.TokenUsage;
+import com.benchreadiness.ops.security.StaffSecurityRoles;
 import com.benchreadiness.ops.compliance.service.TokenTrackingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,7 +62,7 @@ public class TokenTrackingController {
     }
 
     @PostMapping("/limits")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
     public ResponseEntity<Map<String, Object>> updateLimits(@RequestBody Map<String, Integer> request) {
         try {
             Integer dailyLimit = request.get("dailyLimit");

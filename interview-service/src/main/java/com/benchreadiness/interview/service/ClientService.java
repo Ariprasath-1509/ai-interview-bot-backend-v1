@@ -1,5 +1,7 @@
 package com.benchreadiness.interview.service;
 
+import com.benchreadiness.interview.branch.Branch;
+import com.benchreadiness.interview.branch.BranchAccess;
 import com.benchreadiness.interview.client.DocumentServiceClient;
 import com.benchreadiness.interview.client.ObserverServiceClient;
 import com.benchreadiness.interview.dto.ClientDTO;
@@ -43,24 +45,31 @@ public class ClientService {
                 .collect(Collectors.toList());
     }
 
-    public ClientDTO getClientById(UUID id) {
-        Client client = clientRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Client not found with id: " + id));
+    public List<ClientDTO> getClientsForRole(String userRole) {
+        String allowedBranch = BranchAccess.resolveAllowedBranch(userRole);
+        List<Client> clients = allowedBranch == null
+                ? clientRepository.findAll()
+                : clientRepository.findByBranch(allowedBranch);
+        return clients.stream()
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
+    }
+
+    public ClientDTO getClientById(UUID id, String userRole) {
+        Client client = requireAccessibleClient(id, userRole);
         return convertToDTO(client);
     }
 
-    public String getDocId(UUID clientId) {
-        Client client = clientRepository.findById(clientId)
-                .orElseThrow(() -> new RuntimeException("Client not found with id: " + clientId));
+    public String getDocId(UUID clientId, String userRole) {
+        Client client = requireAccessibleClient(clientId, userRole);
         return client.getDocId();
     }
 
     /**
      * Stored JD binary for download (not included in {@link ClientDTO}).
      */
-    public Optional<JdFileDownload> getJdFileDownload(UUID id) {
-        Client client = clientRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Client not found with id: " + id));
+    public Optional<JdFileDownload> getJdFileDownload(UUID id, String userRole) {
+        Client client = requireAccessibleClient(id, userRole);
         byte[] bytes = client.getJdFile();
         if (bytes == null || bytes.length == 0) {
             return Optional.empty();
@@ -71,7 +80,7 @@ public class ClientService {
         return Optional.of(new JdFileDownload(filename, bytes));
     }
 
-    public ClientDTO createClient(ClientDTO clientDTO, MultipartFile jdFile) {
+    public ClientDTO createClient(ClientDTO clientDTO, MultipartFile jdFile, String userRole) {
         Client client = new Client();
         client.setClientName(clientDTO.getClientName());
         client.setJdRole(clientDTO.getJdRole());
@@ -80,6 +89,7 @@ public class ClientService {
         client.setMarketCandidatesNeeded(clientDTO.getMarketCandidatesNeeded());
         client.setBenchB2bCandidatesNeeded(clientDTO.getBenchB2bCandidatesNeeded());
         client.setStatus(Client.ClientStatus.valueOf(clientDTO.getStatus()));
+        client.setBranch(BranchAccess.resolveBranchForCreate(userRole, clientDTO.getBranch()));
         client.setBenchReviewed(false);
         client.setRecruitmentReviewed(false);
         client.setCreatedAt(LocalDateTime.now());
@@ -128,9 +138,8 @@ public class ClientService {
         return convertToDTO(savedClient);
     }
 
-    public ClientDTO updateClient(UUID id, ClientDTO clientDTO, MultipartFile jdFile) {
-        Client client = clientRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Client not found with id: " + id));
+    public ClientDTO updateClient(UUID id, ClientDTO clientDTO, MultipartFile jdFile, String userRole) {
+        Client client = requireAccessibleClient(id, userRole);
 
         client.setClientName(clientDTO.getClientName());
         client.setJdRole(clientDTO.getJdRole());
@@ -139,6 +148,9 @@ public class ClientService {
         client.setMarketCandidatesNeeded(clientDTO.getMarketCandidatesNeeded());
         client.setBenchB2bCandidatesNeeded(clientDTO.getBenchB2bCandidatesNeeded());
         client.setStatus(Client.ClientStatus.valueOf(clientDTO.getStatus()));
+        if ("SUPER_ADMIN".equals(userRole) && clientDTO.getBranch() != null && Branch.isValid(clientDTO.getBranch())) {
+            client.setBranch(Branch.normalize(clientDTO.getBranch()));
+        }
         client.setUpdatedAt(LocalDateTime.now());
 
         // Handle skill requirements update
@@ -212,41 +224,51 @@ public class ClientService {
         }
     }
 
-    public void deleteClient(UUID id) {
-        if (!clientRepository.existsById(id)) {
-            throw new RuntimeException("Client not found with id: " + id);
+    public void deleteClient(UUID id, String userRole) {
+        Client client = requireAccessibleClient(id, userRole);
+        clientRepository.delete(client);
+    }
+
+    public List<ClientDTO> getPendingClientsForBench(String userRole) {
+        return filterClientsByRole(userRole, clientRepository.findByBenchReviewedFalseAndBenchB2bCandidatesNeededGreaterThan(0));
+    }
+
+    public List<ClientDTO> getPendingClientsForRecruitment(String userRole) {
+        return filterClientsByRole(userRole, clientRepository.findByRecruitmentReviewedFalseAndMarketCandidatesNeededGreaterThan(0));
+    }
+
+    private List<ClientDTO> filterClientsByRole(String userRole, List<Client> clients) {
+        String allowedBranch = BranchAccess.resolveAllowedBranch(userRole);
+        if (allowedBranch == null) {
+            return clients.stream().map(this::convertToDTO).collect(Collectors.toList());
         }
-        clientRepository.deleteById(id);
-    }
-
-    public List<ClientDTO> getPendingClientsForBench() {
-        return clientRepository.findByBenchReviewedFalseAndBenchB2bCandidatesNeededGreaterThan(0)
-                .stream()
+        return clients.stream()
+                .filter(c -> allowedBranch.equals(Branch.normalize(c.getBranch())))
                 .map(this::convertToDTO)
                 .collect(Collectors.toList());
     }
 
-    public List<ClientDTO> getPendingClientsForRecruitment() {
-        return clientRepository.findByRecruitmentReviewedFalseAndMarketCandidatesNeededGreaterThan(0)
-                .stream()
-                .map(this::convertToDTO)
-                .collect(Collectors.toList());
-    }
-
-    public ClientDTO markBenchReviewed(UUID id) {
-        Client client = clientRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Client not found with id: " + id));
+    public ClientDTO markBenchReviewed(UUID id, String userRole) {
+        Client client = requireAccessibleClient(id, userRole);
         client.setBenchReviewed(true);
         client.setUpdatedAt(LocalDateTime.now());
         return convertToDTO(clientRepository.save(client));
     }
 
-    public ClientDTO markRecruitmentReviewed(UUID id) {
-        Client client = clientRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Client not found with id: " + id));
+    public ClientDTO markRecruitmentReviewed(UUID id, String userRole) {
+        Client client = requireAccessibleClient(id, userRole);
         client.setRecruitmentReviewed(true);
         client.setUpdatedAt(LocalDateTime.now());
         return convertToDTO(clientRepository.save(client));
+    }
+
+    private Client requireAccessibleClient(UUID id, String userRole) {
+        Client client = clientRepository.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Client not found with id: " + id));
+        if (!BranchAccess.canAccessBranch(userRole, client.getBranch())) {
+            throw new NoSuchElementException("Client not found with id: " + id);
+        }
+        return client;
     }
 
     private ClientDTO convertToDTO(Client client) {
@@ -259,7 +281,7 @@ public class ClientService {
                     .collect(Collectors.toList());
         }
                 
-        return new ClientDTO(
+        ClientDTO dto = new ClientDTO(
                 client.getId(),
                 client.getClientName(),
                 client.getJdRole(),
@@ -276,6 +298,10 @@ public class ClientService {
                 client.getJdFileName(),
                 skillRequirements
         );
+        dto.setBranch(client.getBranch() != null && !client.getBranch().isBlank()
+                ? Branch.normalize(client.getBranch())
+                : BranchAccess.defaultBranch());
+        return dto;
     }
     
     private SkillRequirementDTO convertSkillRequirementToDTO(SkillRequirement skillReq) {

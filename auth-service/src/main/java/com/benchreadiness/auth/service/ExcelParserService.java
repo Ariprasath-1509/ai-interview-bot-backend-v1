@@ -82,10 +82,14 @@ public class ExcelParserService {
         // Validate business rules
         validateBusinessRules(candidates, errors);
 
-        // Create import session
+        boolean canProceed = errors.stream().noneMatch(e -> "ERROR".equals(e.getSeverity()));
+
+        // Create import session (validation only — no candidates are written to the database here)
         BulkImportRequest importRequest = new BulkImportRequest();
         importRequest.setSessionId(sessionId);
         importRequest.setCandidates(candidates);
+        importRequest.setValidationErrors(errors);
+        importRequest.setCanProceed(canProceed);
         importSessions.put(sessionId, importRequest);
 
         // Generate credential previews
@@ -101,10 +105,38 @@ public class ExcelParserService {
         response.setErrorRows(response.getTotalRows() - response.getValidRows());
         response.setErrors(errors);
         response.setCredentialPreviews(previews);
-        response.setCanProceed(response.getErrorRows() == 0);
+        response.setCanProceed(canProceed);
         response.setCreatedAt(LocalDateTime.now());
 
         return response;
+    }
+
+    public List<BulkImportResponse.ValidationError> revalidateCandidates(
+            List<BulkImportRequest.CandidateBulkData> candidates) {
+        List<BulkImportResponse.ValidationError> errors = new ArrayList<>();
+        if (candidates == null || candidates.isEmpty()) {
+            return errors;
+        }
+        for (BulkImportRequest.CandidateBulkData candidate : candidates) {
+            validateCandidate(candidate, errors);
+        }
+        validateBusinessRules(candidates, errors);
+        return errors;
+    }
+
+    public boolean hasBlockingErrors(List<BulkImportResponse.ValidationError> errors) {
+        return errors != null && errors.stream().anyMatch(e -> "ERROR".equals(e.getSeverity()));
+    }
+
+    public String formatBlockingErrors(List<BulkImportResponse.ValidationError> errors) {
+        if (errors == null || errors.isEmpty()) {
+            return "Validation failed";
+        }
+        return errors.stream()
+                .filter(e -> "ERROR".equals(e.getSeverity()))
+                .map(e -> "Row " + e.getRowNumber() + " " + e.getField() + ": " + e.getMessage())
+                .reduce((a, b) -> a + "; " + b)
+                .orElse("Validation failed");
     }
 
     public BulkImportRequest getImportSession(String sessionId) {
@@ -240,50 +272,41 @@ public class ExcelParserService {
 
     private void validateBusinessRules(List<BulkImportRequest.CandidateBulkData> candidates, 
                                       List<BulkImportResponse.ValidationError> errors) {
-        // Check for duplicate emails within the file
+        // Check for duplicate emails within the file and against existing candidates
         Set<String> seenEmails = new HashSet<>();
         
         for (BulkImportRequest.CandidateBulkData candidate : candidates) {
-            String officialEmail = candidate.getOfficialEmail();
-            String personalEmail = candidate.getPersonalEmail();
-            
-            if (!isBlank(officialEmail)) {
-                if ("NA".equalsIgnoreCase(officialEmail)) {
-                    // Skip NA values for duplicate checking
-                } else {
-                    if (seenEmails.contains(officialEmail.toLowerCase())) {
-                        errors.add(new BulkImportResponse.ValidationError(candidate.getRowNumber(), "officialEmail", 
-                            "Duplicate email in file", officialEmail, "ERROR"));
-                    } else {
-                        seenEmails.add(officialEmail.toLowerCase());
-                        
-                        // Check if email exists in database
-                        if (userRepository.existsByEmailIgnoreCase(officialEmail)) {
-                            errors.add(new BulkImportResponse.ValidationError(candidate.getRowNumber(), "officialEmail", 
-                                "Email already exists in database", officialEmail, "WARNING"));
-                        }
-                    }
-                }
-            }
-            
-            if (!isBlank(personalEmail)) {
-                if ("NA".equalsIgnoreCase(personalEmail)) {
-                    // Skip NA values for duplicate checking
-                } else {
-                    if (seenEmails.contains(personalEmail.toLowerCase())) {
-                        errors.add(new BulkImportResponse.ValidationError(candidate.getRowNumber(), "personalEmail", 
-                            "Duplicate email in file", personalEmail, "ERROR"));
-                    } else {
-                        seenEmails.add(personalEmail.toLowerCase());
-                        
-                        // Check if email exists in database
-                        if (userRepository.existsByEmailIgnoreCase(personalEmail)) {
-                            errors.add(new BulkImportResponse.ValidationError(candidate.getRowNumber(), "personalEmail", 
-                                "Email already exists in database", personalEmail, "WARNING"));
-                        }
-                    }
-                }
-            }
+            checkEmailDuplicate(candidate, candidate.getOfficialEmail(), "officialEmail", seenEmails, errors);
+            checkEmailDuplicate(candidate, candidate.getPersonalEmail(), "personalEmail", seenEmails, errors);
+        }
+    }
+
+    private void checkEmailDuplicate(BulkImportRequest.CandidateBulkData candidate,
+                                     String email,
+                                     String fieldName,
+                                     Set<String> seenEmails,
+                                     List<BulkImportResponse.ValidationError> errors) {
+        if (isBlank(email) || "NA".equalsIgnoreCase(email)) {
+            return;
+        }
+        String normalized = email.toLowerCase();
+        if (seenEmails.contains(normalized)) {
+            errors.add(new BulkImportResponse.ValidationError(candidate.getRowNumber(), fieldName,
+                "Duplicate email in file", email, "ERROR"));
+            return;
+        }
+        seenEmails.add(normalized);
+
+        List<com.benchreadiness.auth.entity.User> existing =
+            userRepository.findCandidatesByAnyEmailIgnoreCase(normalized);
+        if (!existing.isEmpty()) {
+            com.benchreadiness.auth.entity.User match = existing.get(0);
+            String status = match.getCandidateStatus() != null ? match.getCandidateStatus() : "UNKNOWN";
+            String branch = match.getBranch() != null ? match.getBranch() : "DEVELOPMENT";
+            errors.add(new BulkImportResponse.ValidationError(candidate.getRowNumber(), fieldName,
+                String.format("Candidate already exists: %s (%s, %s branch, login: %s)",
+                    match.getName(), status, branch, match.getEmail()),
+                email, "ERROR"));
         }
     }
 

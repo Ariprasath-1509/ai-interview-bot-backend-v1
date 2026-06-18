@@ -28,12 +28,20 @@ public class AuthTokenResponse {
     @Schema(description = "Admin source scope (ADMIN role only)", example = "B2B")
     private String adminSource;
 
+    @Schema(description = "Branch scope for staff (TESTING or DEVELOPMENT)", example = "DEVELOPMENT")
+    private String branch;
+
     public static AuthTokenResponse from(User user, JwtService.TokenPair pair) {
         AuthTokenResponse response = from(pair);
         response.setRole(user.getRole().name());
         response.setName(user.getName() != null ? user.getName() : "");
         if (user.getAdminSource() != null) {
             response.setAdminSource(user.getAdminSource());
+        }
+        if (user.getRole().isStaff()) {
+            response.setBranch(com.benchreadiness.auth.branch.BranchAccess.resolveStaffBranch(user.getRole()));
+        } else if (user.getBranch() != null) {
+            response.setBranch(user.getBranch());
         }
         return response;
     }
@@ -60,4 +68,6 @@ public class AuthTokenResponse {
     public void setName(String name) { this.name = name; }
     public String getAdminSource() { return adminSource; }
     public void setAdminSource(String adminSource) { this.adminSource = adminSource; }
+    public String getBranch() { return branch; }
+    public void setBranch(String branch) { this.branch = branch; }
 }

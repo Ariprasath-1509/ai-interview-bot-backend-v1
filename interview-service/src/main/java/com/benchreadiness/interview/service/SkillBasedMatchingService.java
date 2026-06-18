@@ -1,5 +1,6 @@
 package com.benchreadiness.interview.service;
 
+import com.benchreadiness.interview.branch.BranchAccess;
 import com.benchreadiness.interview.dto.CandidateMatch;
 import com.benchreadiness.interview.dto.SkillBasedMatchingResult;
 import com.benchreadiness.interview.entity.Client;
@@ -27,7 +28,10 @@ public class SkillBasedMatchingService {
     }
     
     public List<SkillBasedMatchingResult> getSkillMatchingOverview(String userId, String userRole) {
-        List<Client> clients = clientRepository.findAll().stream()
+        String allowedBranch = BranchAccess.resolveAllowedBranch(userRole);
+        List<Client> clients = (allowedBranch == null
+                ? clientRepository.findAll()
+                : clientRepository.findByBranch(allowedBranch)).stream()
             .filter(client -> !client.getSkillRequirements().isEmpty())
             .collect(Collectors.toList());
         

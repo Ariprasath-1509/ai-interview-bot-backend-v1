@@ -24,7 +24,7 @@ public class SessionController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable UUID id) {
         sessionService.deleteSession(id);
         return ResponseEntity.ok(ApiResponse.ok(null, "Session deleted"));

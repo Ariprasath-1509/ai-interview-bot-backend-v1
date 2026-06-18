@@ -1,5 +1,6 @@
 package com.benchreadiness.ops.observer.controller;
 
+import com.benchreadiness.ops.security.StaffSecurityRoles;
 import com.benchreadiness.ops.observer.dto.ClientCreatedRequest;
 import com.benchreadiness.ops.observer.dto.FlagRequest;
 import com.benchreadiness.ops.observer.dto.InjectRequest;
@@ -8,6 +9,7 @@ import com.benchreadiness.ops.observer.dto.InterviewCreatedRequest;
 import com.benchreadiness.ops.observer.entity.ObserverEvent;
 import com.benchreadiness.ops.observer.service.DigestService;
 import com.benchreadiness.ops.observer.service.EmailService;
+import com.benchreadiness.ops.observer.service.ObserverInterviewAccessService;
 import com.benchreadiness.ops.observer.service.ObserverService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -15,7 +17,6 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -26,13 +27,16 @@ public class ObserverController {
     private final SimpMessagingTemplate messagingTemplate;
     private final EmailService emailService;
     private final DigestService digestService;
+    private final ObserverInterviewAccessService interviewAccessService;
 
     public ObserverController(ObserverService observerService, SimpMessagingTemplate messagingTemplate,
-                               EmailService emailService, DigestService digestService) {
+                               EmailService emailService, DigestService digestService,
+                               ObserverInterviewAccessService interviewAccessService) {
         this.observerService = observerService;
         this.messagingTemplate = messagingTemplate;
         this.emailService = emailService;
         this.digestService = digestService;
+        this.interviewAccessService = interviewAccessService;
     }
 
     @PostMapping("/notify/client-created")
@@ -77,36 +81,49 @@ public class ObserverController {
     }
 
     @GetMapping("/events/{interviewId}")
-    public ResponseEntity<List<ObserverEvent>> getEvents(@PathVariable String interviewId,
-                                                          @RequestParam(defaultValue = "25") int limit) {
-        return ResponseEntity.ok(observerService.getEventsByInterview(interviewId, limit));
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    public ResponseEntity<?> getEvents(@PathVariable String interviewId,
+                                         @RequestParam(defaultValue = "25") int limit,
+                                         @RequestHeader("X-User-Role") String role) {
+        try {
+            interviewAccessService.assertStaffCanAccessInterview(interviewId, role);
+            return ResponseEntity.ok(observerService.getEventsByInterview(interviewId, limit));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        }
     }
 
     @PostMapping("/inject")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> inject(@Valid @RequestBody InjectRequest req,
                                      @RequestHeader("X-User-Id") String userId,
                                      @RequestHeader("X-User-Role") String role) {
         try {
+            interviewAccessService.assertStaffCanAccessInterview(req.getInterviewId(), role);
             ObserverEvent event = observerService.inject(req, userId);
             messagingTemplate.convertAndSend("/topic/observer/" + req.getInterviewId(),
                 Map.of("kind", event.getKind(), "payload", event.getPayloadJson(), "at", event.getCreatedAt().toString()));
             return ResponseEntity.ok(event);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
 
     @PostMapping("/flag")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
     public ResponseEntity<?> flag(@Valid @RequestBody FlagRequest req,
                                    @RequestHeader("X-User-Id") String userId,
                                    @RequestHeader("X-User-Role") String role) {
         try {
+            interviewAccessService.assertStaffCanAccessInterview(req.getInterviewId(), role);
             ObserverEvent event = observerService.flag(req, userId);
             messagingTemplate.convertAndSend("/topic/observer/" + req.getInterviewId(),
                 Map.of("kind", event.getKind(), "payload", event.getPayloadJson(), "at", event.getCreatedAt().toString()));
             return ResponseEntity.ok(event);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
@@ -114,7 +131,7 @@ public class ObserverController {
 
     /** POST /observer/digest/send — manually trigger the daily platform report (admin only). */
     @PostMapping("/digest/send")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
     public ResponseEntity<?> triggerDailyDigest(@RequestHeader("X-User-Id") String userId,
                                                  @RequestHeader("X-User-Role") String role) {
         digestService.sendDailyDigest();

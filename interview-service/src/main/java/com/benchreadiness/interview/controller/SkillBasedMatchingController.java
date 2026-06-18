@@ -1,6 +1,7 @@
 package com.benchreadiness.interview.controller;
 
 import com.benchreadiness.interview.dto.SkillBasedMatchingResult;
+import com.benchreadiness.interview.security.StaffSecurityRoles;
 import com.benchreadiness.interview.service.SkillBasedMatchingService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -20,7 +21,7 @@ public class SkillBasedMatchingController {
     }
     
     @GetMapping("/overview")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<List<SkillBasedMatchingResult>> getSkillMatchingOverview(
             @RequestHeader("X-User-Id") String userId,
             @RequestHeader("X-User-Role") String userRole) {
@@ -30,7 +31,7 @@ public class SkillBasedMatchingController {
     }
     
     @GetMapping("/{clientId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<SkillBasedMatchingResult> getSkillBasedMatches(
             @PathVariable UUID clientId,
             @RequestParam String source,
@@ -43,7 +44,7 @@ public class SkillBasedMatchingController {
     }
     
     @PostMapping("/{clientId}/refresh")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<SkillBasedMatchingResult> refreshSkillBasedMatches(
             @PathVariable UUID clientId,
             @RequestParam String source,

@@ -21,6 +21,8 @@ public class UpdateCandidateRequest {
     private Integer noOfInterviews;
     private String interviewMentorName;
     private String clientName;
+    /** SUPER_ADMIN only — change candidate branch. */
+    private String branch;
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
@@ -56,4 +58,6 @@ public class UpdateCandidateRequest {
     public void setInterviewMentorName(String interviewMentorName) { this.interviewMentorName = interviewMentorName; }
     public String getClientName() { return clientName; }
     public void setClientName(String clientName) { this.clientName = clientName; }
+    public String getBranch() { return branch; }
+    public void setBranch(String branch) { this.branch = branch; }
 }

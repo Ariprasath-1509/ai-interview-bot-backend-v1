@@ -1,11 +1,14 @@
 package com.benchreadiness.auth.dto;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class BulkImportRequest {
     private String sessionId;
     private List<CandidateBulkData> candidates;
     private boolean confirmImport;
+    private boolean canProceed;
+    private List<BulkImportResponse.ValidationError> validationErrors = new ArrayList<>();
 
     public BulkImportRequest() {}
 
@@ -31,6 +34,22 @@ public class BulkImportRequest {
 
     public void setConfirmImport(boolean confirmImport) {
         this.confirmImport = confirmImport;
+    }
+
+    public boolean isCanProceed() {
+        return canProceed;
+    }
+
+    public void setCanProceed(boolean canProceed) {
+        this.canProceed = canProceed;
+    }
+
+    public List<BulkImportResponse.ValidationError> getValidationErrors() {
+        return validationErrors;
+    }
+
+    public void setValidationErrors(List<BulkImportResponse.ValidationError> validationErrors) {
+        this.validationErrors = validationErrors != null ? validationErrors : new ArrayList<>();
     }
 
     public static class CandidateBulkData {

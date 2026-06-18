@@ -41,6 +41,9 @@ public class CreateCandidateRequest {
 
     private String clientName;
 
+    /** Optional; only SUPER_ADMIN may assign a branch other than their role default. */
+    private String branch;
+
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getOfficialEmail() { return officialEmail; }
@@ -73,4 +76,6 @@ public class CreateCandidateRequest {
     public void setInterviewMentorName(String interviewMentorName) { this.interviewMentorName = interviewMentorName; }
     public String getClientName() { return clientName; }
     public void setClientName(String clientName) { this.clientName = clientName; }
+    public String getBranch() { return branch; }
+    public void setBranch(String branch) { this.branch = branch; }
 }

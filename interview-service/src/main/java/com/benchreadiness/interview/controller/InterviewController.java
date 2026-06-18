@@ -11,6 +11,8 @@ import com.benchreadiness.interview.dto.RecordQuestionRequest;
 import com.benchreadiness.interview.entity.Interview;
 import com.benchreadiness.interview.entity.InterviewQuestion;
 import com.benchreadiness.interview.exception.VideoProctoringNotRequiredException;
+import com.benchreadiness.interview.security.StaffSecurityRoles;
+import com.benchreadiness.interview.service.BranchInterviewValidator;
 import com.benchreadiness.interview.service.CandidateMatchingService;
 import com.benchreadiness.interview.service.CandidateReviewService;
 import com.benchreadiness.interview.service.InterviewService;
@@ -33,6 +35,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/interviews")
@@ -46,6 +49,7 @@ public class InterviewController {
     private final InterviewQuestionService interviewQuestionService;
     private final RecordingService recordingService;
     private final ProctoringService proctoringService;
+    private final BranchInterviewValidator branchInterviewValidator;
 
     public InterviewController(InterviewService interviewService,
                               EnhancedInterviewService enhancedInterviewService,
@@ -54,7 +58,8 @@ public class InterviewController {
                               PdfGenerationService pdfGenerationService,
                               InterviewQuestionService interviewQuestionService,
                               RecordingService recordingService,
-                              ProctoringService proctoringService) {
+                              ProctoringService proctoringService,
+                              BranchInterviewValidator branchInterviewValidator) {
         this.interviewService = interviewService;
         this.enhancedInterviewService = enhancedInterviewService;
         this.candidateMatchingService = candidateMatchingService;
@@ -63,14 +68,16 @@ public class InterviewController {
         this.interviewQuestionService = interviewQuestionService;
         this.recordingService = recordingService;
         this.proctoringService = proctoringService;
+        this.branchInterviewValidator = branchInterviewValidator;
     }
 
     @GetMapping("/auto-fill/preview")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> previewAutoFill(@RequestParam(required = false) String candidateId,
-                                            @RequestParam(required = false) String clientId) {
+                                            @RequestParam(required = false) String clientId,
+                                            @RequestHeader("X-User-Role") String userRole) {
         try {
-            AutoFillPreview preview = enhancedInterviewService.previewAutoFill(candidateId, clientId);
+            AutoFillPreview preview = enhancedInterviewService.previewAutoFill(candidateId, clientId, userRole);
             return ResponseEntity.ok(preview);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
@@ -78,15 +85,19 @@ public class InterviewController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> create(@Valid @RequestBody CreateInterviewRequest req,
-                                     @RequestHeader("X-User-Id") String userId) {
+                                     @RequestHeader("X-User-Id") String userId,
+                                     @RequestHeader("X-User-Role") String userRole) {
         try {
+            String branch = branchInterviewValidator.validateAndResolveBranch(req, userId, userRole);
+            UUID clientUuid = branchInterviewValidator.parseClientId(req.getClientId());
             Interview interview;
-            if (req.getCandidateId() != null) {
-                interview = enhancedInterviewService.createInterviewWithAutoFill(req, userId);
+            if (req.getCandidateId() != null && !req.getCandidateId().isBlank()) {
+                interview = enhancedInterviewService.createInterviewWithAutoFill(
+                        req, userId, userRole, branch, clientUuid);
             } else {
-                interview = interviewService.createInterview(req, userId);
+                interview = interviewService.createInterview(req, userId, branch, clientUuid);
             }
             return ResponseEntity.ok(Map.of("id", interview.getId(), "status", interview.getStatus()));
         } catch (Exception e) {
@@ -95,7 +106,7 @@ public class InterviewController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> delete(@PathVariable String id) {
         try {
             boolean deleted = interviewService.deleteInterview(id);
@@ -109,27 +120,49 @@ public class InterviewController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<?> getById(@PathVariable String id) {
+    public ResponseEntity<?> getById(@PathVariable String id,
+                                     @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                     @RequestHeader(value = "X-User-Role", required = false) String userRole) {
+        if (isStaffReadRole(userRole)) {
+            return interviewService.findByIdForRole(id, userId, userRole)
+                    .<ResponseEntity<?>>map(ResponseEntity::ok)
+                    .orElse(ResponseEntity.notFound().build());
+        }
         return interviewService.findById(id)
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    private static boolean isStaffReadRole(String userRole) {
+        if (userRole == null) {
+            return false;
+        }
+        return switch (userRole) {
+            case "ADMIN", "TESTING_ADMIN", "SUPER_ADMIN", "RECRUITER", "TESTING_RECRUITER" -> true;
+            default -> false;
+        };
+    }
+
     @GetMapping
-    public ResponseEntity<List<Interview>> getAll() {
-        return ResponseEntity.ok(interviewService.findAll());
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    public ResponseEntity<List<Interview>> getAll(@RequestHeader("X-User-Id") String userId,
+                                                   @RequestHeader("X-User-Role") String userRole) {
+        return ResponseEntity.ok(interviewService.findAllForRole(userId, userRole));
     }
 
     @GetMapping("/today")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
-    public ResponseEntity<?> getToday() {
-        return ResponseEntity.ok(interviewService.getTodaysSummaries());
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    public ResponseEntity<?> getToday(@RequestHeader("X-User-Id") String userId,
+                                      @RequestHeader("X-User-Role") String userRole) {
+        return ResponseEntity.ok(interviewService.getTodaysSummaries(userId, userRole));
     }
 
     @GetMapping("/summary")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
-    public ResponseEntity<List<com.benchreadiness.interview.dto.InterviewSummaryDto>> getSummary() {
-        return ResponseEntity.ok(interviewService.getSummaries());
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    public ResponseEntity<List<com.benchreadiness.interview.dto.InterviewSummaryDto>> getSummary(
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole) {
+        return ResponseEntity.ok(interviewService.getSummaries(userId, userRole));
     }
 
     @GetMapping("/mine")
@@ -221,7 +254,7 @@ public class InterviewController {
     }
 
     @GetMapping("/candidates/{candidateId}/client-matches")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> getCandidateClientMatches(@PathVariable String candidateId,
                                                        @RequestParam(defaultValue = "false") boolean forceRefresh) {
         try {
@@ -233,7 +266,7 @@ public class InterviewController {
     }
 
     @PostMapping("/candidates/{candidateId}/refresh-client-matches")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> refreshCandidateClientMatches(@PathVariable String candidateId) {
         try {
             CandidateMatchingResult result = candidateMatchingService.getCandidateClientMatches(candidateId, true);
@@ -244,7 +277,7 @@ public class InterviewController {
     }
 
     @GetMapping("/candidates/{candidateId}/review-summary/download")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<byte[]> downloadCandidateReviewSummary(@PathVariable String candidateId,
                                                                  @RequestHeader("X-User-Id") String userId) {
         try {
@@ -343,7 +376,7 @@ public class InterviewController {
 
     /** Download / stream session recording (admin/recruiter only). */
     @GetMapping("/{id}/recording")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<Resource> downloadRecording(@PathVariable String id) {
         try {
             Interview interview = interviewService.findById(id)
@@ -392,7 +425,7 @@ public class InterviewController {
     }
 
     @GetMapping("/{id}/proctoring/timeline")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> getProctoringTimeline(@PathVariable String id) {
         try {
             return ResponseEntity.ok(proctoringService.getTimeline(id));
@@ -402,7 +435,7 @@ public class InterviewController {
     }
 
     @GetMapping("/{id}/proctoring/snapshots/{fileName}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<Resource> downloadProctoringSnapshot(@PathVariable String id,
                                                              @PathVariable String fileName) {
         try {

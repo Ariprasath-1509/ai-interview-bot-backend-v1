@@ -38,6 +38,12 @@ public class Interview {
     @Column(name = "created_by_user_id")
     private String createdByUserId;
 
+    @Column(nullable = false, length = 32)
+    private String branch = "DEVELOPMENT";
+
+    @Column(name = "client_id")
+    private java.util.UUID clientId;
+
     @Column(name = "scheduled_at")
     private Instant scheduledAt;
 
@@ -147,6 +153,10 @@ public class Interview {
     public void setCustomDurationMinutes(Integer customDurationMinutes) { this.customDurationMinutes = customDurationMinutes; }
     public String getCreatedByUserId() { return createdByUserId; }
     public void setCreatedByUserId(String createdByUserId) { this.createdByUserId = createdByUserId; }
+    public String getBranch() { return branch; }
+    public void setBranch(String branch) { this.branch = branch; }
+    public java.util.UUID getClientId() { return clientId; }
+    public void setClientId(java.util.UUID clientId) { this.clientId = clientId; }
     public Instant getScheduledAt() { return scheduledAt; }
     public void setScheduledAt(Instant scheduledAt) { this.scheduledAt = scheduledAt; }
     public Instant getStartedAt() { return startedAt; }

@@ -14,6 +14,9 @@ import java.util.Map;
 @RequestMapping("/clients/matching")
 public class ClientMatchingDashboardController {
 
+    private static final String STAFF_READ_ROLES =
+        "ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN', 'RECRUITER', 'TESTING_RECRUITER";
+
     private final ClientMatchingDashboardService dashboardService;
 
     public ClientMatchingDashboardController(ClientMatchingDashboardService dashboardService) {
@@ -25,7 +28,7 @@ public class ClientMatchingDashboardController {
      * GET /clients/matching/overview
      */
     @GetMapping("/overview")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + STAFF_READ_ROLES + "')")
     public ResponseEntity<Map<String, Object>> getMatchingOverview(
             @RequestHeader("X-User-Id") String userId,
             @RequestHeader("X-User-Role") String userRole) {
@@ -43,7 +46,7 @@ public class ClientMatchingDashboardController {
      * GET /clients/matching/{clientId}?source=BENCH_B2B
      */
     @GetMapping("/{clientId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + STAFF_READ_ROLES + "')")
     public ResponseEntity<ClientMatchingResult> getClientMatches(
             @PathVariable String clientId,
             @RequestParam(defaultValue = "BENCH_B2B") String source,
@@ -61,7 +64,7 @@ public class ClientMatchingDashboardController {
      * POST /clients/matching/{clientId}/refresh
      */
     @PostMapping("/{clientId}/refresh")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<ClientMatchingResult> refreshClientMatches(
             @PathVariable String clientId,
             @RequestBody Map<String, String> request,

@@ -19,11 +19,21 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/recruiter/clients")
 public class ClientController {
+
+    private static final String STAFF_READ_ROLES =
+        "ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN', 'RECRUITER', 'TESTING_RECRUITER";
+
+    private static final String STAFF_WRITE_ROLES =
+        "ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN', 'RECRUITER', 'TESTING_RECRUITER";
+
+    private static final String STAFF_ADMIN_ROLES =
+        "ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN";
 
     private static final Logger log = LoggerFactory.getLogger(ClientController.class);
 
@@ -41,14 +51,14 @@ public class ClientController {
     }
 
     @GetMapping("/for-interview")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + STAFF_READ_ROLES + "')")
     public ResponseEntity<Map<String, Object>> getClientsForInterview(
             @RequestHeader("X-User-Id") String userId,
             @RequestHeader("X-User-Role") String userRole,
             @RequestParam(required = false) String candidateSkillSet,
             @RequestParam(required = false) Double candidateYoe) {
         
-        List<ClientDTO> allClients = clientService.getAllClients();
+        List<ClientDTO> allClients = clientService.getClientsForRole(userRole);
 
         // If a specific candidate's skill+YOE is provided, filter and rank for that candidate
         if (candidateSkillSet != null && !candidateSkillSet.isBlank()) {
@@ -83,7 +93,7 @@ public class ClientController {
         List<ClientDTO> clientsWithoutMatches = new ArrayList<>();
         
         for (ClientDTO client : allClients) {
-            boolean hasMatches = quickCheckForMatches(client);
+            boolean hasMatches = quickCheckForMatches(client, userRole);
             if (hasMatches) clientsWithMatches.add(client);
             else clientsWithoutMatches.add(client);
         }
@@ -150,10 +160,10 @@ public class ClientController {
      * 
      * NO AI CALLS - just database filtering for speed
      */
-    private boolean quickCheckForMatches(ClientDTO client) {
+    private boolean quickCheckForMatches(ClientDTO client, String userRole) {
         try {
             // Get all RFD candidates with at least 1 interview
-            List<Map<String, Object>> allCandidates = matchingService.getAllEligibleCandidates();
+            List<Map<String, Object>> allCandidates = matchingService.getAllEligibleCandidates(userRole);
             
             // Check if client has skill requirements
             if (client.getSkillRequirements() != null && !client.getSkillRequirements().isEmpty()) {
@@ -227,25 +237,32 @@ public class ClientController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
-    public ResponseEntity<List<ClientDTO>> getAllClients() {
-        return ResponseEntity.ok(clientService.getAllClients());
+    @PreAuthorize("hasAnyRole('" + STAFF_READ_ROLES + "')")
+    public ResponseEntity<List<ClientDTO>> getAllClients(
+            @RequestHeader("X-User-Role") String userRole) {
+        return ResponseEntity.ok(clientService.getClientsForRole(userRole));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
-    public ResponseEntity<ClientDTO> getClientById(@PathVariable UUID id) {
-        return ResponseEntity.ok(clientService.getClientById(id));
+    @PreAuthorize("hasAnyRole('" + STAFF_READ_ROLES + "')")
+    public ResponseEntity<ClientDTO> getClientById(@PathVariable UUID id,
+                                                   @RequestHeader("X-User-Role") String userRole) {
+        try {
+            return ResponseEntity.ok(clientService.getClientById(id, userRole));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.notFound().build();
+        }
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + STAFF_WRITE_ROLES + "')")
     public ResponseEntity<ClientDTO> createClient(
             @RequestPart("client") String clientJson,
-            @RequestPart(value = "jdFile", required = false) MultipartFile jdFile) {
+            @RequestPart(value = "jdFile", required = false) MultipartFile jdFile,
+            @RequestHeader("X-User-Role") String userRole) {
         try {
             ClientDTO clientDTO = objectMapper.readValue(clientJson, ClientDTO.class);
-            ClientDTO created = clientService.createClient(clientDTO, jdFile);
+            ClientDTO created = clientService.createClient(clientDTO, jdFile, userRole);
             return ResponseEntity.ok(created);
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
@@ -253,8 +270,9 @@ public class ClientController {
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
-    public ResponseEntity<ClientDTO> createClientJson(@RequestBody ClientDTO clientDTO) {
+    @PreAuthorize("hasAnyRole('" + STAFF_WRITE_ROLES + "')")
+    public ResponseEntity<ClientDTO> createClientJson(@RequestBody ClientDTO clientDTO,
+                                                      @RequestHeader("X-User-Role") String userRole) {
         // Ensure backward compatibility - if no skill requirements provided, 
         // create default ones based on legacy fields
         if ((clientDTO.getSkillRequirements() == null || clientDTO.getSkillRequirements().isEmpty()) &&
@@ -263,7 +281,7 @@ public class ClientController {
             clientDTO = createLegacySkillRequirements(clientDTO);
         }
         
-        ClientDTO created = clientService.createClient(clientDTO, null);
+        ClientDTO created = clientService.createClient(clientDTO, null, userRole);
         return ResponseEntity.ok(created);
     }
     
@@ -296,21 +314,29 @@ public class ClientController {
     }
 
     @PutMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + STAFF_WRITE_ROLES + "')")
     public ResponseEntity<ClientDTO> updateClientJson(@PathVariable UUID id,
-                                                       @RequestBody ClientDTO clientDTO) {
-        return ResponseEntity.ok(clientService.updateClient(id, clientDTO, null));
+                                                       @RequestBody ClientDTO clientDTO,
+                                                       @RequestHeader("X-User-Role") String userRole) {
+        try {
+            return ResponseEntity.ok(clientService.updateClient(id, clientDTO, null, userRole));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.notFound().build();
+        }
     }
 
     @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + STAFF_WRITE_ROLES + "')")
     public ResponseEntity<ClientDTO> updateClientMultipart(
             @PathVariable UUID id,
             @RequestPart("client") String clientJson,
-            @RequestPart(value = "jdFile", required = false) MultipartFile jdFile) {
+            @RequestPart(value = "jdFile", required = false) MultipartFile jdFile,
+            @RequestHeader("X-User-Role") String userRole) {
         try {
             ClientDTO clientDTO = objectMapper.readValue(clientJson, ClientDTO.class);
-            return ResponseEntity.ok(clientService.updateClient(id, clientDTO, jdFile));
+            return ResponseEntity.ok(clientService.updateClient(id, clientDTO, jdFile, userRole));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.notFound().build();
         } catch (Exception e) {
             log.warn("updateClient multipart parse failed: {}", e.getMessage());
             return ResponseEntity.badRequest().build();
@@ -318,67 +344,87 @@ public class ClientController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
-    public ResponseEntity<Void> deleteClient(@PathVariable UUID id) {
-        clientService.deleteClient(id);
-        return ResponseEntity.noContent().build();
+    @PreAuthorize("hasAnyRole('" + STAFF_ADMIN_ROLES + "')")
+    public ResponseEntity<Void> deleteClient(@PathVariable UUID id,
+                                             @RequestHeader("X-User-Role") String userRole) {
+        try {
+            clientService.deleteClient(id, userRole);
+            return ResponseEntity.noContent().build();
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.notFound().build();
+        }
     }
 
     @GetMapping("/{id}/doc-id")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
-    public ResponseEntity<Map<String, String>> getDocId(@PathVariable UUID id) {
-        String docId = clientService.getDocId(id);
-        if (docId == null) {
+    @PreAuthorize("hasAnyRole('" + STAFF_READ_ROLES + "')")
+    public ResponseEntity<Map<String, String>> getDocId(@PathVariable UUID id,
+                                                       @RequestHeader("X-User-Role") String userRole) {
+        try {
+            String docId = clientService.getDocId(id, userRole);
+            if (docId == null) {
+                return ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.ok(Map.of("docId", docId));
+        } catch (NoSuchElementException e) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(Map.of("docId", docId));
     }
     
     @GetMapping("/{id}/doc-status")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
-    public ResponseEntity<Map<String, Object>> getDocumentStatus(@PathVariable UUID id) {
-        String docId = clientService.getDocId(id);
-        if (docId == null) {
-            return ResponseEntity.ok(Map.of(
-                "error", "No docId stored for this client",
-                "hasJdFile", clientService.getJdFileDownload(id).isPresent()
-            ));
-        }
-        
+    @PreAuthorize("hasAnyRole('" + STAFF_READ_ROLES + "')")
+    public ResponseEntity<Map<String, Object>> getDocumentStatus(@PathVariable UUID id,
+                                                                 @RequestHeader("X-User-Role") String userRole) {
         try {
-            Map<String, Object> status = documentServiceClient.getDocumentStatus(docId);
-            if (status == null) {
+            String docId = clientService.getDocId(id, userRole);
+            if (docId == null) {
                 return ResponseEntity.ok(Map.of(
-                    "docId", docId,
-                    "error", "Document not found in document service",
-                    "hasJdFile", clientService.getJdFileDownload(id).isPresent()
+                    "error", "No docId stored for this client",
+                    "hasJdFile", clientService.getJdFileDownload(id, userRole).isPresent()
                 ));
             }
-            return ResponseEntity.ok(status);
-        } catch (Exception e) {
-            return ResponseEntity.ok(Map.of(
-                "docId", docId,
-                "error", "Failed to check document service: " + e.getMessage(),
-                "hasJdFile", clientService.getJdFileDownload(id).isPresent()
-            ));
+            
+            try {
+                Map<String, Object> status = documentServiceClient.getDocumentStatus(docId);
+                if (status == null) {
+                    return ResponseEntity.ok(Map.of(
+                        "docId", docId,
+                        "error", "Document not found in document service",
+                        "hasJdFile", clientService.getJdFileDownload(id, userRole).isPresent()
+                    ));
+                }
+                return ResponseEntity.ok(status);
+            } catch (Exception e) {
+                return ResponseEntity.ok(Map.of(
+                    "docId", docId,
+                    "error", "Failed to check document service: " + e.getMessage(),
+                    "hasJdFile", clientService.getJdFileDownload(id, userRole).isPresent()
+                ));
+            }
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.notFound().build();
         }
     }
 
     @GetMapping("/{id}/jd-file")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
-    public ResponseEntity<byte[]> downloadClientJd(@PathVariable UUID id) {
-        var jd = clientService.getJdFileDownload(id);
-        if (jd.isEmpty()) {
+    @PreAuthorize("hasAnyRole('" + STAFF_READ_ROLES + "')")
+    public ResponseEntity<byte[]> downloadClientJd(@PathVariable UUID id,
+                                                 @RequestHeader("X-User-Role") String userRole) {
+        try {
+            var jd = clientService.getJdFileDownload(id, userRole);
+            if (jd.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            var file = jd.get();
+            ContentDisposition disposition = ContentDisposition.attachment()
+                    .filename(file.filename(), StandardCharsets.UTF_8)
+                    .build();
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .contentLength(file.data().length)
+                    .body(file.data());
+        } catch (NoSuchElementException e) {
             return ResponseEntity.notFound().build();
         }
-        var file = jd.get();
-        ContentDisposition disposition = ContentDisposition.attachment()
-                .filename(file.filename(), StandardCharsets.UTF_8)
-                .build();
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .contentLength(file.data().length)
-                .body(file.data());
     }
 }

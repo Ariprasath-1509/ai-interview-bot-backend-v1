@@ -1,5 +1,7 @@
 package com.benchreadiness.interview.service;
 
+import com.benchreadiness.interview.branch.InterviewBranchFilter;
+import com.benchreadiness.interview.branch.InterviewCandidateBranchLookup;
 import com.benchreadiness.interview.client.*;
 import com.benchreadiness.interview.dto.AbandonInterviewRequest;
 import com.benchreadiness.interview.dto.CreateInterviewRequest;
@@ -30,6 +32,7 @@ public class InterviewService {
     private final AuthServiceClient authServiceClient;
     private final QuestionBankClient questionBankClient;
     private final InterviewProctoringSupport proctoringSupport;
+    private final InterviewCandidateBranchLookup candidateBranchLookup;
 
     public InterviewService(InterviewRepository interviewRepository,
                             EngineerRepository engineerRepository,
@@ -41,7 +44,8 @@ public class InterviewService {
                             ComplianceServiceClient complianceServiceClient,
                             AuthServiceClient authServiceClient,
                             QuestionBankClient questionBankClient,
-                            InterviewProctoringSupport proctoringSupport) {
+                            InterviewProctoringSupport proctoringSupport,
+                            InterviewCandidateBranchLookup candidateBranchLookup) {
         this.interviewRepository = interviewRepository;
         this.engineerRepository = engineerRepository;
         this.jdRepository = jdRepository;
@@ -53,9 +57,11 @@ public class InterviewService {
         this.authServiceClient = authServiceClient;
         this.questionBankClient = questionBankClient;
         this.proctoringSupport = proctoringSupport;
+        this.candidateBranchLookup = candidateBranchLookup;
     }
 
-    public Interview createInterview(CreateInterviewRequest req, String createdByUserId) throws Exception {
+    public Interview createInterview(CreateInterviewRequest req, String createdByUserId,
+                                     String branch, java.util.UUID clientId) throws Exception {
         // Step 1: Do all external HTTP calls BEFORE opening the DB transaction
         // This prevents holding a DB connection open while waiting for slow external services
 
@@ -135,13 +141,15 @@ public class InterviewService {
         if (!includeProgramming && questionBankQuestionsJson != null) {
             questionBankQuestionsJson = filterProgrammingFromQuestionBankJson(questionBankQuestionsJson);
         }
-        return persistInterview(req, createdByUserId, rubricJson, candidateProfileJson, questionBankQuestionsJson);
+        return persistInterview(req, createdByUserId, rubricJson, candidateProfileJson, questionBankQuestionsJson,
+                branch, clientId);
     }
 
     @Transactional
     protected Interview persistInterview(CreateInterviewRequest req, String createdByUserId,
                                          String rubricJson, String candidateProfileJson,
-                                         String questionBankQuestionsJson) throws Exception {
+                                         String questionBankQuestionsJson,
+                                         String branch, java.util.UUID clientId) throws Exception {
         // Upsert engineer
         Engineer engineer = engineerRepository.findByEmail(req.getEngineerEmail()).orElseGet(() -> {
             Engineer e = new Engineer();
@@ -189,6 +197,8 @@ public class InterviewService {
         interview.setInterviewMode(req.getInterviewMode());
         interview.setCustomDurationMinutes(req.getCustomDurationMinutes());
         interview.setCreatedByUserId(createdByUserId);
+        interview.setBranch(branch != null ? branch : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
+        interview.setClientId(clientId);
         interview.setStatus(InterviewStatus.SCHEDULED);
         interview.setScheduledAt(Instant.now());
         boolean includeProgramming = req.getIncludeProgrammingQuestions() == null
@@ -332,6 +342,14 @@ public class InterviewService {
         return interviewRepository.findById(id).map(proctoringSupport::enrichInterview);
     }
 
+    public Optional<Interview> findByIdForRole(String id, String userId, String userRole) {
+        return findById(id).filter(interview -> {
+            Map<String, String> candidateBranches = candidateBranchLookup.byEngineerIds(
+                    Set.of(interview.getEngineerId()));
+            return InterviewBranchFilter.canAccess(interview, userId, userRole, candidateBranches);
+        });
+    }
+
     @Transactional
     public Interview saveInterview(Interview interview) {
         return interviewRepository.save(interview);
@@ -341,8 +359,23 @@ public class InterviewService {
         return interviewRepository.findAll();
     }
 
+    public List<Interview> findAllForRole(String userId, String userRole) {
+        List<Interview> all = findAll();
+        return InterviewBranchFilter.filterForRole(all, userId, userRole, candidateBranchLookup.forInterviews(all));
+    }
+
+    public List<com.benchreadiness.interview.dto.InterviewSummaryDto> getSummaries(String userId, String userRole) {
+        List<Interview> all = interviewRepository.findAll();
+        return mapSummaries(InterviewBranchFilter.filterForRole(
+                all, userId, userRole, candidateBranchLookup.forInterviews(all)));
+    }
+
     public List<com.benchreadiness.interview.dto.InterviewSummaryDto> getSummaries() {
-        return interviewRepository.findAll().stream().map(interview -> {
+        return mapSummaries(interviewRepository.findAll());
+    }
+
+    private List<com.benchreadiness.interview.dto.InterviewSummaryDto> mapSummaries(List<Interview> interviews) {
+        return interviews.stream().map(interview -> {
             Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
             JobDescription jd = jdRepository.findById(interview.getJdId()).orElse(null);
             String candidateName = engineer != null && engineer.getName() != null && !engineer.getName().isBlank()
@@ -361,33 +394,26 @@ public class InterviewService {
         }).toList();
     }
 
-    public List<Interview> findByEmail(String email) {
-        return engineerRepository.findByEmail(email)
-                .map(e -> interviewRepository.findByEngineerId(e.getId()))
-                .orElse(List.of());
+    public List<com.benchreadiness.interview.dto.InterviewSummaryDto> getTodaysSummaries(String userId, String userRole) {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        Instant startOfDay = today.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        Instant endOfDay = today.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        List<Interview> todayInterviews = interviewRepository.findCreatedToday(startOfDay, endOfDay);
+        return mapSummaries(InterviewBranchFilter.filterForRole(
+                todayInterviews, userId, userRole, candidateBranchLookup.forInterviews(todayInterviews)));
     }
 
     public List<com.benchreadiness.interview.dto.InterviewSummaryDto> getTodaysSummaries() {
         java.time.LocalDate today = java.time.LocalDate.now();
         Instant startOfDay = today.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
         Instant endOfDay = today.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
-        List<Interview> todayInterviews = interviewRepository.findCreatedToday(startOfDay, endOfDay);
-        return todayInterviews.stream().map(interview -> {
-            Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
-            JobDescription jd = jdRepository.findById(interview.getJdId()).orElse(null);
-            String candidateName = engineer != null && engineer.getName() != null && !engineer.getName().isBlank()
-                    ? engineer.getName() : (engineer != null ? engineer.getEmail() : "Unknown");
-            String candidateEmail = engineer != null ? engineer.getEmail() : "";
-            String jdTitle = jd != null ? jd.getTitle() : "";
-            String proposedVerdict = interview.getProposedVerdict() != null ? interview.getProposedVerdict().name() : null;
-            String finalVerdict = interview.getFinalVerdict() != null ? interview.getFinalVerdict().name() : null;
-            return new com.benchreadiness.interview.dto.InterviewSummaryDto(
-                    interview.getId(), interview.getStatus().name(), proposedVerdict, finalVerdict,
-                    candidateName, candidateEmail, jdTitle,
-                    interview.getCreatedAt() != null ? interview.getCreatedAt().toString() : "",
-                    interview.getInterviewMode() != null ? interview.getInterviewMode().name() : "SCREENING"
-            );
-        }).toList();
+        return mapSummaries(interviewRepository.findCreatedToday(startOfDay, endOfDay));
+    }
+
+    public List<Interview> findByEmail(String email) {
+        return engineerRepository.findByEmail(email)
+                .map(e -> interviewRepository.findByEngineerId(e.getId()))
+                .orElse(List.of());
     }
 
     public Optional<JobDescription> findJdById(String jdId) {

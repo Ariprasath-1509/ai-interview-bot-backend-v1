@@ -2,6 +2,7 @@ package com.benchreadiness.interview.controller;
 
 import com.benchreadiness.interview.dto.CandidateMatch;
 import com.benchreadiness.interview.dto.MatchingRequest;
+import com.benchreadiness.interview.security.StaffSecurityRoles;
 import com.benchreadiness.interview.service.MatchingService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -22,7 +23,7 @@ public class MatchingController {
     }
 
     @PostMapping("/candidates")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> findMatchingCandidates(@Valid @RequestBody MatchingRequest req,
                                                    @RequestHeader("X-User-Role") String userRole,
                                                    @RequestHeader("X-User-Id") String userId) {
@@ -43,7 +44,7 @@ public class MatchingController {
     }
 
     @PostMapping("/clients/{clientId}/bench-candidates")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> findBenchCandidates(@PathVariable String clientId,
                                                 @RequestParam(defaultValue = "10") Integer maxCandidates,
                                                 @RequestHeader("X-User-Role") String userRole,
@@ -63,7 +64,7 @@ public class MatchingController {
     }
 
     @PostMapping("/clients/{clientId}/market-candidates")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN', 'RECRUITER')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> findMarketCandidates(@PathVariable String clientId,
                                                  @RequestParam(defaultValue = "10") Integer maxCandidates,
                                                  @RequestHeader("X-User-Role") String userRole,

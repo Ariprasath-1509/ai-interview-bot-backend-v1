@@ -3,7 +3,9 @@ package com.benchreadiness.auth.entity;
 public enum UserRole {
     CANDIDATE(5),
     RECRUITER(20),
+    TESTING_RECRUITER(20),
     ADMIN(50),
+    TESTING_ADMIN(50),
     SUPER_ADMIN(60);
 
     private final int rank;

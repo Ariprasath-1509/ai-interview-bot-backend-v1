@@ -41,6 +41,9 @@ public class AuditLog {
     @Column(name = "ip_address", length = 45)
     private String ipAddress;
 
+    @Column(length = 32)
+    private String branch;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -71,5 +74,7 @@ public class AuditLog {
     public void setNewValue(String newValue) { this.newValue = newValue; }
     public String getIpAddress() { return ipAddress; }
     public void setIpAddress(String ipAddress) { this.ipAddress = ipAddress; }
+    public String getBranch() { return branch; }
+    public void setBranch(String branch) { this.branch = branch; }
     public Instant getCreatedAt() { return createdAt; }
 }

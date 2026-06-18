@@ -35,6 +35,7 @@ public class ComplianceService {
         log.setOldValue(req.getOldValue());
         log.setNewValue(req.getNewValue());
         log.setIpAddress(req.getIpAddress());
+        log.setBranch(req.getBranch());
         return auditLogRepository.save(log);
     }
 

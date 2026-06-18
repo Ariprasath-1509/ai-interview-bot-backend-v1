@@ -18,13 +18,14 @@ public class EnhancedInterviewService {
     private final ClientService clientService;
     private final AuthServiceClient authServiceClient;
     
-    public EnhancedInterviewService(InterviewService interviewService, ClientService clientService, AuthServiceClient authServiceClient) {
+    public EnhancedInterviewService(InterviewService interviewService, ClientService clientService,
+                                    AuthServiceClient authServiceClient) {
         this.interviewService = interviewService;
         this.clientService = clientService;
         this.authServiceClient = authServiceClient;
     }
     
-    public AutoFillPreview previewAutoFill(String candidateId, String clientId) {
+    public AutoFillPreview previewAutoFill(String candidateId, String clientId, String userRole) {
         AutoFillPreview preview = new AutoFillPreview();
         boolean candidateDataFound = false;
         boolean clientDataFound = false;
@@ -72,7 +73,7 @@ public class EnhancedInterviewService {
         // Preview client data
         if (clientId != null && !clientId.isBlank()) {
             try {
-                ClientDTO client = clientService.getClientById(UUID.fromString(clientId));
+                ClientDTO client = clientService.getClientById(UUID.fromString(clientId), userRole);
                 if (client != null) {
                     clientDataFound = true;
                     
@@ -114,35 +115,27 @@ public class EnhancedInterviewService {
         
         return preview;
     }
-    
-    public Interview createInterviewWithAutoFill(CreateInterviewRequest request, String userId) throws Exception {
-        // Auto-fill candidate data if candidateId is provided
+
+    public Interview createInterviewWithAutoFill(CreateInterviewRequest request, String userId, String userRole,
+                                                 String branch, UUID clientId) throws Exception {
         if (request.getCandidateId() != null && !request.getCandidateId().isBlank()) {
-            autoFillCandidateData(request);
+            autoFillCandidateData(request, userId);
         }
-        
-        // Auto-fill client/JD data if clientId is provided
         if (request.getClientId() != null && !request.getClientId().isBlank()) {
-            autoFillClientData(request);
+            autoFillClientData(request, userRole);
         }
-        
-        // Auto-suggest interview mode based on candidate experience and JD requirements
         if (request.getInterviewMode() == null) {
             request.setInterviewMode(suggestInterviewMode(request));
         }
-        
-        // Generate focus areas if not provided
         if (request.getFocusAreas() == null || request.getFocusAreas().isBlank()) {
             request.setFocusAreas(generateFocusAreas(request));
         }
-        
-        return interviewService.createInterview(request, userId);
+        return interviewService.createInterview(request, userId, branch, clientId);
     }
     
-    private void autoFillCandidateData(CreateInterviewRequest request) {
+    private void autoFillCandidateData(CreateInterviewRequest request, String userId) {
         try {
-            // Get candidate details from auth-service
-            Map<String, Object> candidate = authServiceClient.getUserById(request.getCandidateId());
+            Map<String, Object> candidate = authServiceClient.getCandidateById(request.getCandidateId(), userId);
             
             if (candidate != null) {
                 // Auto-fill engineer email and name
@@ -172,9 +165,9 @@ public class EnhancedInterviewService {
         }
     }
     
-    private void autoFillClientData(CreateInterviewRequest request) {
+    private void autoFillClientData(CreateInterviewRequest request, String userRole) {
         try {
-            ClientDTO client = clientService.getClientById(UUID.fromString(request.getClientId()));
+            ClientDTO client = clientService.getClientById(UUID.fromString(request.getClientId()), userRole);
             
             if (client != null) {
                 // Auto-fill JD details

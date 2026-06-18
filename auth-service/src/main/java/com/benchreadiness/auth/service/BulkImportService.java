@@ -1,6 +1,9 @@
 package com.benchreadiness.auth.service;
 
+import com.benchreadiness.auth.branch.Branch;
+import com.benchreadiness.auth.branch.BranchAccess;
 import com.benchreadiness.auth.dto.BulkImportRequest;
+import com.benchreadiness.auth.dto.BulkImportResponse;
 import com.benchreadiness.auth.dto.CreateCandidateRequest;
 import com.benchreadiness.auth.entity.User;
 import com.benchreadiness.auth.entity.UserRole;
@@ -45,7 +48,7 @@ public class BulkImportService {
     }
 
     @Transactional
-    public CreatedCandidate createSingleCandidate(CreateCandidateRequest req) {
+    public CreatedCandidate createSingleCandidate(CreateCandidateRequest req, String branch) {
         if ((req.getOfficialEmail() == null || req.getOfficialEmail().isBlank())
                 && (req.getPersonalEmail() == null || req.getPersonalEmail().isBlank())) {
             throw new IllegalArgumentException("Official email or personal email is required");
@@ -70,98 +73,122 @@ public class BulkImportService {
         candidateData.setInterviewMentorName(req.getInterviewMentorName());
         candidateData.setClientName(req.getClientName());
 
-        return createCandidate(candidateData);
+        return createCandidate(candidateData, branch);
     }
 
-    @Transactional
-    public BulkImportResult processBulkImport(String sessionId) {
+    @Transactional(rollbackFor = Exception.class)
+    public BulkImportResult processBulkImport(String sessionId, String branch) {
         BulkImportRequest importRequest = excelParserService.getImportSession(sessionId);
         if (importRequest == null) {
             throw new IllegalArgumentException("Invalid or expired session ID");
         }
+        if (!importRequest.isCanProceed()) {
+            throw new IllegalArgumentException(
+                "Import blocked: fix validation errors before confirming import.");
+        }
+
+        List<BulkImportRequest.CandidateBulkData> candidates = importRequest.getCandidates();
+        if (candidates == null || candidates.isEmpty()) {
+            throw new IllegalArgumentException("No candidates to import");
+        }
+
+        List<BulkImportResponse.ValidationError> freshErrors =
+            excelParserService.revalidateCandidates(candidates);
+        if (excelParserService.hasBlockingErrors(freshErrors)) {
+            throw new IllegalArgumentException(excelParserService.formatBlockingErrors(freshErrors));
+        }
 
         List<CreatedCandidate> createdCandidates = new ArrayList<>();
-        List<String> errors = new ArrayList<>();
-        int successCount = 0;
+        List<PendingWelcomeEmail> pendingEmails = new ArrayList<>();
 
-        try {
-            for (BulkImportRequest.CandidateBulkData candidateData : importRequest.getCandidates()) {
-                try {
-                    CreatedCandidate created = createCandidate(candidateData);
-                    createdCandidates.add(created);
-                    successCount++;
-                } catch (Exception e) {
-                    errors.add("Row " + candidateData.getRowNumber() + ": " + e.getMessage());
-                }
-            }
+        for (BulkImportRequest.CandidateBulkData candidateData : candidates) {
+            assertCandidateCanBeCreated(candidateData);
+            PersistedCandidate persisted = persistCandidate(candidateData, branch);
+            createdCandidates.add(persisted.createdCandidate());
+            pendingEmails.add(persisted.pendingWelcomeEmail());
+        }
 
-            // Clear session after processing
-            excelParserService.clearImportSession(sessionId);
-            
-            // Store the result for later download
-            importResults.put(sessionId, new BulkImportResult(successCount, errors.size(), createdCandidates, errors));
+        excelParserService.clearImportSession(sessionId);
+        BulkImportResult result = new BulkImportResult(
+            createdCandidates.size(), 0, createdCandidates, List.of());
+        importResults.put(sessionId, result);
 
-            return new BulkImportResult(successCount, errors.size(), createdCandidates, errors);
+        for (PendingWelcomeEmail pendingEmail : pendingEmails) {
+            sendWelcomeEmail(
+                pendingEmail.candidateData(),
+                pendingEmail.candidateName(),
+                pendingEmail.username(),
+                pendingEmail.plainPassword());
+        }
 
-        } catch (Exception e) {
-            throw new RuntimeException("Bulk import failed: " + e.getMessage(), e);
+        return result;
+    }
+
+    private void assertCandidateCanBeCreated(BulkImportRequest.CandidateBulkData candidateData) {
+        String username = resolveUsername(candidateData);
+
+        if (userRepository.findCandidatesByAnyEmailIgnoreCase(username).stream().findFirst().isPresent()) {
+            throw new IllegalArgumentException(
+                "Row " + candidateData.getRowNumber() + ": login email " + username + " already exists");
+        }
+
+        String officialEmail = candidateData.getOfficialEmail();
+        String personalEmail = candidateData.getPersonalEmail();
+        if (officialEmail != null && !officialEmail.isBlank()
+                && userRepository.findCandidatesByAnyEmailIgnoreCase(officialEmail).stream().findFirst().isPresent()) {
+            throw new IllegalArgumentException(
+                "Row " + candidateData.getRowNumber() + ": official email " + officialEmail + " already exists");
+        }
+        if (personalEmail != null && !personalEmail.isBlank()
+                && !personalEmail.equalsIgnoreCase(username)
+                && userRepository.findCandidatesByAnyEmailIgnoreCase(personalEmail).stream().findFirst().isPresent()) {
+            throw new IllegalArgumentException(
+                "Row " + candidateData.getRowNumber() + ": personal email " + personalEmail + " already exists");
         }
     }
 
-    private CreatedCandidate createCandidate(BulkImportRequest.CandidateBulkData candidateData) {
-        // Determine username (prefer official email, fallback to personal email)
-        String username = null;
+    private String resolveUsername(BulkImportRequest.CandidateBulkData candidateData) {
         if (candidateData.getOfficialEmail() != null && !candidateData.getOfficialEmail().trim().isEmpty()) {
-            username = candidateData.getOfficialEmail();
-        } else if (candidateData.getPersonalEmail() != null && !candidateData.getPersonalEmail().trim().isEmpty()) {
-            username = candidateData.getPersonalEmail();
+            return candidateData.getOfficialEmail();
         }
-
-        // If no valid email, generate one based on name and row number
-        if (username == null || username.trim().isEmpty()) {
-            String firstName = candidateData.getName() != null ? 
-                candidateData.getName().split(" ")[0].toLowerCase() : "user";
-            username = firstName + ".row" + candidateData.getRowNumber() + "@benchreadiness.com";
+        if (candidateData.getPersonalEmail() != null && !candidateData.getPersonalEmail().trim().isEmpty()) {
+            return candidateData.getPersonalEmail();
         }
+        String firstName = candidateData.getName() != null
+            ? candidateData.getName().split(" ")[0].toLowerCase() : "user";
+        return firstName + ".row" + candidateData.getRowNumber() + "@benchreadiness.com";
+    }
 
-        // Check if user already exists
-        if (userRepository.existsByEmailIgnoreCase(username)) {
-            throw new IllegalArgumentException("User with email " + username + " already exists");
-        }
-
-        // Generate password: FirstName@2025
-        String firstName = candidateData.getName() != null ? 
-            candidateData.getName().split(" ")[0] : "User";
+    private PersistedCandidate persistCandidate(BulkImportRequest.CandidateBulkData candidateData, String branch) {
+        String username = resolveUsername(candidateData);
+        String firstName = candidateData.getName() != null
+            ? candidateData.getName().split(" ")[0] : "User";
         String plainPassword = firstName + "@" + LocalDateTime.now().getYear();
 
-        // Create user entity
         User user = new User();
         user.setName(candidateData.getName());
-        user.setEmail(username); // Set the primary email field
+        user.setEmail(username);
         user.setPassword(passwordService.encode(plainPassword));
         user.setRole(UserRole.CANDIDATE);
-        
-        // Set candidate-specific fields
+        user.setBranch(branch != null ? Branch.normalize(branch) : BranchAccess.defaultBranch());
         user.setBatch(candidateData.getBatch());
         user.setBatchMentor(candidateData.getBatchMentor());
         user.setSource(candidateData.getSource() != null
-                ? candidateData.getSource().toUpperCase() : null);
+            ? candidateData.getSource().toUpperCase() : null);
         user.setCandidateStatus(candidateData.getStatus() != null
-                ? candidateData.getStatus().toUpperCase() : "TRAINING");
+            ? candidateData.getStatus().toUpperCase() : "TRAINING");
         user.setRating(candidateData.getRating() != null
-                ? candidateData.getRating().toUpperCase() : null);
+            ? candidateData.getRating().toUpperCase() : null);
         user.setContactNumber(candidateData.getContactNumber());
         user.setOfficialEmail(candidateData.getOfficialEmail());
         user.setPersonalEmail(candidateData.getPersonalEmail());
-        
-        // Convert Double to BigDecimal
+
         if (candidateData.getYoeActual() != null) {
             user.setYoeActual(BigDecimal.valueOf(candidateData.getYoeActual()));
         }
         if (candidateData.getYoePortrayed() != null) {
             user.setYoePortrayed(BigDecimal.valueOf(candidateData.getYoePortrayed()));
         }
-        
         if (candidateData.getSkillSet() != null) {
             user.setSkillSet(candidateData.getSkillSet().toUpperCase());
         }
@@ -170,12 +197,9 @@ public class BulkImportService {
         user.setInterviewMentorName(candidateData.getInterviewMentorName());
         user.setClientName(candidateData.getClientName());
 
-        // Save user (timestamps are set automatically via @PrePersist)
         User savedUser = userRepository.save(user);
 
-        sendWelcomeEmail(candidateData, savedUser.getName(), username, plainPassword);
-
-        return new CreatedCandidate(
+        CreatedCandidate createdCandidate = new CreatedCandidate(
             savedUser.getId(),
             savedUser.getName(),
             username,
@@ -184,7 +208,33 @@ public class BulkImportService {
             candidateData.getBatch(),
             candidateData.getRowNumber()
         );
+        PendingWelcomeEmail pendingWelcomeEmail = new PendingWelcomeEmail(
+            candidateData, savedUser.getName(), username, plainPassword);
+        return new PersistedCandidate(createdCandidate, pendingWelcomeEmail);
     }
+
+    private CreatedCandidate createCandidate(BulkImportRequest.CandidateBulkData candidateData, String branch) {
+        assertCandidateCanBeCreated(candidateData);
+        PersistedCandidate persisted = persistCandidate(candidateData, branch);
+        sendWelcomeEmail(
+            persisted.pendingWelcomeEmail().candidateData(),
+            persisted.pendingWelcomeEmail().candidateName(),
+            persisted.pendingWelcomeEmail().username(),
+            persisted.pendingWelcomeEmail().plainPassword());
+        return persisted.createdCandidate();
+    }
+
+    private record PendingWelcomeEmail(
+        BulkImportRequest.CandidateBulkData candidateData,
+        String candidateName,
+        String username,
+        String plainPassword
+    ) {}
+
+    private record PersistedCandidate(
+        CreatedCandidate createdCandidate,
+        PendingWelcomeEmail pendingWelcomeEmail
+    ) {}
 
     private void sendWelcomeEmail(BulkImportRequest.CandidateBulkData candidateData,
                                   String candidateName,

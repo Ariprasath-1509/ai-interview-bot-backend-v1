@@ -143,6 +143,11 @@ public class JwtService {
         if (user.getAdminSource() != null) {
             builder.claim("adminSource", user.getAdminSource());
         }
+        if (user.getRole().isStaff()) {
+            builder.claim("branch", com.benchreadiness.auth.branch.BranchAccess.resolveStaffBranch(user.getRole()));
+        } else if (user.getBranch() != null && !user.getBranch().isBlank()) {
+            builder.claim("branch", user.getBranch());
+        }
         return builder
                 .issuedAt(now)
                 .expiration(expiry)

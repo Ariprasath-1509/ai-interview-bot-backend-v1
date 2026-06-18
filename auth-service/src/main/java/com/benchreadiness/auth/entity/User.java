@@ -54,6 +54,9 @@ public class User {
     @Column(name = "admin_source", length = 128)
     private String adminSource;
 
+    @Column(name = "branch", length = 32, nullable = false)
+    private String branch = "DEVELOPMENT";
+
     @Column(name = "yoe_actual", precision = 4, scale = 1)
     private BigDecimal yoeActual;
 
@@ -166,6 +169,8 @@ public class User {
     public void setYop(Integer yop) { this.yop = yop; }
     public String getAdminSource() { return adminSource; }
     public void setAdminSource(String adminSource) { this.adminSource = adminSource; }
+    public String getBranch() { return branch; }
+    public void setBranch(String branch) { this.branch = branch; }
 
     // Resume getters and setters
     public String getResumeFilename() { return resumeFilename; }

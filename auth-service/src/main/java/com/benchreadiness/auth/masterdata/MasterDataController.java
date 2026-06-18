@@ -42,7 +42,8 @@ public class MasterDataController {
                 MasterDataCategory.QUESTION_TYPE,
                 MasterDataCategory.DIFFICULTY,
                 MasterDataCategory.CATEGORY_INTERVIEW_TYPE,
-                MasterDataCategory.POSITION_SOURCE
+                MasterDataCategory.POSITION_SOURCE,
+                MasterDataCategory.BRANCH
         ));
     }
 
@@ -64,7 +65,7 @@ public class MasterDataController {
 
     /** POST /auth/master-data/{category} — SUPER_ADMIN creates a new lookup value */
     @PostMapping("/{category}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'TESTING_ADMIN')")
     public ResponseEntity<Map<String, Object>> create(
             @PathVariable String category,
             @Valid @RequestBody CreateMasterDataRequest request) {
@@ -74,7 +75,7 @@ public class MasterDataController {
 
     /** PUT /auth/master-data/{category}/{id} — SUPER_ADMIN updates label/order/active/metadata */
     @PutMapping("/{category}/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'TESTING_ADMIN')")
     public ResponseEntity<Map<String, Object>> update(
             @PathVariable String category,
             @PathVariable UUID id,
@@ -85,7 +86,7 @@ public class MasterDataController {
 
     /** DELETE /auth/master-data/{category}/{id} — soft-deactivate (preserves historical references) */
     @DeleteMapping("/{category}/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'TESTING_ADMIN')")
     public ResponseEntity<Map<String, Object>> deactivate(
             @PathVariable String category,
             @PathVariable UUID id) {

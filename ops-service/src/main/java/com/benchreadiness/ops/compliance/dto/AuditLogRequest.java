@@ -11,6 +11,7 @@ public class AuditLogRequest {
     private String oldValue;
     private String newValue;
     private String ipAddress;
+    private String branch;
 
     public String getActorId() { return actorId; }
     public void setActorId(String actorId) { this.actorId = actorId; }
@@ -32,4 +33,6 @@ public class AuditLogRequest {
     public void setNewValue(String newValue) { this.newValue = newValue; }
     public String getIpAddress() { return ipAddress; }
     public void setIpAddress(String ipAddress) { this.ipAddress = ipAddress; }
+    public String getBranch() { return branch; }
+    public void setBranch(String branch) { this.branch = branch; }
 }

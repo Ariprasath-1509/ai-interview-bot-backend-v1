@@ -75,6 +75,8 @@ app:
     audience: ${JWT_AUDIENCE:benchreadiness-api}
   gateway:
     shared-key: ${GATEWAY_SHARED_KEY:}
+  branch-segregation:
+    enabled: ${APP_BRANCH_SEGREGATION_ENABLED:true}
   resume:
     storage:
       path: uploads/resumes

@@ -29,14 +29,14 @@ public class ProctoringSettingsController {
 
     /** GET /auth/admin/proctoring-settings — admin UI */
     @GetMapping("/auth/admin/proctoring-settings")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<Map<String, Object>> getAdminSettings() {
         return ResponseEntity.ok(wrapSettings(proctoringSettingsService.getSettings()));
     }
 
     /** PUT /auth/admin/proctoring-settings — toggle video proctoring per candidate source */
     @PutMapping("/auth/admin/proctoring-settings")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TESTING_ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<Map<String, Object>> updateSettings(
             @RequestHeader(value = "X-User-Id", required = false) String callerId,
             @RequestHeader(value = "X-User-Role", required = false) String callerRole,

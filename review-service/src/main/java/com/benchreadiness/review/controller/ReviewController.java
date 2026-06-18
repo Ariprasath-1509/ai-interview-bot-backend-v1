@@ -1,5 +1,6 @@
 package com.benchreadiness.review.controller;
 
+import com.benchreadiness.review.security.StaffSecurityRoles;
 import com.benchreadiness.review.dto.SaveScoresRequest;
 import com.benchreadiness.review.dto.SignOffRequest;
 import com.benchreadiness.review.entity.Score;
@@ -56,7 +57,7 @@ public class ReviewController {
 
     /** POST /reviews/{interviewId}/sign-off — ADMIN signs off an interview */
     @PostMapping("/reviews/{interviewId}/sign-off")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
     public ResponseEntity<?> signOff(@PathVariable String interviewId,
                                       @Valid @RequestBody SignOffRequest req,
                                       @RequestHeader("X-User-Id") String userId,

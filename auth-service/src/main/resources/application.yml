@@ -75,6 +75,8 @@ app:
     lockout-seconds: ${AUTH_LOCKOUT_SECONDS:900}
   gateway:
     shared-key: ${GATEWAY_SHARED_KEY:}
+  branch-segregation:
+    enabled: ${APP_BRANCH_SEGREGATION_ENABLED:true}
   third-party:
     excel-api:
       base-url: http://localhost:8000
