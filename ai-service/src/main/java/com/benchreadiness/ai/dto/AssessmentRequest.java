@@ -11,6 +11,8 @@ public class AssessmentRequest {
     private String interviewMode;
     private String interviewId;
     private String codeSubmissionJson;
+    /** When true, skip in-memory assessment cache (re-assessment). */
+    private boolean forceRefresh;
 
     public String getJdTitle() { return jdTitle; }
     public void setJdTitle(String jdTitle) { this.jdTitle = jdTitle; }
@@ -32,4 +34,6 @@ public class AssessmentRequest {
     public void setInterviewId(String interviewId) { this.interviewId = interviewId; }
     public String getCodeSubmissionJson() { return codeSubmissionJson; }
     public void setCodeSubmissionJson(String codeSubmissionJson) { this.codeSubmissionJson = codeSubmissionJson; }
+    public boolean isForceRefresh() { return forceRefresh; }
+    public void setForceRefresh(boolean forceRefresh) { this.forceRefresh = forceRefresh; }
 }

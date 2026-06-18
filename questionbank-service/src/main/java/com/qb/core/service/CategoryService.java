@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -114,6 +115,35 @@ public class CategoryService {
                                 });
                     }
                 });
+    }
+
+    /**
+     * Map LLM/admin category to a known DB category; never creates new categories.
+     */
+    @Transactional(readOnly = true)
+    public Category resolveKnownCategory(String name) {
+        if (name != null && !name.isBlank()) {
+            Optional<Category> found = categoryRepo.findByNameIgnoreCase(name.trim());
+            if (found.isPresent()) {
+                return found.get();
+            }
+        }
+        return categoryRepo.findByNameIgnoreCase("General")
+                .orElseThrow(() -> new IllegalStateException("General category not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public String normalizeCategoryName(String name, java.util.Collection<String> allowedNames) {
+        if (name == null || name.isBlank()) {
+            return "General";
+        }
+        String trimmed = name.trim();
+        for (String allowed : allowedNames) {
+            if (allowed.equalsIgnoreCase(trimmed)) {
+                return allowed;
+            }
+        }
+        return "General";
     }
 
     private CategoryDTO toDTO(Category c) {

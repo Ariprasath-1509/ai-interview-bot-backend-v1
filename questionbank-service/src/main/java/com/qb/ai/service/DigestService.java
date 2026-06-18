@@ -127,6 +127,7 @@ public class DigestService {
         DigestAiResponse aiResult = callLLMWithFallback(rawText, categoryList, converter);
 
         // 3. Convert AI output to response DTOs + run fuzzy matching
+        List<String> allowedCategories = categoryService.getAllCategoryNames();
         List<ParsedSession> sessions = new ArrayList<>();
         int tempCounter = 0;
 
@@ -136,14 +137,15 @@ public class DigestService {
             for (DigestAiResponse.AiQuestion qNode : sessionNode.questions()) {
                 tempCounter++;
                 String questionText = qNode.text();
+                String category = categoryService.normalizeCategoryName(qNode.category(), allowedCategories);
 
-                // Fuzzy match against existing questions in DB
-                ExistingMatch match = fuzzyMatchService.findBestMatch(questionText).orElse(null);
+                // Suggest possible duplicate — admin must opt in to link on commit
+                ExistingMatch match = fuzzyMatchService.findBestMatch(questionText, category).orElse(null);
 
                 questions.add(new ParsedQuestion(
                         "t" + tempCounter,
                         questionText,
-                        qNode.category() != null ? qNode.category() : "General",
+                        category,
                         qNode.suggestedTags() != null ? qNode.suggestedTags() : new ArrayList<>(),
                         match
                 ));
@@ -236,15 +238,22 @@ public class DigestService {
             // 3. Process each question
             for (CommitQuestion cq : cs.questions()) {
                 Question question;
+                String categoryName = categoryService.normalizeCategoryName(
+                        cq.category(), categoryService.getAllCategoryNames());
 
-                if (cq.existingQuestionId() != null) {
-                    // Link to existing canonical question
-                    question = questionRepo.findById(cq.existingQuestionId())
+                UUID linkId = cq.existingQuestionId();
+                if (linkId != null && !fuzzyMatchService.verifyLinkAllowed(linkId, cq.text(), categoryName)) {
+                    log.warn("Ignoring existingQuestionId {} — similarity too low for '{}'", linkId, cq.text());
+                    linkId = null;
+                }
+
+                if (linkId != null) {
+                    UUID finalLinkId = linkId;
+                    question = questionRepo.findById(linkId)
                             .orElseThrow(() -> new IllegalArgumentException(
-                                    "Question not found: " + cq.existingQuestionId()));
+                                    "Question not found: " + finalLinkId));
                     questionsLinked.incrementAndGet();
                 } else {
-                    // Create new canonical question
                     Set<Tag> tags = new HashSet<>();
                     if (cq.tags() != null) {
                         for (String tagName : cq.tags()) {
@@ -253,8 +262,7 @@ public class DigestService {
                         }
                     }
 
-                    // Resolve category — validate against DB, fallback to General
-                    com.qb.core.entity.Category category = categoryService.findOrCreateByName(cq.category());
+                    Category category = categoryService.resolveKnownCategory(categoryName);
 
                     question = Question.builder()
                             .text(cq.text())
@@ -266,7 +274,7 @@ public class DigestService {
                     questionRepo.save(question);
                     questionsCreated.incrementAndGet();
                     tagsCreated.addAndGet((int) tags.stream()
-                            .filter(t -> t.getId() == null) // Newly created
+                            .filter(t -> t.getId() == null)
                             .count());
                 }
 

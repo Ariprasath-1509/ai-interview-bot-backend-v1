@@ -3,12 +3,14 @@ package com.benchreadiness.ai.exception;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.io.JsonEOFException;
 import feign.FeignException;
+import org.apache.catalina.connector.ClientAbortException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.context.request.WebRequest;
 
 import java.net.SocketTimeoutException;
@@ -152,6 +154,12 @@ public class GlobalExceptionHandler {
             request.getDescription(false).replace("uri=", "")
         );
         return ResponseEntity.status(status).body(error);
+    }
+
+    @ExceptionHandler({ClientAbortException.class, AsyncRequestNotUsableException.class})
+    public ResponseEntity<Void> handleClientAbort(Exception ex, WebRequest request) {
+        log.debug("Client disconnected before response completed: {}", request.getDescription(false));
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
     @ExceptionHandler(Exception.class)

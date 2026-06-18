@@ -164,6 +164,7 @@ public class AiController {
     @PostMapping("/assess-async")
     public ResponseEntity<?> assessAsync(@RequestBody AssessmentRequest req,
                                         @RequestHeader("X-User-Id") String userId) {
+        asyncAssessmentService.clearAssessmentStatus(req.getInterviewId());
         asyncAssessmentService.markProcessing(req.getInterviewId());
         asyncAssessmentService.processAssessmentAsync(req, userId);
         return ResponseEntity.ok(Map.of(

@@ -1,5 +1,6 @@
 package com.benchreadiness.interview.service;
 
+import com.benchreadiness.interview.dto.InterviewQuestionDto;
 import com.benchreadiness.interview.dto.RecordAnswerRequest;
 import com.benchreadiness.interview.dto.RecordQuestionRequest;
 import com.benchreadiness.interview.entity.InterviewQuestion;
@@ -80,7 +81,10 @@ public class InterviewQuestionService {
         return questionRepository.save(q);
     }
 
-    public List<InterviewQuestion> listByInterview(String interviewId) {
-        return questionRepository.findByInterviewIdOrderBySlotNumberAsc(interviewId);
+    @Transactional(readOnly = true)
+    public List<InterviewQuestionDto> listByInterview(String interviewId) {
+        return questionRepository.findByInterviewIdOrderBySlotNumberAsc(interviewId).stream()
+            .map(InterviewQuestionDto::from)
+            .toList();
     }
 }

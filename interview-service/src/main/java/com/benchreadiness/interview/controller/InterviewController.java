@@ -1,5 +1,6 @@
 package com.benchreadiness.interview.controller;
 
+import com.benchreadiness.interview.dto.ClientBriefDto;
 import com.benchreadiness.interview.dto.AutoFillPreview;
 import com.benchreadiness.interview.dto.CandidateMatchingResult;
 import com.benchreadiness.interview.dto.CandidateReviewSummary;
@@ -12,6 +13,8 @@ import com.benchreadiness.interview.entity.Interview;
 import com.benchreadiness.interview.entity.InterviewQuestion;
 import com.benchreadiness.interview.exception.VideoProctoringNotRequiredException;
 import com.benchreadiness.interview.security.StaffSecurityRoles;
+import com.benchreadiness.interview.service.ClientBriefPdfGenerationService;
+import com.benchreadiness.interview.service.ClientBriefService;
 import com.benchreadiness.interview.service.BranchInterviewValidator;
 import com.benchreadiness.interview.service.CandidateMatchingService;
 import com.benchreadiness.interview.service.CandidateReviewService;
@@ -50,6 +53,8 @@ public class InterviewController {
     private final RecordingService recordingService;
     private final ProctoringService proctoringService;
     private final BranchInterviewValidator branchInterviewValidator;
+    private final ClientBriefService clientBriefService;
+    private final ClientBriefPdfGenerationService clientBriefPdfGenerationService;
 
     public InterviewController(InterviewService interviewService,
                               EnhancedInterviewService enhancedInterviewService,
@@ -59,7 +64,9 @@ public class InterviewController {
                               InterviewQuestionService interviewQuestionService,
                               RecordingService recordingService,
                               ProctoringService proctoringService,
-                              BranchInterviewValidator branchInterviewValidator) {
+                              BranchInterviewValidator branchInterviewValidator,
+                              ClientBriefService clientBriefService,
+                              ClientBriefPdfGenerationService clientBriefPdfGenerationService) {
         this.interviewService = interviewService;
         this.enhancedInterviewService = enhancedInterviewService;
         this.candidateMatchingService = candidateMatchingService;
@@ -69,6 +76,8 @@ public class InterviewController {
         this.recordingService = recordingService;
         this.proctoringService = proctoringService;
         this.branchInterviewValidator = branchInterviewValidator;
+        this.clientBriefService = clientBriefService;
+        this.clientBriefPdfGenerationService = clientBriefPdfGenerationService;
     }
 
     @GetMapping("/auto-fill/preview")
@@ -306,6 +315,68 @@ public class InterviewController {
             return ResponseEntity.badRequest()
                     .header("X-Error-Message", e.getMessage())
                     .build();
+        }
+    }
+
+    @GetMapping("/{id}/client-brief")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    public ResponseEntity<?> getClientBrief(@PathVariable String id,
+                                            @RequestHeader("X-User-Id") String userId,
+                                            @RequestHeader("X-User-Role") String userRole) {
+        try {
+            return interviewService.findByIdForRole(id, userId, userRole)
+                .map(interview -> ResponseEntity.ok(clientBriefService.getClientBrief(id, userId)))
+                .orElse(ResponseEntity.notFound().build());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PutMapping("/{id}/client-brief")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    public ResponseEntity<?> saveClientBrief(@PathVariable String id,
+                                             @RequestBody ClientBriefDto brief,
+                                             @RequestHeader("X-User-Id") String userId,
+                                             @RequestHeader("X-User-Role") String userRole,
+                                             @RequestHeader(value = "X-User-Name", required = false) String userName) {
+        try {
+            return interviewService.findByIdForRole(id, userId, userRole)
+                .map(interview -> ResponseEntity.ok(
+                    clientBriefService.saveClientBrief(id, brief, userId,
+                        userName != null && !userName.isBlank() ? userName : "Staff")))
+                .orElse(ResponseEntity.notFound().build());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/{id}/client-brief/download")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    public ResponseEntity<byte[]> downloadClientBrief(@PathVariable String id,
+                                                      @RequestHeader("X-User-Id") String userId,
+                                                      @RequestHeader("X-User-Role") String userRole) {
+        try {
+            if (interviewService.findByIdForRole(id, userId, userRole).isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            var pdfContext = clientBriefService.getPdfContext(id, userId);
+            byte[] pdfBytes = clientBriefPdfGenerationService.generateClientBriefPdf(pdfContext);
+            String candidateName = pdfContext.context().candidateName().replaceAll("\\s+", "_");
+            String filename = candidateName + "_Client_Evaluation_Brief.pdf";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_PDF);
+            headers.setContentDispositionFormData("attachment", filename);
+            headers.setCacheControl("must-revalidate, post-check=0, pre-check=0");
+            return ResponseEntity.ok().headers(headers).body(pdfBytes);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                .header("X-Error-Message", e.getMessage())
+                .build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                .header("X-Error-Message", e.getMessage())
+                .build();
         }
     }
 

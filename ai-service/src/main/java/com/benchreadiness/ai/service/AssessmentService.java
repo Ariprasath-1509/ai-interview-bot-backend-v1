@@ -34,10 +34,15 @@ public class AssessmentService {
 
     public Map<String, Object> assess(AssessmentRequest req, String userId) {
         String cacheKey = buildAssessmentCacheKey(req);
-        Map<String, Object> cached = getCachedAssessment(cacheKey);
-        if (cached != null) {
-            log.info("Returning cached assessment for interview {}", req.getInterviewId());
-            return cached;
+        if (!req.isForceRefresh()) {
+            Map<String, Object> cached = getCachedAssessment(cacheKey);
+            if (cached != null) {
+                log.info("Returning cached assessment for interview {}", req.getInterviewId());
+                return cached;
+            }
+        } else {
+            assessmentCache.remove(cacheKey);
+            log.info("Force refresh — bypassing assessment cache for interview {}", req.getInterviewId());
         }
 
         List<Map<String, String>> utterances = parseUtterances(req.getTranscriptJson());
@@ -349,9 +354,14 @@ public class AssessmentService {
         log.info("Stage 3: candidate feedback for interview {}", req.getInterviewId());
         JsonNode feedbackJson = runStage3Feedback(scoresJson, categories, jdSnippet, req);
 
+        // ── Stage 3b: Client-facing brief (staff-only, shareable with clients) ─
+        log.info("Stage 3b: client brief for interview {}", req.getInterviewId());
+        JsonNode clientBriefJson = runStage3bClientBrief(scoresJson, behavioralJson, feedbackJson, categories, jdSnippet, req);
+
         // ── Stage 4: Java aggregator — merge all stages, no LLM call ──────────
         log.info("Stage 4: aggregating results for interview {}", req.getInterviewId());
-        Map<String, Object> result = aggregateStages(scoresJson, behavioralJson, feedbackJson, categories, evidence, req, userId);
+        Map<String, Object> result = aggregateStages(scoresJson, behavioralJson, feedbackJson, clientBriefJson,
+            categories, evidence, req, userId);
         applyReadinessGates(result, categories, evidence, req.getInterviewMode());
 
         try {
@@ -474,9 +484,62 @@ public class AssessmentService {
         return objectMapper.readTree(JsonRepairUtil.repair(raw));
     }
 
+    // ── Stage 3b: professional client brief (staff-only) ─────────────────────
+    private JsonNode runStage3bClientBrief(JsonNode scoresJson, JsonNode behavioralJson, JsonNode feedbackJson,
+                                           List<Map<String, Object>> categories, String jdSnippet,
+                                           AssessmentRequest req) throws Exception {
+        StringBuilder scoresInfo = new StringBuilder();
+        JsonNode catScores = scoresJson.path("categoryScores");
+        for (Map<String, Object> cat : categories) {
+            String key = (String) cat.get("key");
+            JsonNode s = catScores.path(key);
+            if (!s.isMissingNode()) {
+                scoresInfo.append(key).append(": ").append(s.path("score").asText("null"))
+                    .append("/5\n");
+            }
+        }
+
+        String system =
+            "You are a senior technical hiring consultant preparing a client-facing candidate evaluation brief.\n" +
+            "Write in professional third-person language suitable for sharing with an external client HR or engineering manager.\n" +
+            "Return ONLY raw JSON. No markdown. No prose outside JSON.\n" +
+            "{\n" +
+            "  \"executiveSummary\": \"4-6 sentence professional overview of fit for the role\",\n" +
+            "  \"keyStrengths\": [\"3-6 evidence-based strength bullets\"],\n" +
+            "  \"areasToNote\": [\"2-4 professional consideration bullets — frame gaps as 'would benefit from' or 'limited exposure to', never harsh criticism\"],\n" +
+            "  \"technicalFit\": {\n" +
+            "    \"overall\": \"Strong|Adequate|Developing\",\n" +
+            "    \"highlights\": [\"2-4 technical alignment points vs JD\"],\n" +
+            "    \"gaps\": [\"1-3 gap areas phrased professionally\"]\n" +
+            "  },\n" +
+            "  \"interviewPerformance\": {\n" +
+            "    \"communication\": \"1-2 sentences on clarity and structure\",\n" +
+            "    \"problemSolving\": \"1-2 sentences on analytical approach\",\n" +
+            "    \"overallRating\": \"Strong|Adequate|Developing\"\n" +
+            "  },\n" +
+            "  \"recommendation\": \"RECOMMENDED|RECOMMENDED_WITH_CONDITIONS|NOT_RECOMMENDED\",\n" +
+            "  \"recommendedFor\": \"Role level and context e.g. Mid-level Java backend with Spring Boot\",\n" +
+            "  \"suggestedNextStep\": \"Clear next step e.g. Proceed to client technical round\"\n" +
+            "}\n" +
+            "RULES:\n" +
+            "- Do NOT include training roadmaps, learning resources, or internal verdict codes.\n" +
+            "- Do NOT use words like failed, weak, bad, or liar.\n" +
+            "- Be balanced: always include both strengths and areas to note.\n" +
+            "- Base statements on interview evidence and scores provided.";
+
+        String behavioralSummary = behavioralJson.path("behavioralSignals").path("summary").asText("");
+        String user = "Role: " + req.getJdTitle() + "\nJD: " + jdSnippet + "\nScores:\n" + scoresInfo
+            + "\nBehavioral overview: " + behavioralSummary
+            + "\nAssessment summary: " + scoresJson.path("summary").asText("");
+        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), "stage3b");
+        log.info("Stage 3b response length: {}", raw.length());
+        return objectMapper.readTree(JsonRepairUtil.repair(raw));
+    }
+
     // ── Stage 4: Java aggregator — no LLM call ────────────────────────────────
     private Map<String, Object> aggregateStages(JsonNode scoresJson, JsonNode behavioralJson,
-                                                 JsonNode feedbackJson, List<Map<String, Object>> categories,
+                                                 JsonNode feedbackJson, JsonNode clientBriefJson,
+                                                 List<Map<String, Object>> categories,
                                                  Map<String, List<String>> evidence,
                                                  AssessmentRequest req, String userId) {
         Map<String, Object> result = new LinkedHashMap<>();
@@ -542,8 +605,76 @@ public class AssessmentService {
                 result.get("summary").toString(), req, userId);
         }
         result.put("candidateFeedback", feedback);
+
+        Map<String, Object> clientBrief = parseClientBrief(clientBriefJson);
+        if (clientBrief.get("executiveSummary") == null
+                || clientBrief.get("executiveSummary").toString().isBlank()) {
+            log.warn("Stage 3b client brief empty for interview {} — using fallback", req.getInterviewId());
+            clientBrief = buildFallbackClientBrief(scoresJson, result.get("summary").toString(), req.getJdTitle());
+        }
+        clientBrief.put("source", "ai");
+        result.put("clientBrief", clientBrief);
         result.put("source", "ollama-four-stage");
         return result;
+    }
+
+    private Map<String, Object> parseClientBrief(JsonNode node) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (node == null || node.isMissingNode()) {
+            return out;
+        }
+        out.put("executiveSummary", node.path("executiveSummary").asText(""));
+        out.put("keyStrengths", toStringList(node.path("keyStrengths")));
+        out.put("areasToNote", toStringList(node.path("areasToNote")));
+        out.put("recommendation", node.path("recommendation").asText(""));
+        out.put("recommendedFor", node.path("recommendedFor").asText(""));
+        out.put("suggestedNextStep", node.path("suggestedNextStep").asText(""));
+
+        JsonNode technicalFit = node.path("technicalFit");
+        Map<String, Object> fit = new LinkedHashMap<>();
+        fit.put("overall", technicalFit.path("overall").asText(""));
+        fit.put("highlights", toStringList(technicalFit.path("highlights")));
+        fit.put("gaps", toStringList(technicalFit.path("gaps")));
+        out.put("technicalFit", fit);
+
+        JsonNode perf = node.path("interviewPerformance");
+        Map<String, Object> performance = new LinkedHashMap<>();
+        performance.put("communication", perf.path("communication").asText(""));
+        performance.put("problemSolving", perf.path("problemSolving").asText(""));
+        performance.put("overallRating", perf.path("overallRating").asText(""));
+        out.put("interviewPerformance", performance);
+        return out;
+    }
+
+    private Map<String, Object> buildFallbackClientBrief(JsonNode scoresJson, String summary, String jdTitle) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("executiveSummary", summary != null && !summary.isBlank()
+            ? summary : "Assessment completed. Please review scores and edit this brief before sharing with the client.");
+        out.put("keyStrengths", List.of("Review category scores for demonstrated strengths."));
+        out.put("areasToNote", List.of("Review category gaps before client submission."));
+        out.put("recommendation", mapVerdictToClientRecommendation(scoresJson.path("proposedVerdict").asText("")));
+        out.put("recommendedFor", jdTitle != null ? jdTitle : "Target role");
+        out.put("suggestedNextStep", "Complete manual review and proceed based on internal verdict.");
+        out.put("technicalFit", Map.of(
+            "overall", "Adequate",
+            "highlights", List.of(),
+            "gaps", List.of()
+        ));
+        out.put("interviewPerformance", Map.of(
+            "communication", "See assessment communication score.",
+            "problemSolving", "See category-level scoring.",
+            "overallRating", "Adequate"
+        ));
+        return out;
+    }
+
+    private String mapVerdictToClientRecommendation(String verdict) {
+        if (verdict == null) return "RECOMMENDED_WITH_CONDITIONS";
+        return switch (verdict) {
+            case "READY" -> "RECOMMENDED";
+            case "NEEDS_1_WEEK_PREP" -> "RECOMMENDED_WITH_CONDITIONS";
+            default -> "NOT_RECOMMENDED";
+        };
     }
 
     @SuppressWarnings("unchecked")
@@ -831,6 +962,21 @@ public class AssessmentService {
             "roadmap", List.of(),
             "estimatedReadiness", "N/A",
             "estimatedReadinessTimeline", "N/A"
+        ));
+        result.put("clientBrief", Map.of(
+            "executiveSummary", reason,
+            "keyStrengths", List.of(),
+            "areasToNote", List.of(),
+            "recommendation", "NOT_RECOMMENDED",
+            "recommendedFor", "",
+            "suggestedNextStep", "Interview withdrawn — no client submission.",
+            "technicalFit", Map.of("overall", "N/A", "highlights", List.of(), "gaps", List.of()),
+            "interviewPerformance", Map.of(
+                "communication", "N/A",
+                "problemSolving", "N/A",
+                "overallRating", "N/A"
+            ),
+            "source", "ai"
         ));
         result.put("source", "injection-terminated");
         return result;

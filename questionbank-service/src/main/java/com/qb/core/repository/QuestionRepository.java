@@ -68,18 +68,33 @@ public interface QuestionRepository extends JpaRepository<Question, UUID> {
      * Fuzzy match using pg_trgm — finds questions similar to the input text.
      * Returns Object[] with [id, text, score] for each match.
      */
+    /**
+     * Fuzzy match using pg_trgm — combines full-text and word-level similarity.
+     * When category is non-null, restricts candidates to that category.
+     */
     @Query(value = """
-            SELECT q.id, q.text, similarity(q.text, :text) AS score
+            SELECT q.id, q.text,
+                   GREATEST(similarity(q.text, :text), word_similarity(q.text, :text)) AS score
             FROM questionbank_svc.questions q
-            WHERE similarity(q.text, :text) > :threshold
+            LEFT JOIN questionbank_svc.categories cat ON cat.id = q.category_id
+            WHERE GREATEST(similarity(q.text, :text), word_similarity(q.text, :text)) > :threshold
+              AND (CAST(:category AS TEXT) IS NULL OR LOWER(cat.name) = LOWER(CAST(:category AS TEXT)))
             ORDER BY score DESC
             LIMIT :maxResults
             """, nativeQuery = true)
     List<Object[]> findSimilarQuestions(
             @Param("text") String text,
             @Param("threshold") double threshold,
+            @Param("category") String category,
             @Param("maxResults") int maxResults
     );
+
+    @Query(value = """
+            SELECT GREATEST(similarity(q.text, :text), word_similarity(q.text, :text))
+            FROM questionbank_svc.questions q
+            WHERE q.id = :id
+            """, nativeQuery = true)
+    Double computeSimilarityScore(@Param("id") UUID id, @Param("text") String text);
 
     /**
      * Get all questions asked at a specific company.

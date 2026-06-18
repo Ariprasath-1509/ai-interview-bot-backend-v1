@@ -112,6 +112,12 @@ app:
   gateway:
     shared-key: ${GATEWAY_SHARED_KEY:}
 
+  fuzzy-match:
+    suggest-threshold: 0.55
+    commit-link-threshold: 0.60
+    general-category-threshold: 0.65
+    min-text-length: 25
+
   llm:
     provider: ollama  # Use "ollama" only - no Claude fallback
   claude:
