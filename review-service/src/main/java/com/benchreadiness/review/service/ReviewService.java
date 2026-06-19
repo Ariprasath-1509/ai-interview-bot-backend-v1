@@ -45,7 +45,11 @@ public class ReviewService {
 
     @Transactional
     public List<Score> saveScores(SaveScoresRequest req) {
+        log.info("Saving scores for interview {}: {} categories", req.getInterviewId(), req.getScores().size());
+        
         scoreRepository.deleteByInterviewId(req.getInterviewId());
+        scoreRepository.flush(); // Force delete before insert
+        
         List<Score> scores = req.getScores().stream().map(item -> {
             Score s = new Score();
             s.setInterviewId(req.getInterviewId());
@@ -59,7 +63,9 @@ public class ReviewService {
             s.setConfidence(item.confidence());
             return s;
         }).toList();
+        
         List<Score> saved = scoreRepository.saveAll(scores);
+        log.info("Successfully saved {} scores for interview {}", saved.size(), req.getInterviewId());
         
         // Log audit trail
         logAudit("system", "System", "SYSTEM", "SCORES_SAVED", req.getInterviewId(),
