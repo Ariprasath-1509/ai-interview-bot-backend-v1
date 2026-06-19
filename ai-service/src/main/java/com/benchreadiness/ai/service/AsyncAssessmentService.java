@@ -75,6 +75,8 @@ public class AsyncAssessmentService {
 
     public void clearAssessmentStatus(String interviewId) {
         assessmentCache.remove(interviewId);
+        // Clear persisted COMPLETED state so other instances cannot serve a stale result.
+        persistStatus(interviewId, "PROCESSING", null, null, null);
     }
 
     private AssessmentStatus loadFromInterview(String interviewId) {

@@ -45,7 +45,8 @@ public class AssessmentService {
                 return cached;
             }
         } else {
-            assessmentCache.remove(cacheKey);
+            String interviewId = req.getInterviewId() != null ? req.getInterviewId() : "unknown";
+            assessmentCache.keySet().removeIf(key -> key.startsWith(interviewId + "|"));
             log.info("Force refresh — bypassing assessment cache for interview {}", req.getInterviewId());
         }
 
@@ -77,20 +78,28 @@ public class AssessmentService {
             cacheAssessment(cacheKey, result);
             return result;
         }
-        
-        // Check transcription quality
-        double transcriptionQuality = assessTranscriptionQuality(utterances);
-        log.info("Transcription quality score for interview {}: {}", req.getInterviewId(), transcriptionQuality);
-        
-        if (transcriptionQuality < 0.5) {
-            log.warn("Poor transcription quality detected for interview {} (score: {}). Assessment may be unreliable.", 
-                    req.getInterviewId(), transcriptionQuality);
-            Map<String, Object> result = poorTranscriptionResult(
-                "Poor audio/transcription quality detected. Please review the transcript manually before making hiring decisions.",
-                transcriptionQuality
-            );
-            cacheAssessment(cacheKey, result);
-            return result;
+
+        boolean substantialTranscript = candidateWords >= 200 && candidateTurns >= 3;
+        if (!req.isForceRefresh() && !substantialTranscript) {
+            double transcriptionQuality = assessTranscriptionQuality(utterances);
+            log.info("Transcription quality score for interview {}: {}", req.getInterviewId(), transcriptionQuality);
+
+            if (transcriptionQuality < 0.5) {
+                log.warn("Poor transcription quality detected for interview {} (score: {}). Assessment may be unreliable.",
+                        req.getInterviewId(), transcriptionQuality);
+                Map<String, Object> result = poorTranscriptionResult(
+                    "Poor audio/transcription quality detected. Please review the transcript manually before making hiring decisions.",
+                    transcriptionQuality
+                );
+                cacheAssessment(cacheKey, result);
+                return result;
+            }
+        } else if (req.isForceRefresh()) {
+            log.info("Force refresh — running full AI assessment regardless of transcription quality heuristics for interview {}",
+                    req.getInterviewId());
+        } else {
+            log.info("Substantial transcript ({} words, {} turns) — proceeding to AI assessment for interview {}",
+                    candidateWords, candidateTurns, req.getInterviewId());
         }
         
         if (!llmClient.isConfigured()) {
@@ -1282,30 +1291,29 @@ public class AssessmentService {
         
         for (Map<String, String> utterance : candidateUtterances) {
             String text = utterance.get("text").toLowerCase();
-            
+            boolean hasIssue = false;
+
             // Check for poor transcription patterns
             for (String pattern : poorTranscriptionPatterns) {
                 if (text.matches(".*" + pattern + ".*")) {
-                    qualityIssues++;
+                    hasIssue = true;
                     break;
                 }
             }
-            
-            // Check for very short responses (< 5 words repeatedly)
-            if (text.split("\\s+").length < 5) {
-                qualityIssues++;
+
+            // Very short responses only matter when most turns are short
+            if (!hasIssue && text.split("\\s+").length < 5) {
+                hasIssue = true;
             }
-            
-            // Check for lack of technical terms (should have at least some)
-            boolean hasTechnicalContent = text.matches(".*(java|spring|api|database|service|class|method|system|application|code|implement|design|architecture).*");
-            if (!hasTechnicalContent && text.split("\\s+").length > 10) {
+
+            if (hasIssue) {
                 qualityIssues++;
             }
         }
         
         // Quality score: 1.0 = perfect, 0.0 = completely garbled
         double qualityScore = 1.0 - ((double) qualityIssues / totalUtterances);
-        return Math.max(0.0, qualityScore);
+        return Math.max(0.0, Math.min(1.0, qualityScore));
     }
 
     private Map<String, Object> heuristicAssessment(List<Map<String, String>> utterances) {
