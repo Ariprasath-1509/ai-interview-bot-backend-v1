@@ -20,16 +20,20 @@ public class AssessmentService {
     private final LlmClient llmClient;
     private final RubricService rubricService;
     private final ComplianceServiceClient complianceServiceClient;
+    private final ClientBriefGenerationService clientBriefGenerationService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ConcurrentHashMap<String, CachedAssessmentResult> assessmentCache = new ConcurrentHashMap<>();
     private static final long ASSESSMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
     private record CachedAssessmentResult(String payloadJson, long createdAtMs) {}
 
-    public AssessmentService(LlmClient llmClient, RubricService rubricService, ComplianceServiceClient complianceServiceClient) {
+    public AssessmentService(LlmClient llmClient, RubricService rubricService,
+                             ComplianceServiceClient complianceServiceClient,
+                             ClientBriefGenerationService clientBriefGenerationService) {
         this.llmClient = llmClient;
         this.rubricService = rubricService;
         this.complianceServiceClient = complianceServiceClient;
+        this.clientBriefGenerationService = clientBriefGenerationService;
     }
 
     public Map<String, Object> assess(AssessmentRequest req, String userId) {
@@ -377,18 +381,19 @@ public class AssessmentService {
     private JsonNode runStage1Scoring(List<Map<String, Object>> categories, String evidenceSummary,
                                       String level, String yoe, AssessmentRequest req) throws Exception {
         String categoryScoreSchema = categories.stream()
-            .map(c -> "  \"" + c.get("key") + "\": {\"score\": 1-5 or null, \"strengths\": [\"...\"], \"weaknesses\": [\"...\"], \"evidence\": \"direct quote\", \"gap\": \"missing topics\", \"confidence\": \"low|medium|high\"}")
+            .map(c -> "  \"" + c.get("key") + "\": {\"score\": 1-10 or null, \"strengths\": [\"...\"], \"weaknesses\": [\"...\"], \"evidence\": \"direct quote\", \"gap\": \"missing topics\", \"confidence\": \"low|medium|high\"}")
             .collect(java.util.stream.Collectors.joining(",\n"));
 
         String system =
             "You are an expert technical hiring assessor generating an audit-ready evaluation report.\n" +
             "Profile Target: " + level + " level candidate with " + yoe + " years of professional experience.\n" +
             "\n" +
-            "SCORING CALCULATOR MATRIX:\n" +
-            "- 5 = Expert: Proficiently explains distributed scale, trade-offs, and internals.\n" +
-            "- 4 = Solid: Strong practical implementation and structural knowledge.\n" +
-            "- 3 = Surface-Level: Basic understanding but lacks deep production configuration knowledge.\n" +
-            "- 2 = Partial: Knows the name/keyword but fails simple conceptual implementation checks.\n" +
+            "SCORING CALCULATOR MATRIX (1-10 scale):\n" +
+            "- 10 = Expert: Proficiently explains distributed scale, trade-offs, and internals.\n" +
+            "- 8-9 = Solid: Strong practical implementation and structural knowledge.\n" +
+            "- 6-7 = Good: Working knowledge with minor gaps.\n" +
+            "- 4-5 = Surface-Level: Basic understanding but lacks deep production knowledge.\n" +
+            "- 2-3 = Partial: Knows keywords but fails simple implementation checks.\n" +
             "- 1 = None: Completely incorrect answer or explicitly stated lack of knowledge.\n" +
             "- null = Category was never discussed during the conversation loop.\n" +
             "\n" +
@@ -398,7 +403,7 @@ public class AssessmentService {
             "Output ONLY raw JSON. No markdown. No prose.\n" +
             "{\n" +
             "  \"categoryScores\": {\n" + categoryScoreSchema + "\n  },\n" +
-            "  \"communication\": {\"score\": 1-5, \"rationale\": \"Detailed explanation of structure and clarity\"},\n" +
+            "  \"communication\": {\"score\": 1-10, \"rationale\": \"Detailed explanation of structure and clarity\"},\n" +
             "  \"proposedVerdict\": \"READY|NEEDS_1_WEEK_PREP|NEEDS_RESKILLING|MISMATCH_WITH_JD\",\n" +
             "  \"summary\": \"2-3 sentence overview for an engineering manager\"\n" +
             "}";
@@ -426,11 +431,11 @@ public class AssessmentService {
             "    \"claimed\": [\"skill1\"],\n" +
             "    \"demonstrated\": [\"skill1\"],\n" +
             "    \"notDemonstrated\": [\"skill2\"],\n" +
-            "    \"consistencyScore\": 1-5,\n" +
+            "    \"consistencyScore\": 1-10,\n" +
             "    \"flags\": [\"flag1\"]\n" +
             "  },\n" +
             "  \"interviewQuality\": {\n" +
-            "    \"coverageScore\": 1-5,\n" +
+            "    \"coverageScore\": 1-10,\n" +
             "    \"categoriesCovered\": [],\n" +
             "    \"categoriesMissed\": [],\n" +
             "    \"note\": \"coverage summary\"\n" +
@@ -457,7 +462,7 @@ public class AssessmentService {
             JsonNode s = catScores.path(key);
             if (!s.isMissingNode()) {
                 scoresInfo.append(key).append(": ").append(s.path("score").asText("null"))
-                    .append("/5 gap: ").append(s.path("gap").asText("none")).append("\n");
+                    .append("/10 gap: ").append(s.path("gap").asText("none")).append("\n");
             }
         }
 
@@ -473,7 +478,7 @@ public class AssessmentService {
             "}\n" +
             "RULES:\n" +
             "- prosAndCons MUST include exactly ONE entry per scored category.\n" +
-            "- roadmap MUST cover days 1-7 for any category score below 5. Use verified open-source documentation URLs.\n" +
+            "- roadmap MUST cover days 1-7 for any category score below 8. Use verified open-source documentation URLs.\n" +
             "- resumeConsistencyForCandidate: list 3-5 key JD skills and whether demonstrated.";
 
         String user = "Role: " + req.getJdTitle() + "\nJD: " + jdSnippet + "\nScores:\n" + scoresInfo;
@@ -482,59 +487,17 @@ public class AssessmentService {
         return objectMapper.readTree(JsonRepairUtil.repair(raw));
     }
 
-    // ── Stage 3b: professional client brief (staff-only) ─────────────────────
-    private JsonNode runStage3bClientBrief(JsonNode scoresJson, JsonNode behavioralJson, JsonNode feedbackJson,
-                                           List<Map<String, Object>> categories, String jdSnippet,
-                                           AssessmentRequest req) throws Exception {
-        StringBuilder scoresInfo = new StringBuilder();
-        JsonNode catScores = scoresJson.path("categoryScores");
-        for (Map<String, Object> cat : categories) {
-            String key = (String) cat.get("key");
-            JsonNode s = catScores.path(key);
-            if (!s.isMissingNode()) {
-                scoresInfo.append(key).append(": ").append(s.path("score").asText("null"))
-                    .append("/5\n");
-            }
-        }
-
-        String system =
-            "You are a senior technical hiring consultant preparing a client-facing candidate evaluation brief.\n" +
-            "Write in professional third-person language suitable for sharing with an external client HR or engineering manager.\n" +
-            "Return ONLY raw JSON. No markdown. No prose outside JSON.\n" +
-            "{\n" +
-            "  \"executiveSummary\": \"4-6 sentence professional overview of fit for the role\",\n" +
-            "  \"keyStrengths\": [\"3-6 evidence-based strength bullets\"],\n" +
-            "  \"areasToNote\": [\"2-4 professional consideration bullets — frame gaps as 'would benefit from' or 'limited exposure to', never harsh criticism\"],\n" +
-            "  \"technicalFit\": {\n" +
-            "    \"overall\": \"Strong|Adequate|Developing\",\n" +
-            "    \"highlights\": [\"2-4 technical alignment points vs JD\"],\n" +
-            "    \"gaps\": [\"1-3 gap areas phrased professionally\"]\n" +
-            "  },\n" +
-            "  \"interviewPerformance\": {\n" +
-            "    \"communication\": \"1-2 sentences on clarity and structure\",\n" +
-            "    \"problemSolving\": \"1-2 sentences on analytical approach\",\n" +
-            "    \"overallRating\": \"Strong|Adequate|Developing\"\n" +
-            "  },\n" +
-            "  \"recommendation\": \"RECOMMENDED|RECOMMENDED_WITH_CONDITIONS|NOT_RECOMMENDED\",\n" +
-            "  \"recommendedFor\": \"Role level and context e.g. Mid-level Java backend with Spring Boot\",\n" +
-            "  \"suggestedNextStep\": \"Clear next step e.g. Proceed to client technical round\"\n" +
-            "}\n" +
-            "RULES:\n" +
-            "- Do NOT include training roadmaps, learning resources, or internal verdict codes.\n" +
-            "- Do NOT use words like failed, weak, bad, or liar.\n" +
-            "- Be balanced: always include both strengths and areas to note.\n" +
-            "- Base statements on interview evidence and scores provided.";
-
-        String behavioralSummary = behavioralJson.path("behavioralSignals").path("summary").asText("");
-        String user = "Role: " + req.getJdTitle() + "\nJD: " + jdSnippet + "\nScores:\n" + scoresInfo
-            + "\nBehavioral overview: " + behavioralSummary
-            + "\nAssessment summary: " + scoresJson.path("summary").asText("");
-        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), "stage3b");
-        log.info("Stage 3b response length: {}", raw.length());
-        return objectMapper.readTree(JsonRepairUtil.repair(raw));
+    /**
+     * Generate a structured client-facing evaluation brief from a completed assessment (on-demand, staff-only).
+     */
+    public Map<String, Object> generateClientBriefFromAssessment(Map<String, Object> request, String userId)
+            throws Exception {
+        return clientBriefGenerationService.generateStructuredBrief(request, userId);
     }
 
-    // ── Stage 4: Java aggregator — no LLM call ────────────────────────────────
+    private static String stringOrEmpty(Object value) {
+        return value != null ? value.toString() : "";
+    }
     private Map<String, Object> aggregateStages(JsonNode scoresJson, JsonNode behavioralJson,
                                                  JsonNode feedbackJson, JsonNode clientBriefJson,
                                                  List<Map<String, Object>> categories,
@@ -564,12 +527,13 @@ public class AssessmentService {
         JsonNode comm = scoresJson.path("communication");
         scoreRows.add(Map.of(
             "dimension", "communication",
-            "value", comm.path("score").asInt(3),
+            "value", comm.path("score").asInt(6),
             "rationale", comm.path("rationale").asText(""),
             "evidence", "", "gap", "",
             "strengths", "[]", "weaknesses", "[]", "confidence", "medium"
         ));
         result.put("categoryScores", scoreRows);
+        result.put("scoreMax", 10);
         result.put("proposedVerdict", scoresJson.path("proposedVerdict").asText("NEEDS_1_WEEK_PREP"));
         result.put("summary", scoresJson.path("summary").asText(""));
 
@@ -583,12 +547,12 @@ public class AssessmentService {
         JsonNode resumeConsistency = behavioralJson.path("resumeConsistency");
         result.put("resumeConsistency", resumeConsistency.isMissingNode()
             ? Map.of("claimed", List.of(), "demonstrated", List.of(),
-                     "notDemonstrated", List.of(), "consistencyScore", 3, "flags", List.of())
+                     "notDemonstrated", List.of(), "consistencyScore", 6, "flags", List.of())
             : parseObject(resumeConsistency));
 
         JsonNode interviewQuality = behavioralJson.path("interviewQuality");
         result.put("interviewQuality", interviewQuality.isMissingNode()
-            ? Map.of("coverageScore", 3, "categoriesCovered",
+            ? Map.of("coverageScore", 6, "categoriesCovered",
                      categories.stream().map(c -> c.get("key")).toList(),
                      "categoriesMissed", List.of(), "note", "Standard coverage")
             : parseObject(interviewQuality));
@@ -605,157 +569,11 @@ public class AssessmentService {
         result.put("candidateFeedback", feedback);
 
         if (clientBriefJson != null && !clientBriefJson.isMissingNode()) {
-            Map<String, Object> clientBrief = parseClientBrief(clientBriefJson);
-            if (clientBrief.get("executiveSummary") == null
-                    || clientBrief.get("executiveSummary").toString().isBlank()) {
-                log.warn("Stage 3b client brief empty for interview {} — using fallback", req.getInterviewId());
-                clientBrief = buildFallbackClientBrief(scoresJson, result.get("summary").toString(), req.getJdTitle());
-            }
-            clientBrief.put("source", "ai");
-            result.put("clientBrief", clientBrief);
+            // Legacy path — structured brief is generated on demand via ClientBriefGenerationService.
+            result.put("clientBrief", objectMapper.convertValue(clientBriefJson, Map.class));
         }
         result.put("source", "ollama-four-stage");
         return result;
-    }
-
-    /**
-     * Generate a client-facing evaluation brief from a completed assessment (on-demand, staff-only).
-     */
-    @SuppressWarnings("unchecked")
-    public Map<String, Object> generateClientBriefFromAssessment(String interviewId, String jdTitle,
-                                                                 String jdText, String assessmentJson,
-                                                                 String userId) throws Exception {
-        if (!llmClient.isConfigured()) {
-            throw new IllegalStateException("LLM provider not configured");
-        }
-        if (assessmentJson == null || assessmentJson.isBlank()) {
-            throw new IllegalArgumentException("No assessment available for this interview");
-        }
-
-        Map<String, Object> assessment = objectMapper.readValue(assessmentJson, Map.class);
-        com.fasterxml.jackson.databind.node.ObjectNode scoresJson = objectMapper.createObjectNode();
-        scoresJson.put("summary", stringOrEmpty(assessment.get("summary")));
-        scoresJson.put("proposedVerdict", stringOrEmpty(assessment.get("proposedVerdict")));
-
-        com.fasterxml.jackson.databind.node.ObjectNode categoryScores = objectMapper.createObjectNode();
-        Object rowsObj = assessment.get("categoryScores");
-        if (rowsObj instanceof List<?> rows) {
-            for (Object rowObj : rows) {
-                if (!(rowObj instanceof Map<?, ?> row)) continue;
-                String dim = stringOrEmpty(row.get("dimension"));
-                if (dim.isBlank() || "communication".equals(dim)) continue;
-                com.fasterxml.jackson.databind.node.ObjectNode catNode = objectMapper.createObjectNode();
-                Object value = row.get("value");
-                if (value != null) {
-                    try {
-                        catNode.put("score", Integer.parseInt(String.valueOf(value)));
-                    } catch (NumberFormatException ignored) {
-                        catNode.putNull("score");
-                    }
-                } else {
-                    catNode.putNull("score");
-                }
-                categoryScores.set(dim, catNode);
-            }
-        }
-        scoresJson.set("categoryScores", categoryScores);
-
-        com.fasterxml.jackson.databind.node.ObjectNode behavioralJson = objectMapper.createObjectNode();
-        Object behObj = assessment.get("behavioralSignals");
-        if (behObj instanceof Map<?, ?> beh) {
-            com.fasterxml.jackson.databind.node.ObjectNode signals = objectMapper.createObjectNode();
-            signals.put("summary", stringOrEmpty(beh.get("summary")));
-            behavioralJson.set("behavioralSignals", signals);
-        }
-
-        List<Map<String, Object>> categories = new ArrayList<>();
-        List<Map<String, Object>> finalCategories = categories;
-        categoryScores.fieldNames().forEachRemaining(key ->
-            finalCategories.add(Map.of("key", key, "label", key)));
-        if (categories.isEmpty()) {
-            categories = defaultCategories();
-        }
-
-        String jdSnippet = jdText != null && !jdText.isBlank()
-            ? jdText.substring(0, Math.min(400, jdText.length())) : "";
-        AssessmentRequest req = new AssessmentRequest();
-        req.setInterviewId(interviewId);
-        req.setJdTitle(jdTitle != null && !jdTitle.isBlank() ? jdTitle : "Position");
-
-        log.info("Generating on-demand client brief for interview {}", interviewId);
-        JsonNode clientBriefJson = runStage3bClientBrief(scoresJson, behavioralJson,
-            objectMapper.createObjectNode(), categories, jdSnippet, req);
-
-        Map<String, Object> clientBrief = parseClientBrief(clientBriefJson);
-        if (clientBrief.get("executiveSummary") == null
-                || clientBrief.get("executiveSummary").toString().isBlank()) {
-            clientBrief = buildFallbackClientBrief(scoresJson, scoresJson.path("summary").asText(""), jdTitle);
-        }
-        clientBrief.put("source", "ai");
-        return clientBrief;
-    }
-
-    private static String stringOrEmpty(Object value) {
-        return value != null ? value.toString() : "";
-    }
-
-    private Map<String, Object> parseClientBrief(JsonNode node) {
-        Map<String, Object> out = new LinkedHashMap<>();
-        if (node == null || node.isMissingNode()) {
-            return out;
-        }
-        out.put("executiveSummary", node.path("executiveSummary").asText(""));
-        out.put("keyStrengths", toStringList(node.path("keyStrengths")));
-        out.put("areasToNote", toStringList(node.path("areasToNote")));
-        out.put("recommendation", node.path("recommendation").asText(""));
-        out.put("recommendedFor", node.path("recommendedFor").asText(""));
-        out.put("suggestedNextStep", node.path("suggestedNextStep").asText(""));
-
-        JsonNode technicalFit = node.path("technicalFit");
-        Map<String, Object> fit = new LinkedHashMap<>();
-        fit.put("overall", technicalFit.path("overall").asText(""));
-        fit.put("highlights", toStringList(technicalFit.path("highlights")));
-        fit.put("gaps", toStringList(technicalFit.path("gaps")));
-        out.put("technicalFit", fit);
-
-        JsonNode perf = node.path("interviewPerformance");
-        Map<String, Object> performance = new LinkedHashMap<>();
-        performance.put("communication", perf.path("communication").asText(""));
-        performance.put("problemSolving", perf.path("problemSolving").asText(""));
-        performance.put("overallRating", perf.path("overallRating").asText(""));
-        out.put("interviewPerformance", performance);
-        return out;
-    }
-
-    private Map<String, Object> buildFallbackClientBrief(JsonNode scoresJson, String summary, String jdTitle) {
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("executiveSummary", summary != null && !summary.isBlank()
-            ? summary : "Assessment completed. Please review scores and edit this brief before sharing with the client.");
-        out.put("keyStrengths", List.of("Review category scores for demonstrated strengths."));
-        out.put("areasToNote", List.of("Review category gaps before client submission."));
-        out.put("recommendation", mapVerdictToClientRecommendation(scoresJson.path("proposedVerdict").asText("")));
-        out.put("recommendedFor", jdTitle != null ? jdTitle : "Target role");
-        out.put("suggestedNextStep", "Complete manual review and proceed based on internal verdict.");
-        out.put("technicalFit", Map.of(
-            "overall", "Adequate",
-            "highlights", List.of(),
-            "gaps", List.of()
-        ));
-        out.put("interviewPerformance", Map.of(
-            "communication", "See assessment communication score.",
-            "problemSolving", "See category-level scoring.",
-            "overallRating", "Adequate"
-        ));
-        return out;
-    }
-
-    private String mapVerdictToClientRecommendation(String verdict) {
-        if (verdict == null) return "RECOMMENDED_WITH_CONDITIONS";
-        return switch (verdict) {
-            case "READY" -> "RECOMMENDED";
-            case "NEEDS_1_WEEK_PREP" -> "RECOMMENDED_WITH_CONDITIONS";
-            default -> "NOT_RECOMMENDED";
-        };
     }
 
     @SuppressWarnings("unchecked")
@@ -796,7 +614,7 @@ public class AssessmentService {
             }
         }
         Integer communication = scoreByDimension.get("communication");
-        boolean commWeak = communication != null && communication < Math.max(2, minScoreFloor - 1);
+        boolean commWeak = communication != null && communication < Math.max(4, minScoreFloor - 2);
 
         boolean gatePass = uncovered.isEmpty() && weakDimensions.isEmpty() && !commWeak;
         String originalVerdict = String.valueOf(result.getOrDefault("proposedVerdict", "NEEDS_1_WEEK_PREP"));
@@ -826,12 +644,12 @@ public class AssessmentService {
     private int minCoreScoreFloorForMode(String mode) {
         String m = mode != null ? mode : "L3";
         return switch (m) {
-            case "SCREENING" -> 2;
-            case "L1" -> 3;
-            case "L2" -> 3;
-            case "L3" -> 4;
-            case "L4" -> 4;
-            default -> 3;
+            case "SCREENING" -> 4;
+            case "L1" -> 6;
+            case "L2" -> 6;
+            case "L3" -> 8;
+            case "L4" -> 8;
+            default -> 6;
         };
     }
 
@@ -936,7 +754,7 @@ public class AssessmentService {
         try {
             StringBuilder scoresInfo = new StringBuilder();
             for (Map<String, Object> row : scoreRows) {
-                scoresInfo.append(row.get("dimension")).append(": ").append(row.get("value")).append("/5")
+                scoresInfo.append(row.get("dimension")).append(": ").append(row.get("value")).append("/10")
                     .append(" gap: ").append(row.getOrDefault("gap", "none")).append("\n");
             }
 
@@ -957,8 +775,8 @@ public class AssessmentService {
                 "}\n\n" +
                 "RULES:\n" +
                 "- prosAndCons MUST have one entry per scored category (never empty)\n" +
-                "- roadmap MUST have 3-7 days covering gaps and areas to improve from score < 5\n" +
-                "- If all scores are 5, provide advanced topics to master\n" +
+                "- roadmap MUST have 3-7 days covering gaps and areas to improve from score < 8\n" +
+                "- If all scores are 10, provide advanced topics to master\n" +
                 "- resumeConsistencyForCandidate: list 3-5 key skills from JD and whether demonstrated\n" +
                 "- Use real resource URLs (official docs, tutorials)\n";
 
@@ -994,16 +812,63 @@ public class AssessmentService {
             JsonNode cats = node.path("categories");
             if (cats.isArray() && cats.size() > 0) {
                 List<Map<String, Object>> list = new ArrayList<>();
-                cats.forEach(c -> list.add(Map.of(
-                    "key", c.path("key").asText(),
-                    "label", c.path("label").asText(),
-                    "description", c.path("description").asText(),
-                    "weight", c.path("weight").asInt(2)
-                )));
+                cats.forEach(c -> {
+                    Map<String, Object> cat = new LinkedHashMap<>();
+                    cat.put("key", c.path("key").asText());
+                    cat.put("label", c.path("label").asText());
+                    cat.put("subSkill", c.path("subSkill").asText(c.path("label").asText()));
+                    cat.put("description", c.path("description").asText());
+                    cat.put("weight", c.path("weight").asInt(2));
+                    String priority = c.path("priority").asText("");
+                    if (priority.isBlank()) {
+                        priority = c.path("weight").asInt(2) >= 3 ? "MUST_HAVE" : "GOOD_TO_HAVE";
+                    }
+                    cat.put("priority", priority);
+                    cat.put("note", c.path("note").asText(""));
+                    List<String> options = toStringList(c.path("proficiencyOptions"));
+                    if (options.size() != 4) {
+                        options = List.of(
+                            "Strong knowledge of " + cat.get("subSkill"),
+                            "Good knowledge of " + cat.get("subSkill"),
+                            "Only theoretical knowledge of " + cat.get("subSkill") + " with no practical experience",
+                            "No knowledge of " + cat.get("subSkill")
+                        );
+                    }
+                    cat.put("proficiencyOptions", options);
+                    list.add(cat);
+                });
                 return list;
             }
         } catch (Exception ignored) {}
         return defaultCategories();
+    }
+
+    private List<Map<String, Object>> defaultCategories() {
+        List<Map<String, Object>> list = new ArrayList<>();
+        list.add(rubricCategory("coreJava", "Java", "Java Fundamentals", "OOP, collections, memory, threads", 3, "MUST_HAVE", ""));
+        list.add(rubricCategory("spring", "Spring Boot", "Spring Boot Fundamentals", "IoC, REST, data, security", 3, "MUST_HAVE", ""));
+        list.add(rubricCategory("microservices", "Software Architecture", "Microservices Architecture", "Service design, resilience", 2, "GOOD_TO_HAVE", ""));
+        list.add(rubricCategory("miscellaneous", "Problem Solving", "Case Study Problem-Solving", "SQL, Docker, system design", 1, "GOOD_TO_HAVE", ""));
+        return list;
+    }
+
+    private Map<String, Object> rubricCategory(String key, String label, String subSkill, String description,
+                                               int weight, String priority, String note) {
+        Map<String, Object> cat = new LinkedHashMap<>();
+        cat.put("key", key);
+        cat.put("label", label);
+        cat.put("subSkill", subSkill);
+        cat.put("description", description);
+        cat.put("weight", weight);
+        cat.put("priority", priority);
+        cat.put("note", note);
+        cat.put("proficiencyOptions", List.of(
+            "Strong knowledge of " + subSkill,
+            "Good knowledge of " + subSkill,
+            "Only theoretical knowledge of " + subSkill + " with no practical experience",
+            "No knowledge of " + subSkill
+        ));
+        return cat;
     }
 
     private Map<String, Object> parseCandidateProfile(String profileJson) {
@@ -1011,15 +876,6 @@ public class AssessmentService {
         try {
             return objectMapper.readValue(profileJson, new com.fasterxml.jackson.core.type.TypeReference<>() {});
         } catch (Exception e) { return Map.of("level", "mid", "yearsOfExperience", 0); }
-    }
-
-    private List<Map<String, Object>> defaultCategories() {
-        return List.of(
-            Map.of("key", "coreJava", "label", "Core Java", "description", "OOP, collections, memory, threads", "weight", 3),
-            Map.of("key", "spring", "label", "Spring", "description", "IoC, REST, data, security", "weight", 3),
-            Map.of("key", "microservices", "label", "Microservices", "description", "Service design, resilience", "weight", 2),
-            Map.of("key", "miscellaneous", "label", "Miscellaneous", "description", "SQL, Docker, system design", "weight", 1)
-        );
     }
 
     private Object parseObject(JsonNode node) {
@@ -1045,18 +901,11 @@ public class AssessmentService {
             "estimatedReadinessTimeline", "N/A"
         ));
         result.put("clientBrief", Map.of(
-            "executiveSummary", reason,
-            "keyStrengths", List.of(),
-            "areasToNote", List.of(),
-            "recommendation", "NOT_RECOMMENDED",
-            "recommendedFor", "",
-            "suggestedNextStep", "Interview withdrawn — no client submission.",
-            "technicalFit", Map.of("overall", "N/A", "highlights", List.of(), "gaps", List.of()),
-            "interviewPerformance", Map.of(
-                "communication", "N/A",
-                "problemSolving", "N/A",
-                "overallRating", "N/A"
-            ),
+            "overallFeedback", reason,
+            "mustHaveSkills", List.of(),
+            "goodToHaveSkills", List.of(),
+            "questionsAsked", List.of(),
+            "skillAssessments", List.of(),
             "source", "ai"
         ));
         result.put("source", "injection-terminated");
@@ -1341,7 +1190,7 @@ public class AssessmentService {
                 + "- Do not penalize communication as if they spoke poorly — they did not complete voice Q&A";
 
         String user = "Role: " + req.getJdTitle() + "\n"
-                + "Technical score: " + techScore + "/5, Communication: " + commScore + "/5 (not assessable — no speech)\n"
+                + "Technical score: " + techScore + "/10, Communication: " + commScore + "/10 (not assessable — no speech)\n"
                 + "Summary: " + summary + "\n"
                 + "Code submissions:\n" + codeContext;
 
@@ -1476,6 +1325,7 @@ public class AssessmentService {
             Map.of("dimension", "communication", "value", commScore, "rationale", "Heuristic assessment - Claude API failed or not configured. Turns: " + turns,
                 "evidence", "", "gap", "", "strengths", "[]", "weaknesses", "[]", "confidence", "low")
         ));
+        result.put("scoreMax", 5);
         result.put("proposedVerdict", "NEEDS_1_WEEK_PREP");
         result.put("summary", "Heuristic assessment used - Claude API unavailable or failed. Candidate provided " + words + " words in " + turns + " responses.");
         result.put("candidateFeedback", Map.of(
@@ -1546,7 +1396,7 @@ public class AssessmentService {
         }
         JsonNode review = sub.path("aiReview");
         if (!review.isMissingNode()) {
-            sb.append("AI review score: ").append(review.path("score").asInt(0)).append("/5, ")
+            sb.append("AI review score: ").append(review.path("score").asInt(0)).append("/10, ")
               .append("correctness: ").append(review.path("correctness").asText("unknown")).append("\n");
             String feedback = review.path("overallFeedback").asText("");
             if (!feedback.isBlank()) {
@@ -1612,12 +1462,12 @@ public class AssessmentService {
 
     private String getVerdictRulesForMode(String mode) {
         return switch (mode != null ? mode : "L3") {
-            case "SCREENING" -> "  READY: avg >= 3\n  NEEDS_1_WEEK_PREP: avg >= 2\n  NEEDS_RESKILLING: avg < 2\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
-            case "L1" -> "  READY: avg >= 3.5\n  NEEDS_1_WEEK_PREP: avg >= 2.5\n  NEEDS_RESKILLING: avg < 2.5\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
-            case "L2" -> "  READY: avg >= 4\n  NEEDS_1_WEEK_PREP: avg >= 3\n  NEEDS_RESKILLING: avg < 3\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
-            case "L3" -> "  READY: avg >= 4\n  NEEDS_1_WEEK_PREP: avg >= 3.5\n  NEEDS_RESKILLING: avg < 3.5\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
-            case "L4" -> "  READY: avg >= 4.5\n  NEEDS_1_WEEK_PREP: avg >= 4\n  NEEDS_RESKILLING: avg < 4\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
-            default -> "  READY: avg >= 4, communication >= 4\n  NEEDS_1_WEEK_PREP: avg >= 3\n  NEEDS_RESKILLING: avg < 3\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
+            case "SCREENING" -> "  READY: avg >= 6\n  NEEDS_1_WEEK_PREP: avg >= 4\n  NEEDS_RESKILLING: avg < 4\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
+            case "L1" -> "  READY: avg >= 7\n  NEEDS_1_WEEK_PREP: avg >= 5\n  NEEDS_RESKILLING: avg < 5\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
+            case "L2" -> "  READY: avg >= 8\n  NEEDS_1_WEEK_PREP: avg >= 6\n  NEEDS_RESKILLING: avg < 6\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
+            case "L3" -> "  READY: avg >= 8\n  NEEDS_1_WEEK_PREP: avg >= 7\n  NEEDS_RESKILLING: avg < 7\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
+            case "L4" -> "  READY: avg >= 9\n  NEEDS_1_WEEK_PREP: avg >= 8\n  NEEDS_RESKILLING: avg < 8\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
+            default -> "  READY: avg >= 8, communication >= 8\n  NEEDS_1_WEEK_PREP: avg >= 6\n  NEEDS_RESKILLING: avg < 6\n  MISMATCH_WITH_JD: evidence doesn't match JD domain\n  WITHDRAWN: candidate ended early";
         };
     }
 

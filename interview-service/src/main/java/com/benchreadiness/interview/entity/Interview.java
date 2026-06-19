@@ -108,6 +108,9 @@ public class Interview {
     @Column(name = "client_brief_json", columnDefinition = "TEXT")
     private String clientBriefJson;
 
+    @Column(name = "round_name", length = 128)
+    private String roundName;
+
     @Column(name = "recording_bytes")
     private Long recordingBytes;
 
@@ -203,6 +206,8 @@ public class Interview {
     public void setAssessmentRunId(String assessmentRunId) { this.assessmentRunId = assessmentRunId; }
     public String getClientBriefJson() { return clientBriefJson; }
     public void setClientBriefJson(String clientBriefJson) { this.clientBriefJson = clientBriefJson; }
+    public String getRoundName() { return roundName; }
+    public void setRoundName(String roundName) { this.roundName = roundName; }
     public Long getRecordingBytes() { return recordingBytes; }
     public void setRecordingBytes(Long recordingBytes) { this.recordingBytes = recordingBytes; }
     public String getProctoringEventsJson() { return proctoringEventsJson; }

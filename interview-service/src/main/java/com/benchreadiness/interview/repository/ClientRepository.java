@@ -13,6 +13,8 @@ import java.util.UUID;
 public interface ClientRepository extends JpaRepository<Client, UUID> {
     
     Optional<Client> findByClientName(String clientName);
+
+    Optional<Client> findFirstByJdRoleIgnoreCase(String jdRole);
     
     List<Client> findByStatus(Client.ClientStatus status);
 

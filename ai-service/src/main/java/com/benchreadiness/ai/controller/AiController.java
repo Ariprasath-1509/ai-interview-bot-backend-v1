@@ -180,15 +180,10 @@ public class AiController {
     public ResponseEntity<?> generateClientBrief(@RequestBody Map<String, Object> body,
                                                  @RequestHeader("X-User-Id") String userId) {
         try {
-            String interviewId = body.get("interviewId") != null ? body.get("interviewId").toString() : null;
-            String jdTitle = body.get("jdTitle") != null ? body.get("jdTitle").toString() : "Position";
-            String jdText = body.get("jdText") != null ? body.get("jdText").toString() : "";
-            String assessmentJson = body.get("assessmentJson") != null ? body.get("assessmentJson").toString() : null;
-            if (interviewId == null || interviewId.isBlank()) {
+            if (body.get("interviewId") == null || body.get("interviewId").toString().isBlank()) {
                 return ResponseEntity.badRequest().body(Map.of("error", "interviewId is required"));
             }
-            Map<String, Object> brief = assessmentService.generateClientBriefFromAssessment(
-                interviewId, jdTitle, jdText, assessmentJson, userId);
+            Map<String, Object> brief = assessmentService.generateClientBriefFromAssessment(body, userId);
             return ResponseEntity.ok(brief);
         } catch (IllegalArgumentException | IllegalStateException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));

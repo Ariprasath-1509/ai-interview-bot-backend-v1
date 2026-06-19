@@ -195,6 +195,7 @@ public class InterviewService {
         interview.setJdId(jd.getId());
         interview.setPlanId(plan.getId());
         interview.setInterviewMode(req.getInterviewMode());
+        interview.setRoundName(req.getRoundName());
         interview.setCustomDurationMinutes(req.getCustomDurationMinutes());
         interview.setCreatedByUserId(createdByUserId);
         interview.setBranch(branch != null ? branch : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());

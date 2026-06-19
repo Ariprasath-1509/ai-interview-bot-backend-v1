@@ -6,8 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
-import java.security.MessageDigest;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -41,15 +41,32 @@ public class RubricService {
             "\n" +
             "CORE CONSTRAINTS:\n" +
             "1. Extract a maximum of 4-6 distinct evaluation categories derived directly from explicit JD text.\n" +
-            "2. Map weights strictly: 3 = Core absolute requirement, 2 = Important architectural/system knowledge, 1 = Nice-to-have or peripheral tools.\n" +
+            "2. Map weights strictly: 3 = Core absolute requirement (MUST_HAVE), 2 = Important (GOOD_TO_HAVE), 1 = Nice-to-have (GOOD_TO_HAVE).\n" +
             "3. Set questionDifficulty dynamically using Years of Experience (YOE): <2 years = easy, 2-5 years = medium, >5 years = hard.\n" +
+            "4. Each category MUST include a client-facing subSkill label (e.g. Java Fundamentals, Syntax & Queries).\n" +
+            "5. Each category MUST include exactly 4 proficiencyOptions from strongest to weakest tier.\n" +
+            "6. Optional note field for skill substitution context (e.g. MySQL tested instead of generic SQL).\n" +
             "\n" +
             "OUTPUT PROTOCAL:\n" +
             "Your response must consist of your internal reasoning steps, followed directly by the final raw JSON payload. Ensure your JSON perfectly mirrors this schema layout with no trailing elements:\n" +
             "{\n" +
             "  \"rubric\": {\n" +
             "    \"categories\": [\n" +
-            "      {\"key\": \"camelCaseKey\", \"label\": \"Human Label\", \"description\": \"What exact mechanism to probe\", \"weight\": 1}\n" +
+            "      {\n" +
+            "        \"key\": \"camelCaseKey\",\n" +
+            "        \"label\": \"Human Label\",\n" +
+            "        \"subSkill\": \"Specific sub-skill label for client report\",\n" +
+            "        \"description\": \"What exact mechanism to probe\",\n" +
+            "        \"weight\": 3,\n" +
+            "        \"priority\": \"MUST_HAVE\",\n" +
+            "        \"note\": \"Optional client note or empty string\",\n" +
+            "        \"proficiencyOptions\": [\n" +
+            "          \"Strong knowledge of ...\",\n" +
+            "          \"Good knowledge of ...\",\n" +
+            "          \"Only theoretical knowledge of ... with no practical experience\",\n" +
+            "          \"No knowledge of ...\"\n" +
+            "        ]\n" +
+            "      }\n" +
             "    ],\n" +
             "    \"focusAreas\": [\"area1\", \"area2\"]\n" +
             "  },\n" +
@@ -79,25 +96,44 @@ public class RubricService {
     }
 
     private Map<String, Object> fallbackRubric(RubricRequest req) {
-        // Default Java backend rubric when AI not available
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("rubric", Map.of(
-            "categories", java.util.List.of(
-                Map.of("key", "coreJava", "label", "Core Java", "description", "OOP, collections, memory, threads", "weight", 3),
-                Map.of("key", "spring", "label", "Spring/Spring Boot", "description", "IoC, REST, data, security", "weight", 3),
-                Map.of("key", "microservices", "label", "Microservices", "description", "Service design, communication, resilience", "weight", 2),
-                Map.of("key", "miscellaneous", "label", "Miscellaneous", "description", "SQL, Docker, system design", "weight", 1)
+            "categories", List.of(
+                category("coreJava", "Java", "Java Fundamentals", "OOP, collections, memory, threads", 3, "MUST_HAVE", ""),
+                category("spring", "Spring Boot", "Spring Boot Fundamentals", "IoC, REST, data, security", 3, "MUST_HAVE", ""),
+                category("microservices", "Software Architecture", "Microservices Architecture", "Service design, communication, resilience", 2, "GOOD_TO_HAVE", ""),
+                category("miscellaneous", "Problem Solving", "Case Study Problem-Solving", "SQL, Docker, system design", 1, "GOOD_TO_HAVE",
+                    "For SQL skills, candidates are typically assessed on MySQL when applicable.")
             ),
-            "focusAreas", java.util.List.of()
+            "focusAreas", List.of()
         ));
         result.put("candidateProfile", Map.of(
             "yearsOfExperience", 0,
             "level", "mid",
-            "primarySkills", java.util.List.of(),
-            "claimedExpertise", java.util.List.of(),
+            "primarySkills", List.of(),
+            "claimedExpertise", List.of(),
             "questionDifficulty", "medium",
             "resumeSummary", ""
         ));
         return result;
+    }
+
+    private Map<String, Object> category(String key, String label, String subSkill, String description,
+                                         int weight, String priority, String note) {
+        Map<String, Object> cat = new LinkedHashMap<>();
+        cat.put("key", key);
+        cat.put("label", label);
+        cat.put("subSkill", subSkill);
+        cat.put("description", description);
+        cat.put("weight", weight);
+        cat.put("priority", priority);
+        cat.put("note", note);
+        cat.put("proficiencyOptions", List.of(
+            "Strong knowledge of " + subSkill,
+            "Good knowledge of " + subSkill,
+            "Only theoretical knowledge of " + subSkill + " with no practical experience",
+            "No knowledge of " + subSkill
+        ));
+        return cat;
     }
 }

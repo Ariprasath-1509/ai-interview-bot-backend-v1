@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Client Brief | Bench Readiness</title>
+  <style>
+    :root {
+      --purple-dark: #382060;
+      --purple: #764ba2;
+      --purple-light: #baa0dd;
+      --purple-bg: #f8f5ff;
+      --text: #1f1f1f;
+      --muted: #666;
+      --gold: #c49228;
+      --success: #228b22;
+      --border: #ddd0ef;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: #f3f0f8;
+      color: var(--text);
+    }
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: white;
+      border-bottom: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .toolbar input {
+      padding: 8px 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      min-width: 140px;
+    }
+    .toolbar button {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .btn-primary { background: var(--purple); color: white; }
+    .btn-secondary { background: #ece7f5; color: var(--purple-dark); }
+    .btn-success { background: var(--success); color: white; }
+    .container { max-width: 980px; margin: 24px auto 48px; padding: 0 16px; }
+    .header-card {
+      background: linear-gradient(135deg, var(--purple-dark), var(--purple));
+      color: white;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .brand { font-size: 11px; letter-spacing: 1px; opacity: 0.9; margin-bottom: 8px; }
+    .candidate-name { font-size: 28px; font-weight: 700; margin: 0 0 8px; }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 8px 16px;
+      font-size: 13px;
+      opacity: 0.95;
+    }
+    .reviewer-box {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255,255,255,0.2);
+      font-size: 13px;
+    }
+    .section {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+      border: 1px solid var(--border);
+    }
+    .section h2 {
+      margin: 0 0 16px;
+      color: var(--purple-dark);
+      font-size: 18px;
+    }
+    .warning-box {
+      background: #fff4e5;
+      border-color: #e6a817;
+      color: #6b4e00;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .skill-row { margin-bottom: 18px; }
+    .skill-title { font-weight: 700; margin-bottom: 4px; }
+    .skill-note { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .progress {
+      height: 10px;
+      background: #e5dff0;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progress > span {
+      display: block;
+      height: 100%;
+      background: var(--purple);
+      border-radius: 999px;
+    }
+    .question-card {
+      border: 1px solid var(--border);
+      background: var(--purple-bg);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .question-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .badge {
+      background: var(--gold);
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 999px;
+    }
+    .tags { font-size: 12px; color: var(--muted); margin-top: 10px; }
+    .assessment-card { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px; }
+    .assessment-card:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+    .option { margin: 4px 0; font-size: 14px; }
+    .option.selected { color: var(--success); font-weight: 700; }
+    .label-purple { color: var(--purple); font-weight: 700; margin: 12px 0 6px; }
+    .label-muted { color: var(--muted); font-weight: 700; margin: 12px 0 6px; }
+    ul { margin: 0; padding-left: 20px; }
+    li { margin-bottom: 4px; }
+    textarea, .editable {
+      width: 100%;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 10px;
+      font: inherit;
+      min-height: 90px;
+    }
+    .status { margin-left: auto; font-size: 13px; color: var(--muted); }
+    .empty { color: var(--muted); font-style: italic; }
+    .actions-inline a {
+      color: white;
+      margin-right: 12px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <strong>Bench Readiness Client Brief</strong>
+    <input id="interviewId" placeholder="Interview ID">
+    <input id="userId" placeholder="X-User-Id">
+    <input id="userRole" placeholder="X-User-Role" value="RECRUITER">
+    <input id="userName" placeholder="X-User-Name" value="Staff Reviewer">
+    <button class="btn-secondary" onclick="loadBrief()">Load</button>
+    <button class="btn-primary" onclick="generateBrief()">Generate AI Draft</button>
+    <button class="btn-success" onclick="saveBrief()">Save</button>
+    <button class="btn-secondary" onclick="downloadPdf()">Download PDF</button>
+    <span id="status" class="status"></span>
+  </div>
+
+  <div class="container" id="app">
+    <div class="section empty">Enter an interview ID and click Load or Generate.</div>
+  </div>
+
+  <script>
+    let currentBrief = null;
+    let currentContext = null;
+
+    const params = new URLSearchParams(location.search);
+    if (params.get('interviewId')) {
+      document.getElementById('interviewId').value = params.get('interviewId');
+    }
+
+    function headers() {
+      return {
+        'Content-Type': 'application/json',
+        'X-User-Id': document.getElementById('userId').value || 'staff-user',
+        'X-User-Role': document.getElementById('userRole').value || 'RECRUITER',
+        'X-User-Name': document.getElementById('userName').value || 'Staff Reviewer'
+      };
+    }
+
+    function interviewId() {
+      return document.getElementById('interviewId').value.trim();
+    }
+
+    function setStatus(msg, isError) {
+      const el = document.getElementById('status');
+      el.textContent = msg || '';
+      el.style.color = isError ? '#b00020' : '#666';
+    }
+
+    async function loadBrief() {
+      const id = interviewId();
+      if (!id) return setStatus('Interview ID required', true);
+      setStatus('Loading...');
+      try {
+        const res = await fetch(`/interviews/${id}/client-brief`, { headers: headers() });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        currentBrief = data.brief;
+        currentContext = data.context;
+        render(data);
+        setStatus(data.hasSavedBrief ? 'Loaded saved brief' : 'Loaded context (no saved brief yet)');
+      } catch (e) {
+        setStatus(e.message, true);
+      }
+    }
+
+    async function generateBrief() {
+      const id = interviewId();
+      if (!id) return setStatus('Interview ID required', true);
+      setStatus('Generating AI draft (may take up to a minute)...');
+      try {
+        const res = await fetch(`/interviews/${id}/client-brief/generate`, {
+          method: 'POST',
+          headers: headers()
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        currentBrief = data.brief;
+        currentContext = data.context;
+        render(data);
+        setStatus('AI draft generated — review and Save before sharing');
+      } catch (e) {
+        setStatus(e.message, true);
+      }
+    }
+
+    async function saveBrief() {
+      const id = interviewId();
+      if (!currentBrief) return setStatus('Nothing to save', true);
+      syncEditableFields();
+      setStatus('Saving...');
+      try {
+        const res = await fetch(`/interviews/${id}/client-brief`, {
+          method: 'PUT',
+          headers: headers(),
+          body: JSON.stringify(currentBrief)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        currentBrief = data.brief;
+        render(data);
+        setStatus('Saved successfully');
+      } catch (e) {
+        setStatus(e.message, true);
+      }
+    }
+
+    async function downloadPdf() {
+      const id = interviewId();
+      if (!id) return setStatus('Interview ID required', true);
+      setStatus('Downloading PDF...');
+      try {
+        const res = await fetch(`/interviews/${id}/client-brief/download`, { headers: headers() });
+        if (!res.ok) throw new Error(res.headers.get('X-Error-Message') || 'Download failed');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Client_Brief_${id}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setStatus('PDF downloaded');
+      } catch (e) {
+        setStatus(e.message, true);
+      }
+    }
+
+    function progressBar(score) {
+      const pct = Math.max(0, Math.min(100, (score / 10) * 100));
+      return `<div class="progress"><span style="width:${pct}%"></span></div>`;
+    }
+
+    function renderSkillRows(skills) {
+      if (!skills || !skills.length) return '<p class="empty">No skills in this group.</p>';
+      return skills.map(s => `
+        <div class="skill-row">
+          <div class="skill-title">${s.rank}. ${escapeHtml(s.skill)} — ${escapeHtml(s.subSkill)} (${s.score10}/10)</div>
+          ${s.note ? `<div class="skill-note">${escapeHtml(s.note)}</div>` : ''}
+          ${progressBar(s.score10)}
+        </div>
+      `).join('');
+    }
+
+    function renderQuestions(questions) {
+      if (!questions || !questions.length) return '<p class="empty">No questions recorded.</p>';
+      return questions.map(q => `
+        <div class="question-card">
+          <div class="question-head">
+            <strong>Question ${q.number}</strong>
+            <span class="badge">${escapeHtml(q.difficulty || 'Medium')}</span>
+          </div>
+          <div>${escapeHtml(q.text || '').replace(/\n/g, '<br>')}</div>
+          <div class="tags">${(q.skillMappings || []).map(m => `${escapeHtml(m.skill)}: ${escapeHtml(m.subSkill)}`).join(' &nbsp;|&nbsp; ')}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderAssessments(items) {
+      if (!items || !items.length) return '<p class="empty">No detailed assessments.</p>';
+      return items.map(a => {
+        const options = (a.proficiencyOptions || []).map((opt, idx) =>
+          `<div class="option ${idx === a.selectedProficiencyIndex ? 'selected' : ''}">${idx === a.selectedProficiencyIndex ? '✓' : '○'} ${escapeHtml(opt)}</div>`
+        ).join('');
+        return `
+          <div class="assessment-card">
+            <div class="skill-title">${a.rank}. ${escapeHtml(a.skill)} — ${escapeHtml(a.subSkill)} (${a.score10}/10)</div>
+            ${options}
+            <div class="label-purple">Strengths</div>
+            <ul>${(a.strengths || []).map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>
+            <div class="label-muted">Areas of Improvement</div>
+            <ul>${(a.areasOfImprovement || []).map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function render(data) {
+      const brief = data.brief;
+      const ctx = data.context || {};
+      const header = (brief && brief.header) || {};
+      const reviewer = header.reviewer || {};
+
+      if (!brief) {
+        document.getElementById('app').innerHTML = `
+          <div class="section empty">No brief yet for this interview. Run assessment, then Generate AI Draft.</div>`;
+        return;
+      }
+
+      document.getElementById('app').innerHTML = `
+        <div class="header-card">
+          <div class="brand">BENCH READINESS</div>
+          <h1 class="candidate-name">${escapeHtml(header.candidateName || ctx.candidateName || 'Candidate')}</h1>
+          <div class="meta-grid">
+            <div><strong>Email:</strong> ${escapeHtml(header.candidateEmail || ctx.candidateEmail || '—')}</div>
+            <div><strong>Position:</strong> ${escapeHtml(header.positionTitle || ctx.jdTitle || '—')}</div>
+            <div><strong>Client:</strong> ${escapeHtml(header.clientName || ctx.clientName || '—')}</div>
+            <div><strong>Round:</strong> ${escapeHtml(header.roundName || ctx.roundName || '—')}</div>
+            <div><strong>Seniority:</strong> ${escapeHtml(header.seniorityBand || ctx.seniorityBand || '—')}</div>
+            <div><strong>Date:</strong> ${escapeHtml(header.interviewDate || ctx.interviewDate || '—')}</div>
+            <div><strong>Duration:</strong> ${header.totalMinutes || ctx.totalMinutes ? (header.totalMinutes || ctx.totalMinutes) + ' min' : '—'}</div>
+          </div>
+          <div class="actions-inline" style="margin-top:12px">
+            ${header.playbackUrl || ctx.playbackUrl ? `<a href="${header.playbackUrl || ctx.playbackUrl}">Open playback</a>` : ''}
+            ${header.resumeUrl || ctx.resumeUrl ? `<a href="${header.resumeUrl || ctx.resumeUrl}">View Resume</a>` : ''}
+          </div>
+          <div class="reviewer-box">
+            <strong>Reviewed by:</strong> ${escapeHtml(reviewer.name || ctx.reviewerName || '—')}
+            ${reviewer.yearsExperience || ctx.reviewerYoe ? ` | ${escapeHtml(reviewer.yearsExperience || ctx.reviewerYoe)} yrs` : ''}
+            ${reviewer.company || ctx.reviewerCompany ? ` at ${escapeHtml(reviewer.company || ctx.reviewerCompany)}` : ''}
+            <div>${(reviewer.verifiedSkills || ctx.reviewerSkills || []).map(s => '✓ ' + escapeHtml(s)).join(' &nbsp; ')}</div>
+          </div>
+        </div>
+
+        ${brief.generationWarning ? `<div class="section warning-box">${escapeHtml(brief.generationWarning)}</div>` : ''}
+
+        <div class="section">
+          <h2>Must have</h2>
+          ${renderSkillRows(brief.mustHaveSkills)}
+        </div>
+
+        <div class="section">
+          <h2>Good to have</h2>
+          ${renderSkillRows(brief.goodToHaveSkills)}
+        </div>
+
+        <div class="section">
+          <h2>Questions asked</h2>
+          ${renderQuestions(brief.questionsAsked)}
+        </div>
+
+        <div class="section">
+          <h2>Overall feedback</h2>
+          <textarea id="overallFeedback">${escapeHtml(brief.overallFeedback || '')}</textarea>
+        </div>
+
+        <div class="section">
+          <h2>Detailed skill assessment</h2>
+          ${renderAssessments(brief.skillAssessments)}
+        </div>
+      `;
+    }
+
+    function syncEditableFields() {
+      if (!currentBrief) return;
+      const feedback = document.getElementById('overallFeedback');
+      if (feedback) currentBrief.overallFeedback = feedback.value;
+    }
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    if (params.get('interviewId')) {
+      loadBrief();
+    }
+  </script>
+</body>
+</html>

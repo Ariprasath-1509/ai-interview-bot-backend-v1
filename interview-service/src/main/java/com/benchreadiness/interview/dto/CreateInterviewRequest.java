@@ -29,6 +29,9 @@ public class CreateInterviewRequest {
     // Optional: admin-provided custom questions (list of question texts)
     private java.util.List<String> customQuestions;
 
+    /** Client-facing round label for reports (e.g. Hands-On, Technical Screen). */
+    private String roundName;
+
     /** When false, interview is theory/verbal only (no coding slot or code editor). Defaults to true. */
     private Boolean includeProgrammingQuestions;
     
@@ -87,6 +90,10 @@ public class CreateInterviewRequest {
     
     public Integer getCustomDurationMinutes() {
         return customDurationMinutes;
+    }
+
+    public String getRoundName() {
+        return roundName;
     }
     
     public String getCandidateId() {
@@ -160,6 +167,10 @@ public class CreateInterviewRequest {
     
     public void setCustomDurationMinutes(Integer customDurationMinutes) {
         this.customDurationMinutes = customDurationMinutes;
+    }
+
+    public void setRoundName(String roundName) {
+        this.roundName = roundName;
     }
     
     public void setCandidateId(String candidateId) {

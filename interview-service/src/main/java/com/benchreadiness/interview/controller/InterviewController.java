@@ -320,6 +320,19 @@ public class InterviewController {
         }
     }
 
+    @GetMapping("/{id}/client-brief/view")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    public ResponseEntity<Void> viewClientBriefPage(@PathVariable String id,
+                                                    @RequestHeader("X-User-Id") String userId,
+                                                    @RequestHeader("X-User-Role") String userRole) {
+        if (interviewService.findByIdForRole(id, userId, userRole).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.status(302)
+            .header("Location", "/client-brief.html?interviewId=" + id)
+            .build();
+    }
+
     @GetMapping("/{id}/client-brief")
     @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> getClientBrief(@PathVariable String id,
