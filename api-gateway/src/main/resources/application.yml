@@ -9,6 +9,8 @@ spring:
       - optional:file:${user.dir}/.env[.properties]
   application:
     name: api-gateway
+  codec:
+    max-in-memory-size: 100MB
   cloud:
     compatibility-verifier:
       enabled: false

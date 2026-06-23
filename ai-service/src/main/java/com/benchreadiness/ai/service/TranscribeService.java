@@ -183,10 +183,8 @@ public class TranscribeService {
         return i >= 0 ? n.substring(i) : ".webm";
     }
 
-    /** Only send model when explicitly set to a HuggingFace-style id (e.g. Systran/faster-whisper-medium). */
     private boolean shouldSendWhisperModel() {
         if (whisperModel == null || whisperModel.isBlank()) return false;
-        if ("whisper-1".equalsIgnoreCase(whisperModel)) return false;
-        return whisperModel.contains("/");
+        return !"whisper-1".equalsIgnoreCase(whisperModel);
     }
 }
