@@ -4,7 +4,6 @@ import com.benchreadiness.ai.client.ComplianceServiceClient;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -20,7 +19,6 @@ import java.util.Map;
  * Ollama-backed implementation. Uses POST {baseUrl}/api/chat.
  */
 @Component
-@ConditionalOnProperty(name = "app.llm.provider", havingValue = "ollama")
 public class OllamaAiClient implements LlmClient {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(OllamaAiClient.class);

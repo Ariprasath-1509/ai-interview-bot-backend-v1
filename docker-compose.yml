@@ -304,8 +304,8 @@ services:
       APP_MEDIA_STT_PROVIDER: ${APP_MEDIA_STT_PROVIDER:-faster-whisper}
       APP_MEDIA_WHISPER_URL: ${APP_MEDIA_WHISPER_URL:-http://whisper-stt:8000}
       APP_MEDIA_WHISPER_MODEL: ${APP_MEDIA_WHISPER_MODEL:-medium}
-      APP_MEDIA_COQUI_URL: ${APP_MEDIA_COQUI_URL:-http://coqui-tts:5002}
-      APP_MEDIA_TTS_PATH: ${APP_MEDIA_TTS_PATH:-/api/tts}
+      APP_MEDIA_KOKORO_URL: ${APP_MEDIA_KOKORO_URL:-http://kokoro-tts:8880}
+      APP_MEDIA_KOKORO_VOICE: ${APP_MEDIA_KOKORO_VOICE:-af_heart}
       JAVA_OPTS: "-Xms2g -Xmx3g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
     depends_on:
       eureka-server:
@@ -314,7 +314,7 @@ services:
         condition: service_healthy
       whisper-stt:
         condition: service_started
-      coqui-tts:
+      kokoro-tts:
         condition: service_healthy
     networks:
       - bench-network
@@ -429,7 +429,7 @@ services:
       - VAD_FILTER=true
       - VAD_THRESHOLD=0.5
       - VAD_MIN_SPEECH_DURATION_MS=250
-      - VAD_MAX_SPEECH_DURATION_S=30
+      - VAD_MAX_SPEECH_DURATION_S=120
       - VAD_MIN_SILENCE_DURATION_MS=2000
       - VAD_SPEECH_PAD_MS=400
     volumes:
@@ -453,37 +453,32 @@ services:
           cpus: '2'
           memory: 4G
 
-  coqui-tts:
-    image: registry.gitlab.com/ty_optimize/optimize/coqui_tts:latest
-    container_name: coqui-tts
+  kokoro-tts:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    container_name: kokoro-tts
     mem_limit: 2g
     memswap_limit: 2g
     ports:
-      - "6014:5002"
-    # VITS model is baked into the image at build time (see tts-service/Dockerfile).
-    # Do not mount tts-models here — an empty volume hides baked weights and forces a long runtime download.
-    command:
-      - /home/ttsuser/.local/bin/tts-server
-      - --model_name
-      - tts_models/en/ljspeech/vits
-      - --port
-      - "5002"
+      - "6014:8880"
+    # Models are downloaded on first start (~500 MB) and cached in the volume.
+    volumes:
+      - kokoro-models:/app/models
     networks:
       - bench-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/5002' || exit 1"]
-      interval: 15s
+      test: ["CMD-SHELL", "curl -sf http://localhost:8880/health || exit 1"]
+      interval: 20s
       timeout: 10s
-      retries: 12
-      start_period: 300s
+      retries: 10
+      start_period: 180s
     deploy:
       resources:
         limits:
           cpus: '2'
           memory: 2G
         reservations:
-          cpus: '1'
+          cpus: '0.5'
           memory: 1G
 
   questionbank-service:
@@ -540,6 +535,8 @@ volumes:
   elasticsearch-data:
     driver: local
   whisper-models:
+    driver: local
+  kokoro-models:
     driver: local
   interview-recordings:
     driver: local

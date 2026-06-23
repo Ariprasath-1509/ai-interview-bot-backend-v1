@@ -24,8 +24,9 @@ eureka:
 
 app:
   llm:
-    # Switch LLM provider: 'claude' (default) or 'ollama'
-    provider: ${APP_LLM_PROVIDER:ollama}
+    # 'hybrid' routes per-operation (question/rubric→Ollama, assessment/matching→Claude)
+    # 'claude' routes everything to Claude; 'ollama' routes everything to Ollama
+    provider: ${APP_LLM_PROVIDER:hybrid}
   jwt:
     secret: ${JWT_SECRET:}
     issuer: ${JWT_ISSUER:benchreadiness-auth}
@@ -38,13 +39,13 @@ app:
     assessment-temperature: ${APP_CLAUDE_ASSESSMENT_TEMPERATURE:0.25}
   ollama:
     base-url: ${APP_OLLAMA_BASE_URL:http://103.182.211.219:11434}
-    # Conversational Bot - Swapped to 14b because it is faster and more concise than 7b/8b
+    # Conversational Bot — qwen2.5:14b: fast, strong reasoning, good code/tech vocabulary
     question-model: ${APP_OLLAMA_QUESTION_MODEL:qwen2.5:14b}
-    # Assessment Evaluator - Upgraded to Qwen 2.5 architecture for speed and accuracy
+    # Assessment Evaluator — routed to Claude in hybrid mode; Ollama fallback if Claude unavailable
     assessment-model: ${APP_OLLAMA_ASSESSMENT_MODEL:qwen2.5:14b}
-    # Deep Reasoning Evaluator - Left on DeepSeek-R1 14B as it hit the 19-second sweet spot
-    rubric-model: ${APP_OLLAMA_RUBRIC_MODEL:deepseek-r1:14b}
-    # Matcher - Upgraded to keep vocabulary context aligned with the question model
+    # Rubric Generator — qwen2.5:14b: reliable structured JSON output
+    rubric-model: ${APP_OLLAMA_RUBRIC_MODEL:qwen2.5:14b}
+    # Candidate Matcher — routed to Claude in hybrid mode; Ollama fallback if Claude unavailable
     matching-model: ${APP_OLLAMA_MATCHING_MODEL:qwen2.5:14b}
     transcribe-model: ${APP_OLLAMA_TRANSCRIBE_MODEL:whisper}
     question-temperature: ${APP_OLLAMA_QUESTION_TEMPERATURE:0.0}
@@ -60,8 +61,8 @@ app:
     stt-provider: ${APP_MEDIA_STT_PROVIDER:faster-whisper}
     whisper-url: ${APP_MEDIA_WHISPER_URL:http://localhost:6013}
     whisper-model: ${APP_MEDIA_WHISPER_MODEL:whisper-1}
-    coqui-url: ${APP_MEDIA_COQUI_URL:http://localhost:6014}
-    tts-path: ${APP_MEDIA_TTS_PATH:/api/tts}
+    kokoro-url: ${APP_MEDIA_KOKORO_URL:http://localhost:6014}
+    kokoro-voice: ${APP_MEDIA_KOKORO_VOICE:af_heart}
 
 management:
   endpoints:

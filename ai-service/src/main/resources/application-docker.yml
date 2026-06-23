@@ -19,10 +19,10 @@ app:
     assessment-temperature: ${APP_CLAUDE_ASSESSMENT_TEMPERATURE:0.25}
   ollama:
     base-url: ${APP_OLLAMA_BASE_URL:http://103.182.211.219:11434}
-    model: ${APP_OLLAMA_MODEL:qwen2.5:7b}
+    model: ${APP_OLLAMA_MODEL:qwen2.5:14b}
   media:
     stt-provider: ${APP_MEDIA_STT_PROVIDER:faster-whisper}
     whisper-url: ${APP_MEDIA_WHISPER_URL:http://whisper-stt:8000}
     whisper-model: ${APP_MEDIA_WHISPER_MODEL:medium}
-    coqui-url: ${APP_MEDIA_COQUI_URL:http://coqui-tts:5002}
-    tts-path: ${APP_MEDIA_TTS_PATH:/api/tts}
+    kokoro-url: ${APP_MEDIA_KOKORO_URL:http://kokoro-tts:8880}
+    kokoro-voice: ${APP_MEDIA_KOKORO_VOICE:af_heart}

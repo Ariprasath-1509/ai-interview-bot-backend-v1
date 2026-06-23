@@ -7,7 +7,9 @@ import com.benchreadiness.ai.dto.RubricRequest;
 import com.benchreadiness.ai.service.AiMatchingService;
 import com.benchreadiness.ai.service.AssessmentService;
 import com.benchreadiness.ai.service.AsyncAssessmentService;
+import com.benchreadiness.ai.service.HybridLlmClient;
 import com.benchreadiness.ai.service.LlmClient;
+import com.benchreadiness.ai.service.LlmProviderSettings;
 import com.benchreadiness.ai.service.QuestionService;
 import com.benchreadiness.ai.service.RubricService;
 import com.benchreadiness.ai.service.MediaHealthService;
@@ -58,6 +60,48 @@ public class AiController {
         this.mediaHealthService = mediaHealthService;
     }
 
+    // ── Admin: LLM provider routing ──────────────────────────────────────────
+
+    @GetMapping("/admin/llm-settings")
+    public ResponseEntity<?> getLlmSettings() {
+        if (!(llmClient instanceof HybridLlmClient hybrid)) {
+            return ResponseEntity.ok(Map.of(
+                "mode", "single",
+                "message", "HybridLlmClient is not active. Restart with app.llm.provider=hybrid to enable per-operation routing.",
+                "claudeConfigured", llmClient.isConfigured(),
+                "ollamaConfigured", false
+            ));
+        }
+        LlmProviderSettings s = hybrid.getSettings();
+        Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("mode", "hybrid");
+        resp.put("claudeConfigured", hybrid.isClaudeConfigured());
+        resp.put("ollamaConfigured", hybrid.isOllamaConfigured());
+        resp.putAll(s.toMap());
+        return ResponseEntity.ok(resp);
+    }
+
+    @PutMapping("/admin/llm-settings")
+    public ResponseEntity<?> updateLlmSettings(@RequestBody Map<String, String> body) {
+        if (!(llmClient instanceof HybridLlmClient hybrid)) {
+            return ResponseEntity.status(400).body(Map.of("error", "HybridLlmClient is not active"));
+        }
+        try {
+            hybrid.getSettings().applyMap(body);
+            LlmProviderSettings s = hybrid.getSettings();
+            Map<String, Object> resp = new java.util.LinkedHashMap<>();
+            resp.put("mode", "hybrid");
+            resp.put("claudeConfigured", hybrid.isClaudeConfigured());
+            resp.put("ollamaConfigured", hybrid.isOllamaConfigured());
+            resp.putAll(s.toMap());
+            return ResponseEntity.ok(resp);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+
     @GetMapping("/health")
     public ResponseEntity<?> health() {
         Map<String, Object> media = mediaHealthService.probe();
@@ -67,7 +111,7 @@ public class AiController {
             "sttConfigured", transcribeService.isConfigured(),
             "ttsConfigured", ttsService.isConfigured(),
             "whisperReachable", media.get("whisperReachable"),
-            "coquiReachable", media.get("coquiReachable"),
+            "kokoroReachable", media.get("kokoroReachable"),
             "mediaReady", media.get("mediaReady")
         ));
     }
@@ -368,7 +412,7 @@ public class AiController {
         if (!ttsService.isConfigured()) {
             return ResponseEntity.status(503).body(Map.of(
                 "error", "tts_not_configured",
-                "detail", "Set APP_MEDIA_COQUI_URL (Coqui TTS on port 6014)."
+                "detail", "Set APP_MEDIA_KOKORO_URL (Kokoro TTS on port 6014)."
             ));
         }
         String text = body.get("text") instanceof String s ? s : "";

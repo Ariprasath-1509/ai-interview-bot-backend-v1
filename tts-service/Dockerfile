@@ -17,8 +17,13 @@ WORKDIR /home/ttsuser
 
 # Install CPU-only PyTorch first — avoids pulling CUDA wheels and shrinks the image ~2GB
 RUN pip install --no-cache-dir --user \
-    torch==2.1.2+cpu torchaudio==2.1.2+cpu \
+    torch==2.6.0+cpu \
     --index-url https://download.pytorch.org/whl/cpu
+
+# Install torchaudio without CPU suffix (it will use the CPU torch we just installed)
+RUN pip install --no-cache-dir --user \
+    torchaudio==2.6.0 \
+    --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Pin TTS; extra-index-url keeps pip from replacing CPU torch with CUDA wheels
 RUN pip install --no-cache-dir --user TTS==0.22.0 \

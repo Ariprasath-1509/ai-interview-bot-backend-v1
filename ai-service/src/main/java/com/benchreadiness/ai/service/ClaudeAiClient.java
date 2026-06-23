@@ -4,7 +4,6 @@ import com.benchreadiness.ai.client.ComplianceServiceClient;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Component;
@@ -18,7 +17,6 @@ import java.util.Map;
 import java.util.LinkedHashMap;
 
 @Component
-@ConditionalOnProperty(name = "app.llm.provider", havingValue = "claude", matchIfMissing = true)
 public class ClaudeAiClient implements LlmClient {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ClaudeAiClient.class);
