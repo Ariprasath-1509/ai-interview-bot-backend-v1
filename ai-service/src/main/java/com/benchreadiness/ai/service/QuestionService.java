@@ -93,6 +93,64 @@ public class QuestionService {
         )
     );
 
+    /**
+     * Curated real interview questions per mode and slot.
+     * Used by progressQuestionAvoidingRecent so skip/advance responses are proper questions,
+     * not raw theme directive text.
+     */
+    private static final Map<String, Map<Integer, String>> MODE_SLOT_QUESTIONS = Map.of(
+        "SCREENING", Map.of(
+            1, "Walk me through the most recent system you built or contributed to significantly — what problem it solved, your stack, and the scale it operated at.",
+            2, "Pick the one backend technology in this role's stack you use most — explain how it works under the hood and a case where you'd avoid it.",
+            3, "Given a list of integers, write a function that returns every pair summing to a target value — walk me through your approach and its time complexity.",
+            4, "Your API response time jumped from 200 ms to 2 seconds overnight — how would you explain what's happening to a product manager, and what's your first diagnostic step?",
+            5, "What specifically draws you to a backend role like this one, and what's the one technical area you most want to grow in over the next year?"
+        ),
+        "L1", Map.of(
+            1, "Walk me through a backend service you shipped recently — what problem it solved, what you owned specifically, and the one decision you'd make differently.",
+            2, "Pick the core backend technology in the JD you know best — explain its concurrency model and a real scenario where it caused you trouble.",
+            3, "Write a function that returns the first non-repeating character in a string — walk me through your approach, edge cases, and complexity.",
+            4, "How do you decide when code is production-ready — what's your personal quality bar, and what corners have you cut and later regretted?",
+            5, "Describe your testing strategy for a new REST endpoint — what you'd unit test, what you'd integration test, and where you'd stop.",
+            6, "Tell me about a technology or pattern you learned in the last six months and applied in real work — what drove you to pick it up?",
+            7, "Walk me through a code review where you either gave or received feedback that genuinely changed how you write code."
+        ),
+        "L2", Map.of(
+            1, "Describe a multi-service system you've worked on — how services communicate, where ownership boundaries sit, and how it behaves when a downstream is down.",
+            2, "Tell me about a design decision where you traded consistency for availability or vice versa — what tipped the scale and what problems followed?",
+            3, "Walk me through a production incident you owned — what you saw first, how you isolated the root cause, and what you changed to prevent recurrence.",
+            4, "How do you handle shared mutable state across services — what patterns have you used and where did they break down in practice?",
+            5, "Describe a performance bottleneck you traced and fixed — tooling, root cause, and what the fix cost you elsewhere.",
+            6, "Walk me through your incident playbook — how you detect, communicate, root-cause, and formally close out a production outage.",
+            7, "Which design pattern have you applied most deliberately in production — why you chose it, and a case where you considered it but opted for something simpler?",
+            8, "Describe a third-party integration that caused you production pain — what the failure mode was and how you made your service resilient to it."
+        ),
+        "L3", Map.of(
+            1, "Walk me through a system you architected from scratch — requirements, key component decisions, and the two choices you'd revisit with hindsight.",
+            2, "Design a distributed cache with strong consistency guarantees — explain the core trade-offs and how you'd handle a network partition.",
+            3, "Describe your approach to preventing cascading failures — circuit breakers, bulkheads, timeouts — with a concrete production example.",
+            4, "Walk me through how you profiled and optimized a system hitting its performance ceiling — tooling, root cause, and what the fix cost elsewhere.",
+            5, "How do you choose between a relational database, a document store, and a key-value cache for different parts of the same system?",
+            6, "What does your observability stack look like in production — metrics, logging, tracing — and what alert fired last that actually mattered?",
+            7, "Walk me through a threat model for a public API you've built — what attack surfaces you identified and how you hardened them.",
+            8, "Describe a time you drove a significant architectural change — how you built consensus, managed migration risk, and handled rollback.",
+            9, "You need to migrate a high-traffic monolith to microservices with zero downtime — what's your sequencing strategy?",
+            10, "A vague product requirement arrives that looks technically risky — walk me through how you turn it into a scoped, low-risk implementation plan."
+        ),
+        "L4", Map.of(
+            1, "Design a real-time event pipeline that processes 1M events per second with at-least-once delivery — walk me through the architecture and failure recovery.",
+            2, "Compare the saga pattern to two-phase commit for cross-service transactions in a high-throughput order system — defend your choice under real load.",
+            3, "Walk me through a chaos engineering exercise you designed or ran — what hypotheses you tested, what you found, and what you changed.",
+            4, "Describe a cross-team technical alignment problem you solved — competing priorities, key stakeholders, and how you drove an actual decision.",
+            5, "A VP wants to adopt a new database for the core platform — what's your evaluation framework and how do you manage the risk of being wrong?",
+            6, "What does your team's technical roadmap look like for the next 18 months and how do you balance it against immediate product delivery pressure?",
+            7, "How do you establish and enforce technical standards across multiple teams without creating bureaucratic drag that slows delivery?",
+            8, "Walk me through a technology bet you made that didn't pay off — what you evaluated, what went wrong, and what you'd do differently.",
+            9, "How do you identify high-potential engineers and grow them toward staff-level impact — what does your actual approach look like in practice?",
+            10, "A critical business initiative depends on a technical decision you believe is wrong — how do you handle it?"
+        )
+    );
+
     /** Designated slot for the single coding exercise per interview mode. */
     private static final Map<String, Integer> CODING_SLOT_BY_MODE = Map.of(
         "SCREENING", 3,
@@ -143,6 +201,15 @@ public class QuestionService {
             log.info("Skip/advance request detected — progressing without probe (slot={})", req.getSlot());
             QuestionResult result = new QuestionResult(
                 progressQuestionAvoidingRecent(req, req.getSlot()),
+                false, false, null, "AI_GENERATED"
+            );
+            return finalizeAndCache(requestCacheKey, req, result);
+        }
+
+        if (isClarificationRequest(req.getLastAnswer())) {
+            log.info("Clarification request detected — re-phrasing last question (slot={})", req.getSlot());
+            QuestionResult result = new QuestionResult(
+                rephraseLastQuestion(req),
                 false, false, null, "AI_GENERATED"
             );
             return finalizeAndCache(requestCacheKey, req, result);
@@ -369,11 +436,32 @@ public class QuestionService {
         return new ManipulationCheck(true, newCount <= MANIPULATION_WARN_THRESHOLD, newCount >= MANIPULATION_TERMINATE_THRESHOLD);
     }
 
+    /**
+     * For timer-based interviews, slots can go well beyond the fixed theme set.
+     * Cycle back through themes with a "deeper dive" framing so questions stay fresh.
+     */
+    private String resolveSlotTheme(String mode, int slot) {
+        Map<Integer, String> slotThemes = MODE_SLOT_THEMES.getOrDefault(mode, MODE_SLOT_THEMES.get("L3"));
+        if (slotThemes.containsKey(slot)) return slotThemes.get(slot);
+
+        // Extended slot: cycle through the theme list with a depth marker so the AI knows
+        // to go deeper rather than re-opening the same area at the same level.
+        int maxDefined = slotThemes.size();
+        int cycledSlot = ((slot - 1) % maxDefined) + 1;
+        String baseTheme = slotThemes.getOrDefault(cycledSlot, "Technical depth");
+        int cycle = (slot - 1) / maxDefined; // 0=first pass, 1=second pass (deeper), ...
+        String depthLabel = switch (cycle) {
+            case 0 -> baseTheme;
+            case 1 -> "Deeper dive — " + baseTheme.toLowerCase() + " Push for edge cases, failure modes, and production war stories.";
+            case 2 -> "Expert probe — " + baseTheme.toLowerCase() + " Focus on trade-offs the candidate would defend under push-back.";
+            default -> "Mastery — " + baseTheme.toLowerCase() + " Challenge assumptions and probe cross-cutting concerns.";
+        };
+        return depthLabel;
+    }
+
     private String llmQuestion(NextQuestionRequest req, String userId) throws Exception {
         String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";
-        Map<Integer, String> slotThemes = MODE_SLOT_THEMES.getOrDefault(mode, MODE_SLOT_THEMES.get("L3"));
-        String slotTheme = slotThemes.getOrDefault(req.getSlot(),
-            "Continue probing technical depth and communication quality relevant to the role.");
+        String slotTheme = resolveSlotTheme(mode, req.getSlot());
         String coveredTopics = extractCoveredTopics(req.getUtterances());
         List<String> rubricLabels = extractRubricLabels(req.getRubricJson());
         String targetSkill = pickTargetSkill(req.getSlot(), rubricLabels, coveredTopics);
@@ -590,17 +678,22 @@ public class QuestionService {
             return variants.get(lastAnswer.length() % variants.size());
         }
 
-        return switch (slot) {
-            case 2 -> "Walk me through one recent project you owned — problem, what you built, and how you knew it worked.";
-            case 3 -> "A situation where you had to trade off speed versus correctness — how did you decide?";
-            case 4 -> "Explain one technical idea you'd want a peer to understand quickly — where it shines and where it falls apart.";
-            case 5 -> "If that idea had to run in production tomorrow, how would you roll it out and what would you watch first?";
-            case 6 -> "An edge case or incident — what breaks first, and how do you harden it?";
-            case 7 -> "Sketch a system that fits what we've been discussing — components, data flow, main risk.";
-            case 8 -> "A concrete problem in this space — your approach, complexity, tests.";
-            case 9 -> "Explain a tricky technical trade-off as you would to a sharp but rushed peer.";
-            default -> "A vague requirement — how do you turn it into a concrete technical plan with checkpoints?";
+        // Cycle through fallback questions for extended timer-based interviews
+        String[] extendedFallbacks = {
+            "Walk me through one recent project you owned — problem, what you built, and how you knew it worked.",
+            "A situation where you had to trade off speed versus correctness — how did you decide?",
+            "Explain one technical idea you'd want a peer to understand quickly — where it shines and where it falls apart.",
+            "If that system had to run in production tomorrow, how would you roll it out and what would you watch first?",
+            "An edge case or incident — what breaks first, and how do you harden it?",
+            "Sketch a system that fits what we've been discussing — components, data flow, main risk.",
+            "A concrete performance bottleneck in this space — your approach, what you measured, how you fixed it.",
+            "Explain a tricky technical trade-off as you would to a sharp but rushed peer.",
+            "A vague requirement — how do you turn it into a concrete technical plan with checkpoints?",
+            "What would you change about a past design decision, knowing what you know now?",
+            "Describe a time you disagreed with a teammate on a technical choice — how did you resolve it?",
+            "What's the most complex debugging session you've handled, and how did you trace the root cause?",
         };
+        return extendedFallbacks[(slot - 2) % extendedFallbacks.length];
     }
 
     private List<String> extractRubricLabels(String rubricJson) {
@@ -754,10 +847,14 @@ public class QuestionService {
     private boolean isSkipOrAdvanceRequest(String answer) {
         if (answer == null || answer.isBlank()) return false;
         String lower = answer.trim().toLowerCase();
+        // Single-word or very short inputs that are clearly not answers
+        if (lower.length() < 20 && (lower.equals("ok") || lower.equals("okay") || lower.equals("yes") ||
+                lower.equals("sure") || lower.equals("alright") || lower.equals("fine"))) return true;
         String[] patterns = {
             "next question", "skip", "skip this", "move on", "go for", "pass this", "pass on",
             "different question", "another question", "can we skip", "let's move", "lets move",
-            "i don't know this", "i dont know this", "not prepared"
+            "i don't know this", "i dont know this", "not prepared", "taiyari", "next please",
+            "can you ask", "ask me something", "ask another"
         };
         for (String pattern : patterns) {
             if (lower.contains(pattern)) return true;
@@ -765,19 +862,61 @@ public class QuestionService {
         return false;
     }
 
+    /**
+     * Detects when the candidate is asking for clarification or rephrasing of the last question
+     * rather than attempting to answer it.
+     */
+    private boolean isClarificationRequest(String answer) {
+        if (answer == null || answer.isBlank()) return false;
+        String lower = answer.trim().toLowerCase();
+        String[] patterns = {
+            "can you explain", "what do you mean", "i don't understand", "i dont understand",
+            "can't understand", "cannot understand", "what are you asking", "what is the question",
+            "please clarify", "clarify the question", "i'm confused", "im confused",
+            "what exactly", "rephrase", "repeat the question", "say that again",
+            "i'm not sure what you", "im not sure what you", "what question"
+        };
+        for (String pattern : patterns) {
+            if (lower.contains(pattern)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns a re-phrased version of the last bot question, or a fresh question
+     * if no recent bot utterance is found.
+     */
+    private String rephraseLastQuestion(NextQuestionRequest req) {
+        List<NextQuestionRequest.Utterance> utterances = req.getUtterances();
+        if (utterances != null) {
+            for (int i = utterances.size() - 1; i >= 0; i--) {
+                NextQuestionRequest.Utterance u = utterances.get(i);
+                if ("BOT".equals(u.speaker()) && u.text() != null && !u.text().isBlank()) {
+                    String lastQ = u.text().trim();
+                    // Strip any meta prefixes like "For [Role], " that snuck through
+                    lastQ = lastQ.replaceAll("^For [^,]+, ", "");
+                    return "Let me re-phrase — " + Character.toLowerCase(lastQ.charAt(0)) + lastQ.substring(1);
+                }
+            }
+        }
+        return progressQuestionAvoidingRecent(req, req.getSlot());
+    }
+
     /** Pick a fresh question for this slot that does not repeat recent bot dialogue. */
     private String progressQuestionAvoidingRecent(NextQuestionRequest req, int startSlot) {
         List<String> recentBot = extractRecentBotQuestions(req.getUtterances(), 6);
         String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";
-        Map<Integer, String> slotThemes = MODE_SLOT_THEMES.getOrDefault(mode, MODE_SLOT_THEMES.get("L3"));
+        Map<Integer, String> curatedQuestions = MODE_SLOT_QUESTIONS.getOrDefault(mode, MODE_SLOT_QUESTIONS.get("L3"));
+        int maxDefined = curatedQuestions != null ? curatedQuestions.size() : 5;
 
-        for (int offset = 0; offset < 6; offset++) {
+        for (int offset = 0; offset < 8; offset++) {
             int slot = startSlot + offset;
-            String theme = slotThemes.get(slot);
-            if (theme != null && !theme.isBlank()) {
-                String themed = themeToInterviewQuestion(theme, req.getJdTitle());
-                if (!isQuestionSimilarToRecent(themed, recentBot)) {
-                    return themed;
+            // Cycle through curated questions for extended timer-based interviews
+            int effectiveSlot = ((slot - 1) % maxDefined) + 1;
+            if (curatedQuestions != null) {
+                String curated = curatedQuestions.get(effectiveSlot);
+                if (curated != null && !curated.isBlank() && !isQuestionSimilarToRecent(curated, recentBot)) {
+                    return curated;
                 }
             }
             String fallback = slotFallbackQuestion(slot, req.getJdTitle(), offset);
@@ -787,25 +926,15 @@ public class QuestionService {
         }
 
         List<String> alternates = List.of(
-            "Let's switch topics — describe a technical decision you reversed after production feedback. What signal triggered the change?",
-            "Tell me about a time you had to simplify an over-engineered solution. What did you remove and why?",
+            "Describe a technical decision you reversed after production feedback — what signal triggered the change?",
+            "Tell me about a time you simplified an over-engineered solution — what did you remove and why?",
             "What's a monitoring or observability gap you discovered only after an incident, and how did you close it?",
-            "Describe how you'd onboard a new engineer to the most complex part of a system you've worked on."
+            "How would you onboard a new engineer to the most complex part of a system you've built?"
         );
         for (String alt : alternates) {
             if (!isQuestionSimilarToRecent(alt, recentBot)) return alt;
         }
         return alternates.get(startSlot % alternates.size());
-    }
-
-    private String themeToInterviewQuestion(String theme, String jdTitle) {
-        String role = jdTitle != null && !jdTitle.isBlank() ? jdTitle : "this role";
-        String cleaned = theme.trim();
-        if (cleaned.endsWith(".")) cleaned = cleaned.substring(0, cleaned.length() - 1);
-        if (!cleaned.endsWith("?")) {
-            return "For " + role + ", " + Character.toLowerCase(cleaned.charAt(0)) + cleaned.substring(1) + "?";
-        }
-        return cleaned;
     }
 
     private String slotFallbackQuestion(int slot, String jdTitle, int variantSeed) {
