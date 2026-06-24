@@ -80,6 +80,22 @@ public class ObserverController {
         }
     }
 
+    /**
+     * Notifies all admins and recruiters of the interview's branch that a session
+     * has ended (COMPLETED, REVIEW_PENDING, or WITHDRAWN) and requires review.
+     * Branch segregation is enforced: DEVELOPMENT recipients only see DEVELOPMENT
+     * interviews, TESTING recipients only see TESTING interviews.
+     */
+    @PostMapping("/notify/interview-completed")
+    public ResponseEntity<?> notifyInterviewCompleted(@RequestBody Map<String, String> req) {
+        try {
+            emailService.sendInterviewCompletedNotification(req);
+            return ResponseEntity.ok(Map.of("ok", true));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", "Failed to send notifications: " + e.getMessage()));
+        }
+    }
+
     @GetMapping("/events/{interviewId}")
     @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> getEvents(@PathVariable String interviewId,

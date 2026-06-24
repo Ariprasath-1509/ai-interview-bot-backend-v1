@@ -289,6 +289,20 @@ public class InterviewService {
             String.format("Reason: %s", req.getReason() != null ? req.getReason() : "not_prepared"),
             null, null);
 
+        // Broadcast to all branch admins and recruiters so the whole team can review
+        try {
+            Map<String, String> notif = new java.util.HashMap<>();
+            notif.put("interviewId", saved.getId());
+            notif.put("branch", saved.getBranch() != null ? saved.getBranch() : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
+            notif.put("candidateName", engineerName);
+            notif.put("status", InterviewStatus.WITHDRAWN.name());
+            notif.put("proposedVerdict", ReadinessVerdict.WITHDRAWN.name());
+            notif.put("reason", req.getReason() != null ? req.getReason() : "not_prepared");
+            observerServiceClient.notifyInterviewCompleted(notif);
+        } catch (Exception e) {
+            log.warn("Failed to send withdrawal notification for interview {}: {}", saved.getId(), e.getMessage());
+        }
+
         return saved;
     }
 
@@ -510,10 +524,25 @@ public class InterviewService {
         Engineer engineer = engineerRepository.findById(saved.getEngineerId()).orElse(null);
         String engineerName = engineer != null ? engineer.getName() : "Unknown";
         logAudit(saved.getEngineerId(), engineerName, "CANDIDATE", "INTERVIEW_COMPLETED", saved.getId(),
-            String.format("Status: %s, Verdict: %s", saved.getStatus(), 
+            String.format("Status: %s, Verdict: %s", saved.getStatus(),
                 saved.getProposedVerdict() != null ? saved.getProposedVerdict() : "N/A"),
             null, null);
-        
+
+        // Notify all branch admins and recruiters to review
+        if (saved.getStatus() == InterviewStatus.COMPLETED || saved.getStatus() == InterviewStatus.REVIEW_PENDING) {
+            try {
+                Map<String, String> notif = new java.util.HashMap<>();
+                notif.put("interviewId", saved.getId());
+                notif.put("branch", saved.getBranch() != null ? saved.getBranch() : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
+                notif.put("candidateName", engineerName);
+                notif.put("status", saved.getStatus().name());
+                notif.put("proposedVerdict", saved.getProposedVerdict() != null ? saved.getProposedVerdict().name() : "UNKNOWN");
+                observerServiceClient.notifyInterviewCompleted(notif);
+            } catch (Exception e) {
+                log.warn("Failed to send completion notification for interview {}: {}", saved.getId(), e.getMessage());
+            }
+        }
+
         return saved;
     }
 

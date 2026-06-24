@@ -161,6 +161,120 @@ public class EmailService {
             + "Review: " + interviewBaseUrl.replace("/interview", "") + "/admin/clients";
     }
 
+    /**
+     * Sends a review-required notification to every admin and recruiter whose branch
+     * matches the interview's branch. SUPER_ADMINs (branch == null) receive it for
+     * every branch. DEVELOPMENT interviews go only to DEVELOPMENT staff, TESTING
+     * interviews go only to TESTING staff.
+     */
+    public void sendInterviewCompletedNotification(Map<String, String> req) {
+        String interviewId    = req.getOrDefault("interviewId", "");
+        String branch         = req.getOrDefault("branch", "DEVELOPMENT");
+        String candidateName  = req.getOrDefault("candidateName", "Candidate");
+        String status         = req.getOrDefault("status", "COMPLETED");
+        String proposedVerdict = req.getOrDefault("proposedVerdict", "UNKNOWN");
+        String reason         = req.get("reason"); // only present for WITHDRAWN
+
+        List<Map<String, Object>> allStaff;
+        try {
+            allStaff = authServiceClient.getAllStaff();
+        } catch (Exception e) {
+            log.error("Cannot fetch staff list for interview completion notification (interview={}): {}", interviewId, e.getMessage());
+            return;
+        }
+        if (allStaff == null || allStaff.isEmpty()) {
+            log.warn("No staff found — skipping completion notification for interview {}", interviewId);
+            return;
+        }
+
+        boolean isWithdrawn = "WITHDRAWN".equalsIgnoreCase(status);
+        String subject = buildCompletionSubject(isWithdrawn, candidateName, branch, reason);
+        String reviewLink = interviewBaseUrl.replace("/interview", "") + "/admin/interviews/" + interviewId + "/review";
+
+        Set<String> sentEmails = new HashSet<>();
+        for (Map<String, Object> staff : allStaff) {
+            String recipientEmail = (String) staff.get("email");
+            if (recipientEmail == null || recipientEmail.isBlank()) continue;
+            if (!sentEmails.add(recipientEmail.trim().toLowerCase())) continue;
+
+            // Branch segregation: null branch = SUPER_ADMIN (receives all), otherwise must match
+            String recipientBranch = (String) staff.get("branch");
+            if (recipientBranch != null && !recipientBranch.equalsIgnoreCase(branch)) continue;
+
+            String recipientName = (String) staff.getOrDefault("name", "Team");
+            try {
+                MimeMessage mime = mailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(mime, true, "UTF-8");
+                helper.setFrom(from);
+                helper.setTo(recipientEmail);
+                helper.setSubject(subject);
+                helper.setText(buildCompletionEmailBody(recipientName, interviewId, candidateName,
+                        branch, status, proposedVerdict, reason, reviewLink), true);
+                mailSender.send(mime);
+                log.info("Interview completion notification sent to {} [branch={}] for interview {}", recipientEmail, branch, interviewId);
+            } catch (Exception e) {
+                log.warn("Failed to send completion notification to {} for interview {}: {}", recipientEmail, interviewId, e.getMessage());
+            }
+        }
+    }
+
+    private String buildCompletionSubject(boolean isWithdrawn, String candidateName, String branch, String reason) {
+        String branchTag = "[" + branch + "]";
+        if (isWithdrawn) {
+            String reasonLabel = switch (reason != null ? reason : "") {
+                case "tab_switch_violation" -> "Tab Switch Violation";
+                case "ai_manipulation"      -> "AI Manipulation Detected";
+                case "proctoring_violation" -> "Proctoring Violation";
+                case "not_prepared"         -> "Candidate Not Prepared";
+                default                     -> "Ended Early";
+            };
+            return branchTag + " Interview Withdrawn — " + reasonLabel + " | Review Required: " + candidateName;
+        }
+        return branchTag + " Interview Completed — Review Required: " + candidateName;
+    }
+
+    private String buildCompletionEmailBody(String recipientName, String interviewId,
+                                            String candidateName, String branch, String status,
+                                            String proposedVerdict, String reason, String reviewLink) {
+        boolean isWithdrawn = "WITHDRAWN".equalsIgnoreCase(status);
+        String accentColor  = isWithdrawn ? "#dc2626" : "#7c3aed";
+        String title        = isWithdrawn ? "Interview Ended — Review Required" : "Interview Completed — Review Required";
+        String branchLabel  = "TESTING".equalsIgnoreCase(branch) ? "Testing" : "Development";
+        String verdictDisplay = proposedVerdict.replace("_", " ");
+
+        String reasonBlock = "";
+        if (isWithdrawn && reason != null) {
+            String reasonText = switch (reason) {
+                case "tab_switch_violation" -> "Candidate switched tabs or windows multiple times (automatic termination).";
+                case "ai_manipulation"      -> "AI manipulation was detected and the session was terminated automatically.";
+                case "proctoring_violation" -> "A video proctoring violation was detected (automatic termination).";
+                case "not_prepared"         -> "The candidate indicated they were not prepared to continue.";
+                default                     -> "The interview time limit was reached.";
+            };
+            reasonBlock = "<div style='background:#fef2f2;border-left:4px solid #dc2626;padding:14px 16px;margin:16px 0;border-radius:6px;'>"
+                    + "<p style='margin:0;color:#991b1b;font-size:13px;font-weight:600;'>Termination Reason</p>"
+                    + "<p style='margin:6px 0 0;color:#7f1d1d;font-size:13px;'>" + escapeHtml(reasonText) + "</p></div>";
+        }
+
+        Map<String, String> details = new java.util.LinkedHashMap<>();
+        details.put("Interview ID",    interviewId);
+        details.put("Candidate",       candidateName);
+        details.put("Branch",          branchLabel);
+        details.put("Status",          status.replace("_", " "));
+        details.put("Proposed Verdict", verdictDisplay);
+        details.put("Action Required", "Review transcript and sign off");
+
+        String intro = isWithdrawn
+                ? "An interview session in the <strong>" + branchLabel + "</strong> branch has <strong style='color:#dc2626;'>ended early</strong>. The AI assessment has been recorded and is ready for your review."
+                : "An interview session in the <strong>" + branchLabel + "</strong> branch has been <strong style='color:#7c3aed;'>completed</strong>. The AI assessment is ready for your sign-off.";
+
+        String footer = "Please review the full transcript, assessment scores, and proctoring timeline before signing off.";
+
+        return buildEmailTemplate(title, accentColor, recipientName, intro,
+                buildDetailsCard("Interview Summary", details, accentColor) + reasonBlock,
+                footer, "Review Interview", reviewLink);
+    }
+
     public void sendInterviewCancellation(String toEmail, String candidateName, String interviewId, String jdTitle, String reason) {
         String name = (candidateName != null && !candidateName.isBlank()) ? candidateName : "Candidate";
         try {
