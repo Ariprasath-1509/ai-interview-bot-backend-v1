@@ -5,6 +5,12 @@ eureka:
   instance:
     prefer-ip-address: true
 
+spring:
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
 logstash:
   host: logstash
 

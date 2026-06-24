@@ -2,6 +2,10 @@ server:
   port: 6003
 
 spring:
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
   # Optional .env at repo root (see .env.example). Override with ENV_FILE=/path/to/.env
   config:
     import:
