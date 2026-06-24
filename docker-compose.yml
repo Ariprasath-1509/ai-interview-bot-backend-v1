@@ -303,9 +303,10 @@ services:
       APP_OLLAMA_TIMEOUT_SECONDS: ${APP_OLLAMA_TIMEOUT_SECONDS:-600}
       APP_MEDIA_STT_PROVIDER: ${APP_MEDIA_STT_PROVIDER:-faster-whisper}
       APP_MEDIA_WHISPER_URL: ${APP_MEDIA_WHISPER_URL:-http://whisper-stt:8000}
-      APP_MEDIA_WHISPER_MODEL: ${APP_MEDIA_WHISPER_MODEL:-medium}
+      APP_MEDIA_WHISPER_MODEL: ${APP_MEDIA_WHISPER_MODEL:-small}
       APP_MEDIA_KOKORO_URL: ${APP_MEDIA_KOKORO_URL:-http://kokoro-tts:8880}
       APP_MEDIA_KOKORO_VOICE: ${APP_MEDIA_KOKORO_VOICE:-af_heart}
+      APP_MEDIA_TTS_TIMEOUT_SECONDS: ${APP_MEDIA_TTS_TIMEOUT_SECONDS:-120}
       JAVA_OPTS: "-Xms2g -Xmx3g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
     depends_on:
       eureka-server:
@@ -313,7 +314,7 @@ services:
       ops-service:
         condition: service_healthy
       whisper-stt:
-        condition: service_started
+        condition: service_healthy
       kokoro-tts:
         condition: service_healthy
     networks:
@@ -419,19 +420,23 @@ services:
   whisper-stt:
     image: fedirz/faster-whisper-server:latest-cpu
     container_name: whisper-stt
-    mem_limit: 6g
-    memswap_limit: 6g
+    mem_limit: 4g
+    memswap_limit: 4g
     ports:
       - "6013:8000"
     environment:
-      - WHISPER_MODEL=medium
+      - WHISPER_MODEL=small
+      - WHISPER__MODEL=Systran/faster-whisper-small
+      - WHISPER__COMPUTE_TYPE=int8
+      - WHISPER__INFERENCE_DEVICE=cpu
+      - WHISPER__CPU_THREADS=4
       - WHISPER_LANGUAGE=en
       - VAD_FILTER=true
       - VAD_THRESHOLD=0.5
       - VAD_MIN_SPEECH_DURATION_MS=250
       - VAD_MAX_SPEECH_DURATION_S=120
-      - VAD_MIN_SILENCE_DURATION_MS=2000
-      - VAD_SPEECH_PAD_MS=400
+      - VAD_MIN_SILENCE_DURATION_MS=500
+      - VAD_SPEECH_PAD_MS=200
     volumes:
       - whisper-models:/root/.cache/whisper
     networks:
@@ -447,19 +452,24 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '8'
-          memory: 6G
-        reservations:
-          cpus: '2'
+          cpus: '4'
           memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
 
   kokoro-tts:
     image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
     container_name: kokoro-tts
-    mem_limit: 2g
-    memswap_limit: 2g
+    mem_limit: 4g
+    memswap_limit: 4g
     ports:
       - "6014:8880"
+    environment:
+      - ONNX_NUM_THREADS=4
+      - ONNX_INTER_OP_THREADS=2
+      - ONNX_EXECUTION_MODE=parallel
+      - ONNX_OPTIMIZATION_LEVEL=all
     # Models are downloaded on first start (~500 MB) and cached in the volume.
     volumes:
       - kokoro-models:/app/models
@@ -475,11 +485,30 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2'
-          memory: 2G
+          cpus: '4'
+          memory: 4G
         reservations:
-          cpus: '0.5'
-          memory: 1G
+          cpus: '1'
+          memory: 2G
+
+  media-warmup:
+    image: python:3.12-alpine
+    container_name: media-warmup
+    depends_on:
+      whisper-stt:
+        condition: service_healthy
+      kokoro-tts:
+        condition: service_healthy
+    environment:
+      WHISPER_URL: http://whisper-stt:8000
+      KOKORO_URL: http://kokoro-tts:8880
+      KOKORO_VOICE: ${APP_MEDIA_KOKORO_VOICE:-af_heart}
+    volumes:
+      - ./scripts/warmup-media.py:/warmup-media.py:ro
+    networks:
+      - bench-network
+    restart: "no"
+    entrypoint: ["python", "/warmup-media.py"]
 
   questionbank-service:
     <<: *default-env-file
