@@ -246,6 +246,7 @@ services:
       GATEWAY_SHARED_KEY: ${GATEWAY_SHARED_KEY:-}
       APP_RECORDING_DIR: /app/uploads/recordings
       JAVA_OPTS: "-Xms2g -Xmx3g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+    user: "root"
     volumes:
       - interview-recordings:/app/uploads/recordings
     depends_on:
@@ -303,7 +304,8 @@ services:
       APP_OLLAMA_TIMEOUT_SECONDS: ${APP_OLLAMA_TIMEOUT_SECONDS:-600}
       APP_MEDIA_STT_PROVIDER: ${APP_MEDIA_STT_PROVIDER:-faster-whisper}
       APP_MEDIA_WHISPER_URL: ${APP_MEDIA_WHISPER_URL:-http://whisper-stt:8000}
-      APP_MEDIA_WHISPER_MODEL: ${APP_MEDIA_WHISPER_MODEL:-small}
+      # whisper-1 = sentinel: TranscribeService won't send model field; server uses WHISPER__MODEL from its env
+      APP_MEDIA_WHISPER_MODEL: ${APP_MEDIA_WHISPER_MODEL:-whisper-1}
       APP_MEDIA_KOKORO_URL: ${APP_MEDIA_KOKORO_URL:-http://kokoro-tts:8880}
       APP_MEDIA_KOKORO_VOICE: ${APP_MEDIA_KOKORO_VOICE:-af_heart}
       APP_MEDIA_TTS_TIMEOUT_SECONDS: ${APP_MEDIA_TTS_TIMEOUT_SECONDS:-120}
@@ -392,7 +394,7 @@ services:
       JWT_ISSUER: ${JWT_ISSUER:-benchreadiness-auth}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-benchreadiness-api}
       GATEWAY_SHARED_KEY: ${GATEWAY_SHARED_KEY:-}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:6001,http://localhost:6101}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:6001,http://localhost:6101,https://prod.voiceaibot.in}
       AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-20}
       AUTH_RATE_LIMIT_WINDOW_SECONDS: ${AUTH_RATE_LIMIT_WINDOW_SECONDS:-60}
       JAVA_OPTS: "-Xms1g -Xmx2g -XX:+UseG1GC -XX:MaxGCPauseMillis=100"
@@ -443,12 +445,12 @@ services:
       - bench-network
     restart: unless-stopped
     healthcheck:
-      # Use uv run python (same runtime as uvicorn). Avoid CMD-SHELL: python may not be on PATH as `python`.
-      test: ["CMD", "uv", "run", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8000),5).close()"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 90s
+      # HTTP health check — verifies the model is loaded, not just the port open
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
     deploy:
       resources:
         limits:

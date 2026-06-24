@@ -23,6 +23,7 @@ app:
   media:
     stt-provider: ${APP_MEDIA_STT_PROVIDER:faster-whisper}
     whisper-url: ${APP_MEDIA_WHISPER_URL:http://whisper-stt:8000}
-    whisper-model: ${APP_MEDIA_WHISPER_MODEL:medium}
+    # whisper-1 tells TranscribeService not to send a model field — server uses its preloaded WHISPER__MODEL
+    whisper-model: ${APP_MEDIA_WHISPER_MODEL:whisper-1}
     kokoro-url: ${APP_MEDIA_KOKORO_URL:http://kokoro-tts:8880}
     kokoro-voice: ${APP_MEDIA_KOKORO_VOICE:af_heart}

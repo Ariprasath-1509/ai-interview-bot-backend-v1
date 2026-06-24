@@ -466,6 +466,8 @@ public class InterviewController {
         try {
             return ResponseEntity.ok(recordingService.appendChunk(id, chunk, chunkIndex, isFinal));
         } catch (Exception e) {
+            org.slf4j.LoggerFactory.getLogger(InterviewController.class)
+                .error("Recording chunk upload failed for interview {} chunk {}: {}", id, chunkIndex, e.getMessage(), e);
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }

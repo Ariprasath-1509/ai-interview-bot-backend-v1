@@ -59,7 +59,7 @@ public class TtsService {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(30))
+                .timeout(Duration.ofSeconds(60))
                 .header("Content-Type", "application/json")
                 .header("Accept", "audio/wav, audio/mpeg, audio/*")
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
