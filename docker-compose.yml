@@ -198,8 +198,8 @@ services:
       GATEWAY_SHARED_KEY: ${GATEWAY_SHARED_KEY:-}
       MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
       MAIL_PORT: ${MAIL_PORT:-587}
-      MAIL_USERNAME: ${MAIL_USERNAME:learningdevelopment.tyss@gmail.com}
-      MAIL_PASSWORD: ${MAIL_PASSWORD:xcbc bgrj lbql tgkd}
+      MAIL_USERNAME: ${MAIL_USERNAME:-learningdevelopment.tyss@gmail.com}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-xcbc bgrj lbql tgkd}
       APP_LOGIN_URL: ${APP_LOGIN_URL:-https://prod.voiceaibot.in/login}
       AUTH_MAX_LOGIN_ATTEMPTS: ${AUTH_MAX_LOGIN_ATTEMPTS:-10}
       AUTH_LOCKOUT_SECONDS: ${AUTH_LOCKOUT_SECONDS:-900}
