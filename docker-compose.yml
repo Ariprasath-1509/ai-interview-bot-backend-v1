@@ -445,8 +445,8 @@ services:
       - bench-network
     restart: unless-stopped
     healthcheck:
-      # HTTP health check — verifies the model is loaded, not just the port open
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      # Python urllib check — curl is not in this image; uv run python is always available
+      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
       interval: 20s
       timeout: 10s
       retries: 10
