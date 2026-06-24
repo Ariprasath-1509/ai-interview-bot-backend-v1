@@ -147,8 +147,8 @@ services:
       GATEWAY_SHARED_KEY: ${GATEWAY_SHARED_KEY:-}
       MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
       MAIL_PORT: ${MAIL_PORT:-587}
-      MAIL_USERNAME: "${MAIL_USERNAME:-learningdevelopment.tyss@gmail.com}"
-      MAIL_PASSWORD: "${MAIL_PASSWORD:-xcbc bgrj lbql tgkd}"
+      MAIL_USERNAME: ${MAIL_USERNAME:-learningdevelopment.tyss@gmail.com}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-xcbc bgrj lbql tgkd}
       APP_INTERVIEW_BASE_URL: ${APP_INTERVIEW_BASE_URL:-https://prod.voiceaibot.in/interview}
       APP_FRONTEND_URL: ${APP_FRONTEND_URL:-https://prod.voiceaibot.in}
       JAVA_OPTS: "-Xms512m -Xmx1280m -XX:+UseG1GC"
