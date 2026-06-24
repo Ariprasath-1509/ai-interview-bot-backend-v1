@@ -4,6 +4,8 @@ import com.benchreadiness.ai.client.ComplianceServiceClient;
 import com.benchreadiness.ai.dto.MatchingRequest;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -11,14 +13,17 @@ import java.util.*;
 @Service
 public class AiMatchingService {
 
+    private static final Logger log = LoggerFactory.getLogger(AiMatchingService.class);
+
     private final LlmClient llmClient;
     private final ComplianceServiceClient complianceServiceClient;
     private final ObjectMapper objectMapper;
 
-    public AiMatchingService(LlmClient llmClient, ComplianceServiceClient complianceServiceClient) {
+    public AiMatchingService(LlmClient llmClient, ComplianceServiceClient complianceServiceClient,
+                             ObjectMapper objectMapper) {
         this.llmClient = llmClient;
         this.complianceServiceClient = complianceServiceClient;
-        this.objectMapper = new ObjectMapper();
+        this.objectMapper = objectMapper;
     }
 
     public Map<String, Object> matchCandidates(MatchingRequest request, String userId) {
@@ -48,7 +53,7 @@ public class AiMatchingService {
             return parseMatchingResponse(response, request);
             
         } catch (Exception e) {
-            System.err.println("AI matching failed: " + e.getMessage());
+            log.error("AI matching failed: {}", e.getMessage());
             return fallbackMatching(request);
         }
     }
@@ -146,8 +151,8 @@ public class AiMatchingService {
             result.put("clientId", request.getClientId());
             return result;
         } catch (Exception e) {
-            System.err.println("Failed to parse AI matching response: " + e.getMessage());
-            System.err.println("Response preview: " + response.substring(0, Math.min(200, response.length())));
+            log.error("Failed to parse AI matching response: {} — preview: {}", e.getMessage(),
+                response.substring(0, Math.min(200, response.length())));
             return fallbackMatching(request);
         }
     }

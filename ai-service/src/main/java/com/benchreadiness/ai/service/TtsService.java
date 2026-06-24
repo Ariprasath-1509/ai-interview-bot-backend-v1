@@ -28,10 +28,14 @@ public class TtsService {
     @Value("${app.media.kokoro-voice:af_heart}")
     private String kokoroVoice;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
+
+    public TtsService(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     public boolean isConfigured() {
         return kokoroUrl != null && !kokoroUrl.isBlank();

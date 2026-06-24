@@ -19,16 +19,18 @@ public class AsyncAssessmentService {
     private final AssessmentService assessmentService;
     private final ComplianceServiceClient complianceServiceClient;
     private final InterviewServiceClient interviewServiceClient;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
     private final Map<String, AssessmentStatus> assessmentCache = new ConcurrentHashMap<>();
 
     public AsyncAssessmentService(AssessmentService assessmentService,
                                  ComplianceServiceClient complianceServiceClient,
-                                 InterviewServiceClient interviewServiceClient) {
+                                 InterviewServiceClient interviewServiceClient,
+                                 ObjectMapper objectMapper) {
         this.assessmentService = assessmentService;
         this.complianceServiceClient = complianceServiceClient;
         this.interviewServiceClient = interviewServiceClient;
+        this.objectMapper = objectMapper;
     }
 
     /**

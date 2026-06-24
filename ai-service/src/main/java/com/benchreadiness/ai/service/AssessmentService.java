@@ -21,7 +21,7 @@ public class AssessmentService {
     private final RubricService rubricService;
     private final ComplianceServiceClient complianceServiceClient;
     private final ClientBriefGenerationService clientBriefGenerationService;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
     private final ConcurrentHashMap<String, CachedAssessmentResult> assessmentCache = new ConcurrentHashMap<>();
     private static final long ASSESSMENT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -29,11 +29,13 @@ public class AssessmentService {
 
     public AssessmentService(LlmClient llmClient, RubricService rubricService,
                              ComplianceServiceClient complianceServiceClient,
-                             ClientBriefGenerationService clientBriefGenerationService) {
+                             ClientBriefGenerationService clientBriefGenerationService,
+                             ObjectMapper objectMapper) {
         this.llmClient = llmClient;
         this.rubricService = rubricService;
         this.complianceServiceClient = complianceServiceClient;
         this.clientBriefGenerationService = clientBriefGenerationService;
+        this.objectMapper = objectMapper;
     }
 
     public Map<String, Object> assess(AssessmentRequest req, String userId) {

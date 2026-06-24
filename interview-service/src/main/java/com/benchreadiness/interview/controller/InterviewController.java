@@ -35,14 +35,20 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 
 @RestController
 @RequestMapping("/interviews")
 public class InterviewController {
+
+    @Value("${app.recording.upload-dir:${java.io.tmpdir}/br-recordings}")
+    private String recordingUploadDir;
 
     private final InterviewService interviewService;
     private final EnhancedInterviewService enhancedInterviewService;
@@ -115,7 +121,7 @@ public class InterviewController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
     public ResponseEntity<?> delete(@PathVariable String id) {
         try {
             boolean deleted = interviewService.deleteInterview(id);
@@ -129,15 +135,17 @@ public class InterviewController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> getById(@PathVariable String id,
                                      @RequestHeader(value = "X-User-Id", required = false) String userId,
-                                     @RequestHeader(value = "X-User-Role", required = false) String userRole) {
+                                     @RequestHeader(value = "X-User-Role", required = false) String userRole,
+                                     @RequestHeader(value = "X-User-Email", required = false) String userEmail) {
         if (isStaffReadRole(userRole)) {
             return interviewService.findByIdForRole(id, userId, userRole)
                     .<ResponseEntity<?>>map(ResponseEntity::ok)
                     .orElse(ResponseEntity.notFound().build());
         }
-        return interviewService.findById(id)
+        return interviewService.findByIdForCandidate(id, userEmail)
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -181,6 +189,7 @@ public class InterviewController {
     }
 
     @PostMapping("/{id}/start")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> startLive(@PathVariable String id) {
         try {
             Interview updated = interviewService.startLiveInterview(id);
@@ -192,6 +201,7 @@ public class InterviewController {
 
     @PutMapping("/{id}/assessment-status")
     @PatchMapping("/{id}/assessment-status")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> updateAssessmentStatus(@PathVariable String id,
                                                     @RequestBody Map<String, Object> body) {
         try {
@@ -207,6 +217,7 @@ public class InterviewController {
     }
 
     @PatchMapping("/{id}/complete")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> complete(@PathVariable String id,
                                        @RequestBody CompleteInterviewRequest req) {
         try {
@@ -218,6 +229,7 @@ public class InterviewController {
     }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> update(@PathVariable String id,
                                      @RequestBody Map<String, String> updates) {
         try {
@@ -229,6 +241,7 @@ public class InterviewController {
     }
 
     @PostMapping("/{id}/abandon")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> abandon(@PathVariable String id,
                                       @RequestBody com.benchreadiness.interview.dto.AbandonInterviewRequest req) {
         try {
@@ -240,6 +253,7 @@ public class InterviewController {
     }
 
     @GetMapping("/jd/{jdId}")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> getJd(@PathVariable String jdId) {
         return interviewService.findJdById(jdId)
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
@@ -247,6 +261,7 @@ public class InterviewController {
     }
 
     @GetMapping("/plans/{planId}")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> getPlan(@PathVariable String planId) {
         return interviewService.findPlanById(planId)
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
@@ -418,6 +433,7 @@ public class InterviewController {
 
     /** Persist bot question for a slot (called after each next-question). */
     @PostMapping("/{id}/questions")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> recordQuestion(@PathVariable String id,
                                             @RequestBody RecordQuestionRequest req) {
         try {
@@ -434,6 +450,7 @@ public class InterviewController {
 
     /** Persist candidate answer for a slot. */
     @PostMapping("/{id}/answers")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> recordAnswer(@PathVariable String id,
                                           @RequestBody RecordAnswerRequest req) {
         try {
@@ -449,6 +466,7 @@ public class InterviewController {
     }
 
     @GetMapping("/{id}/questions")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> listQuestions(@PathVariable String id) {
         try {
             return ResponseEntity.ok(interviewQuestionService.listByInterview(id));
@@ -459,6 +477,7 @@ public class InterviewController {
 
     /** Append a session recording chunk (upload during interview). */
     @PostMapping(value = "/{id}/recording/chunk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> uploadRecordingChunk(@PathVariable String id,
                                                   @RequestParam("chunk") MultipartFile chunk,
                                                   @RequestParam(value = "chunkIndex", defaultValue = "0") int chunkIndex,
@@ -474,6 +493,7 @@ public class InterviewController {
 
     /** Upload session recording (single file — legacy / final upload). */
     @PostMapping(value = "/{id}/recording", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> uploadRecording(@PathVariable String id,
                                              @RequestParam("recording") MultipartFile file) {
         try {
@@ -496,6 +516,16 @@ public class InterviewController {
             }
 
             File file = new File(interview.getRecordingPath());
+            // Defense-in-depth: ensure the resolved path stays within the upload directory
+            try {
+                Path canonical = file.toPath().toRealPath();
+                Path allowedDir = Paths.get(recordingUploadDir).toAbsolutePath().normalize();
+                if (!canonical.startsWith(allowedDir)) {
+                    return ResponseEntity.status(403).build();
+                }
+            } catch (IOException e) {
+                return ResponseEntity.notFound().build();
+            }
             if (!file.exists()) return ResponseEntity.notFound().build();
 
             Resource resource = new FileSystemResource(file);
@@ -509,6 +539,7 @@ public class InterviewController {
     }
 
     @PostMapping("/{id}/proctoring/events")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> appendProctoringEvents(@PathVariable String id,
                                                     @RequestBody ProctoringEventsRequest req) {
         try {
@@ -521,6 +552,7 @@ public class InterviewController {
     }
 
     @PostMapping(value = "/{id}/proctoring/snapshot", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> uploadProctoringSnapshot(@PathVariable String id,
                                                       @RequestParam("snapshot") MultipartFile snapshot,
                                                       @RequestParam(value = "eventType", required = false) String eventType) {

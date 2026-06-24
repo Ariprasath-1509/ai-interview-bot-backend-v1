@@ -43,10 +43,14 @@ public class TranscribeService {
     @Value("${app.ollama.transcribe-model:${APP_OLLAMA_TRANSCRIBE_MODEL:whisper}}")
     private String ollamaTranscribeModel;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
             .build();
+
+    public TranscribeService(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     public boolean isConfigured() {
         if ("ollama".equalsIgnoreCase(sttProvider)) {

@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.data.domain.PageRequest;
 import java.time.Instant;
 import java.util.*;
 
@@ -157,7 +158,10 @@ public class InterviewService {
             return e;
         });
         engineer.setEmail(req.getEngineerEmail());
-        engineer.setName(req.getEngineerName());
+        if (req.getEngineerName() != null && !req.getEngineerName().isBlank()
+                && (engineer.getName() == null || engineer.getName().isBlank())) {
+            engineer.setName(req.getEngineerName());
+        }
         engineer = engineerRepository.save(engineer);
 
         // Create JD
@@ -189,6 +193,10 @@ public class InterviewService {
         if (candidateProfileJson != null) plan.setCandidateProfileJson(candidateProfileJson);
         plan = planRepository.save(plan);
 
+        // Resolve proctoringMode at creation so it's persisted and available without auth-service on subsequent reads
+        String candidateSource = proctoringSupport.resolveCandidateSource(engineer);
+        String resolvedProctoringMode = proctoringSupport.resolveProctoringMode(candidateSource);
+
         // Create interview
         Interview interview = new Interview();
         interview.setEngineerId(engineer.getId());
@@ -200,6 +208,7 @@ public class InterviewService {
         interview.setCreatedByUserId(createdByUserId);
         interview.setBranch(branch != null ? branch : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
         interview.setClientId(clientId);
+        interview.setProctoringMode(resolvedProctoringMode);
         interview.setStatus(InterviewStatus.SCHEDULED);
         interview.setScheduledAt(Instant.now());
         boolean includeProgramming = req.getIncludeProgrammingQuestions() == null
@@ -251,7 +260,7 @@ public class InterviewService {
         Interview interview = interviewRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
         if (req.getTranscriptJson() != null) interview.setTranscriptJson(req.getTranscriptJson());
-        interview.setStatus(InterviewStatus.COMPLETED);
+        interview.setStatus(InterviewStatus.WITHDRAWN);
         interview.setProposedVerdict(ReadinessVerdict.WITHDRAWN);
         interview.setEndedAt(Instant.now());
         Interview saved = interviewRepository.save(interview);
@@ -319,18 +328,32 @@ public class InterviewService {
                 }
             }
             
-            // Delete the interview first
+            // Delete recording file if present
+            if (interview.getRecordingPath() != null) {
+                try {
+                    java.nio.file.Files.deleteIfExists(java.nio.file.Path.of(interview.getRecordingPath()));
+                } catch (Exception e) {
+                    log.warn("Could not delete recording file for interview {}: {}", id, e.getMessage());
+                }
+            }
+
+            // Delete the interview first (it holds FKs to plan and JD)
             interviewRepository.deleteById(id);
-            
-            // Then delete related entities
+
+            // Then delete orphaned plan and JD
             if (planId != null && planRepository.existsById(planId)) {
                 planRepository.deleteById(planId);
             }
-            
             if (jdId != null && jdRepository.existsById(jdId)) {
                 jdRepository.deleteById(jdId);
             }
-            
+
+            // Delete engineer record if they have no remaining interviews
+            if (engineerId != null && interviewRepository.findByEngineerId(engineerId).isEmpty()) {
+                engineerRepository.deleteById(engineerId);
+                log.info("Deleted orphaned engineer {} after last interview removed", engineerId);
+            }
+
             log.info("Successfully deleted interview {} and related entities", id);
             return true;
         } catch (Exception e) {
@@ -351,13 +374,23 @@ public class InterviewService {
         });
     }
 
+    public Optional<Interview> findByIdForCandidate(String id, String userEmail) {
+        return findById(id).filter(interview ->
+            engineerRepository.findByEmail(userEmail)
+                .map(e -> e.getId().equals(interview.getEngineerId()))
+                .orElse(false)
+        );
+    }
+
     @Transactional
     public Interview saveInterview(Interview interview) {
         return interviewRepository.save(interview);
     }
 
+    private static final int MAX_INTERVIEWS_PAGE = 1000;
+
     public List<Interview> findAll() {
-        return interviewRepository.findAll();
+        return interviewRepository.findAllPaged(PageRequest.of(0, MAX_INTERVIEWS_PAGE));
     }
 
     public List<Interview> findAllForRole(String userId, String userRole) {
@@ -372,13 +405,27 @@ public class InterviewService {
     }
 
     public List<com.benchreadiness.interview.dto.InterviewSummaryDto> getSummaries() {
-        return mapSummaries(interviewRepository.findAll());
+        return mapSummaries(interviewRepository.findAllPaged(PageRequest.of(0, MAX_INTERVIEWS_PAGE)));
     }
 
     private List<com.benchreadiness.interview.dto.InterviewSummaryDto> mapSummaries(List<Interview> interviews) {
+        if (interviews.isEmpty()) return List.of();
+
+        // Batch-load engineers and JDs to avoid N+1 queries
+        Set<String> engineerIds = new HashSet<>();
+        Set<String> jdIds = new HashSet<>();
+        for (Interview i : interviews) {
+            if (i.getEngineerId() != null) engineerIds.add(i.getEngineerId());
+            if (i.getJdId() != null) jdIds.add(i.getJdId());
+        }
+        Map<String, Engineer> engineerMap = new HashMap<>();
+        engineerRepository.findAllById(engineerIds).forEach(e -> engineerMap.put(e.getId(), e));
+        Map<String, JobDescription> jdMap = new HashMap<>();
+        jdRepository.findAllById(jdIds).forEach(j -> jdMap.put(j.getId(), j));
+
         return interviews.stream().map(interview -> {
-            Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
-            JobDescription jd = jdRepository.findById(interview.getJdId()).orElse(null);
+            Engineer engineer = engineerMap.get(interview.getEngineerId());
+            JobDescription jd = jdMap.get(interview.getJdId());
             String candidateName = engineer != null && engineer.getName() != null && !engineer.getName().isBlank()
                     ? engineer.getName()
                     : (engineer != null ? engineer.getEmail() : "Unknown");
@@ -431,7 +478,12 @@ public class InterviewService {
                 .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
         if (req.getTranscriptJson() != null) interview.setTranscriptJson(req.getTranscriptJson());
         if (req.getStatus() != null) {
-            try { interview.setStatus(InterviewStatus.valueOf(req.getStatus())); } catch (Exception ignored) {}
+            try {
+                InterviewStatus requested = InterviewStatus.valueOf(req.getStatus());
+                if (requested == InterviewStatus.COMPLETED || requested == InterviewStatus.REVIEW_PENDING) {
+                    interview.setStatus(requested);
+                }
+            } catch (Exception ignored) {}
         }
         if (req.getProposedVerdict() != null) {
             try { interview.setProposedVerdict(ReadinessVerdict.valueOf(req.getProposedVerdict())); } catch (Exception ignored) {}
@@ -441,13 +493,12 @@ public class InterviewService {
         }
         interview.setEndedAt(Instant.now());
         Interview saved = interviewRepository.save(interview);
-        
-        // Increment system interview count for the candidate
-        if (interview.getStatus() == InterviewStatus.COMPLETED || interview.getStatus() == InterviewStatus.SIGNED_OFF) {
+
+        // Increment system interview count for the candidate on completion
+        if (saved.getStatus() == InterviewStatus.COMPLETED) {
             try {
                 Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
                 if (engineer != null && engineer.getEmail() != null) {
-                    // Find candidate by email and increment count
                     authServiceClient.incrementSystemInterviewCountByEmail(engineer.getEmail());
                 }
             } catch (Exception e) {
@@ -472,7 +523,14 @@ public class InterviewService {
         
         Interview interview = interviewRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
-        
+
+        // Prevent backward status transitions from terminal SIGNED_OFF state
+        if (interview.getStatus() == InterviewStatus.SIGNED_OFF
+                && updates.containsKey("status")
+                && !InterviewStatus.SIGNED_OFF.name().equals(updates.get("status"))) {
+            throw new IllegalStateException("Cannot change status of a SIGNED_OFF interview");
+        }
+
         if (updates.containsKey("status")) {
             try { 
                 InterviewStatus newStatus = InterviewStatus.valueOf(updates.get("status"));
@@ -505,20 +563,6 @@ public class InterviewService {
         log.info("Interview {} updated successfully. New status: {}, finalVerdict: {}", 
             id, saved.getStatus(), saved.getFinalVerdict());
         
-        // Increment system interview count when interview is signed off
-        if (updates.containsKey("status") && "SIGNED_OFF".equals(updates.get("status"))) {
-            try {
-                Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
-                if (engineer != null && engineer.getEmail() != null) {
-                    log.info("Incrementing system interview count for candidate: {}", engineer.getEmail());
-                    authServiceClient.incrementSystemInterviewCountByEmail(engineer.getEmail());
-                    log.info("Successfully incremented system interview count for: {}", engineer.getEmail());
-                }
-            } catch (Exception e) {
-                log.warn("Failed to increment system interview count for interview {}: {}", id, e.getMessage());
-            }
-        }
-        
         // Log audit trail for status changes
         if (updates.containsKey("status") || updates.containsKey("finalVerdict")) {
             String detail = "";
@@ -538,8 +582,11 @@ public class InterviewService {
 
     @Transactional
     public Interview startLiveInterview(String id) {
-        Interview interview = interviewRepository.findById(id)
+        Interview interview = interviewRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
+        if (interview.getStatus() == InterviewStatus.IN_PROGRESS) {
+            return interview; // Idempotent — already started by a concurrent request
+        }
         if (interview.getStatus() == InterviewStatus.DRAFT || interview.getStatus() == InterviewStatus.SCHEDULED) {
             interview.setStatus(InterviewStatus.IN_PROGRESS);
         }
@@ -585,8 +632,9 @@ public class InterviewService {
             }
         }
         if (filtered.isEmpty()) {
-            log.info("All selected question-bank items were CODING type — none stored for theory-only interview");
-            return null;
+            throw new IllegalArgumentException(
+                "All selected question-bank questions are of type CODING, but this interview excludes programming questions. " +
+                "Either enable programming questions or select non-coding questions from the question bank.");
         }
         return objectMapper.writeValueAsString(filtered);
     }

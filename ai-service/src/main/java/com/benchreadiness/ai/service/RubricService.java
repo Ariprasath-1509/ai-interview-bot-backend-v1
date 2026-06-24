@@ -16,10 +16,11 @@ public class RubricService {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(RubricService.class);
 
     private final LlmClient llmClient;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
-    public RubricService(LlmClient llmClient) {
+    public RubricService(LlmClient llmClient, ObjectMapper objectMapper) {
         this.llmClient = llmClient;
+        this.objectMapper = objectMapper;
     }
 
     @Cacheable(value = "rubrics", key = "#req.jdTitle + '_' + T(java.util.Objects).hash(#req.jdText, #req.resumeSummary)")

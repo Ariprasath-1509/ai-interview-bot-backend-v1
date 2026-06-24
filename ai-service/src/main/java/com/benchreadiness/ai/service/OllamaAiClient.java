@@ -58,10 +58,11 @@ public class OllamaAiClient implements LlmClient {
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
-    public OllamaAiClient(ComplianceServiceClient complianceServiceClient) {
+    public OllamaAiClient(ComplianceServiceClient complianceServiceClient, ObjectMapper objectMapper) {
         this.complianceServiceClient = complianceServiceClient;
+        this.objectMapper = objectMapper;
     }
 
     @Override

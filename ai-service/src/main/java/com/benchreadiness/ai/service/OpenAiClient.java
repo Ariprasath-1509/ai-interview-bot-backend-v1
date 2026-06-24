@@ -54,10 +54,11 @@ public class OpenAiClient {
     private static final String ANTHROPIC_VERSION = "2023-06-01";
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
-    public OpenAiClient(ComplianceServiceClient complianceServiceClient) {
+    public OpenAiClient(ComplianceServiceClient complianceServiceClient, ObjectMapper objectMapper) {
         this.complianceServiceClient = complianceServiceClient;
+        this.objectMapper = objectMapper;
     }
 
     public boolean isConfigured() {

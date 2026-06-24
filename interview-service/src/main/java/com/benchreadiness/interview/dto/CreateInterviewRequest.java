@@ -1,16 +1,30 @@
 package com.benchreadiness.interview.dto;
 
 import com.benchreadiness.interview.entity.InterviewMode;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 public class CreateInterviewRequest {
-    
-    // Existing fields
+
+    @NotBlank(message = "Engineer email is required")
+    @Email(message = "Engineer email must be a valid email address")
+    @Size(max = 255)
     private String engineerEmail;
+
+    @Size(max = 255)
     private String engineerName;
+
+    @NotBlank(message = "Job description title is required")
+    @Size(max = 500)
     private String jdTitle;
+
+    @Size(max = 100_000, message = "Job description text must not exceed 100 000 characters")
     private String jdText;
     private String focusAreas;
     private String resumeSummary;
+    @NotNull(message = "Interview mode is required")
     private InterviewMode interviewMode;
     private Integer customDurationMinutes;
     

@@ -37,7 +37,14 @@ public class InterviewProctoringSupport {
     public Interview enrichInterview(Interview interview) {
         String source = resolveCandidateSource(interview);
         interview.setCandidateSource(source);
-        interview.setProctoringMode(resolveProctoringMode(source));
+        String freshMode = source != null ? resolveProctoringMode(source) : null;
+        if (freshMode != null) {
+            interview.setProctoringMode(freshMode);
+        } else if (interview.getProctoringMode() == null) {
+            // Fall back to "light" only if no persisted value exists
+            interview.setProctoringMode("light");
+        }
+        // If freshMode is null but a persisted value exists, keep the persisted value as-is
         return interview;
     }
 
@@ -46,6 +53,10 @@ public class InterviewProctoringSupport {
             return null;
         }
         Engineer engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
+        return resolveCandidateSource(engineer);
+    }
+
+    public String resolveCandidateSource(Engineer engineer) {
         if (engineer == null) {
             return null;
         }

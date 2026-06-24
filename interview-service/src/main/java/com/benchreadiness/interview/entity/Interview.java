@@ -123,12 +123,12 @@ public class Interview {
     @Column(name = "proctoring_snapshots_json", columnDefinition = "TEXT")
     private String proctoringSnapshotsJson;
 
-    /** Resolved from auth candidate profile — not persisted. */
+    /** Resolved from auth candidate profile at read time — not persisted. */
     @Transient
     private String candidateSource;
 
-    /** "video" or "light" based on admin proctoring settings for candidate source — not persisted. */
-    @Transient
+    /** "video" or "light" — persisted at creation; refreshed by enrichInterview on each API read. */
+    @Column(name = "proctoring_mode", length = 8)
     private String proctoringMode;
 
     @Column(name = "created_at", nullable = false, updatable = false)

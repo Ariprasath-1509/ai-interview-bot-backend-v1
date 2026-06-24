@@ -42,13 +42,13 @@ public class AiController {
     private final TranscribeService transcribeService;
     private final TtsService ttsService;
     private final MediaHealthService mediaHealthService;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
     public AiController(QuestionService questionService, AssessmentService assessmentService,
-                       AsyncAssessmentService asyncAssessmentService, RubricService rubricService, 
+                       AsyncAssessmentService asyncAssessmentService, RubricService rubricService,
                        AiMatchingService aiMatchingService, LlmClient llmClient,
                        TranscribeService transcribeService, TtsService ttsService,
-                       MediaHealthService mediaHealthService) {
+                       MediaHealthService mediaHealthService, ObjectMapper objectMapper) {
         this.questionService = questionService;
         this.assessmentService = assessmentService;
         this.asyncAssessmentService = asyncAssessmentService;
@@ -58,6 +58,7 @@ public class AiController {
         this.transcribeService = transcribeService;
         this.ttsService = ttsService;
         this.mediaHealthService = mediaHealthService;
+        this.objectMapper = objectMapper;
     }
 
     // ── Admin: LLM provider routing ──────────────────────────────────────────
@@ -541,7 +542,7 @@ public class AiController {
             return response != null ? response : generateFallbackSummary(resumeText, candidateName);
             
         } catch (Exception e) {
-            System.err.println("AI resume summary generation failed: " + e.getMessage());
+            log.error("AI resume summary generation failed: {}", e.getMessage());
             return generateFallbackSummary(resumeText, candidateName);
         }
     }

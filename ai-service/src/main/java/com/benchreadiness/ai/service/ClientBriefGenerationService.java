@@ -13,10 +13,11 @@ public class ClientBriefGenerationService {
         org.slf4j.LoggerFactory.getLogger(ClientBriefGenerationService.class);
 
     private final LlmClient llmClient;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
-    public ClientBriefGenerationService(LlmClient llmClient) {
+    public ClientBriefGenerationService(LlmClient llmClient, ObjectMapper objectMapper) {
         this.llmClient = llmClient;
+        this.objectMapper = objectMapper;
     }
 
     @SuppressWarnings("unchecked")

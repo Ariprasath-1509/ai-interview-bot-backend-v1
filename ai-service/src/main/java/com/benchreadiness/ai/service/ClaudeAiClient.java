@@ -42,11 +42,12 @@ public class ClaudeAiClient implements LlmClient {
     private static final String ANTHROPIC_VERSION = "2023-06-01";
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
     private volatile boolean authFailed = false;
 
-    public ClaudeAiClient(ComplianceServiceClient complianceServiceClient) {
+    public ClaudeAiClient(ComplianceServiceClient complianceServiceClient, ObjectMapper objectMapper) {
         this.complianceServiceClient = complianceServiceClient;
+        this.objectMapper = objectMapper;
     }
 
     private volatile Boolean configuredCache = null;
