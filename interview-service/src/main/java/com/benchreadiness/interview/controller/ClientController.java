@@ -355,6 +355,19 @@ public class ClientController {
         }
     }
 
+    @DeleteMapping("/{clientId}/positions/{positionId}")
+    @PreAuthorize("hasAnyRole('" + STAFF_WRITE_ROLES + "')")
+    public ResponseEntity<Void> deletePosition(@PathVariable UUID clientId,
+                                               @PathVariable UUID positionId,
+                                               @RequestHeader("X-User-Role") String userRole) {
+        try {
+            clientService.deletePosition(clientId, positionId, userRole);
+            return ResponseEntity.noContent().build();
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
     @GetMapping("/{id}/doc-id")
     @PreAuthorize("hasAnyRole('" + STAFF_READ_ROLES + "')")
     public ResponseEntity<Map<String, String>> getDocId(@PathVariable UUID id,

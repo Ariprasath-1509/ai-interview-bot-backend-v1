@@ -11,9 +11,11 @@ import com.benchreadiness.interview.entity.Client;
 import com.benchreadiness.interview.entity.PositionRequirement;
 import com.benchreadiness.interview.entity.SkillRequirement;
 import com.benchreadiness.interview.repository.ClientRepository;
+import com.benchreadiness.interview.repository.PositionRequirementRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
@@ -28,13 +30,16 @@ public class ClientService {
     private static final Logger log = LoggerFactory.getLogger(ClientService.class);
 
     private final ClientRepository clientRepository;
+    private final PositionRequirementRepository positionRequirementRepository;
     private final ObserverServiceClient observerServiceClient;
     private final DocumentServiceClient documentServiceClient;
 
     public ClientService(ClientRepository clientRepository,
+                         PositionRequirementRepository positionRequirementRepository,
                          ObserverServiceClient observerServiceClient,
                          DocumentServiceClient documentServiceClient) {
         this.clientRepository = clientRepository;
+        this.positionRequirementRepository = positionRequirementRepository;
         this.observerServiceClient = observerServiceClient;
         this.documentServiceClient = documentServiceClient;
     }
@@ -227,6 +232,21 @@ public class ClientService {
     public void deleteClient(UUID id, String userRole) {
         Client client = requireAccessibleClient(id, userRole);
         clientRepository.delete(client);
+    }
+
+    @Transactional
+    public void deletePosition(UUID clientId, UUID positionId, String userRole) {
+        Client client = requireAccessibleClient(clientId, userRole);
+        PositionRequirement pos = positionRequirementRepository.findById(positionId)
+                .orElseThrow(() -> new NoSuchElementException("Position not found: " + positionId));
+        SkillRequirement skillRequirement = pos.getSkillRequirement();
+        if (!skillRequirement.getClient().getId().equals(client.getId())) {
+            throw new NoSuchElementException("Position does not belong to client: " + positionId);
+        }
+        // Remove from the parent's collection so orphanRemoval deletes it.
+        // Deleting via the repository alone is undone on flush because the
+        // managed SkillRequirement still references the position (cascade = ALL).
+        skillRequirement.getPositions().remove(pos);
     }
 
     public List<ClientDTO> getPendingClientsForBench(String userRole) {
