@@ -9,8 +9,11 @@ public class InterviewSummaryDto {
     private String candidateEmail;
     private String jdTitle;
     private String createdAt;
+    private String endedAt;
+    private String scheduledAt;
+    private String expiresAt;
     private String interviewMode;
-    
+
     // Constructors
     public InterviewSummaryDto() {}
 
@@ -36,8 +39,11 @@ public class InterviewSummaryDto {
     public String getCandidateEmail() { return candidateEmail; }
     public String getJdTitle() { return jdTitle; }
     public String getCreatedAt() { return createdAt; }
+    public String getEndedAt() { return endedAt; }
+    public String getScheduledAt() { return scheduledAt; }
+    public String getExpiresAt() { return expiresAt; }
     public String getInterviewMode() { return interviewMode; }
-    
+
     // Setters
     public void setId(String id) { this.id = id; }
     public void setStatus(String status) { this.status = status; }
@@ -47,5 +53,8 @@ public class InterviewSummaryDto {
     public void setCandidateEmail(String candidateEmail) { this.candidateEmail = candidateEmail; }
     public void setJdTitle(String jdTitle) { this.jdTitle = jdTitle; }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
+    public void setEndedAt(String endedAt) { this.endedAt = endedAt; }
+    public void setScheduledAt(String scheduledAt) { this.scheduledAt = scheduledAt; }
+    public void setExpiresAt(String expiresAt) { this.expiresAt = expiresAt; }
     public void setInterviewMode(String interviewMode) { this.interviewMode = interviewMode; }
 }

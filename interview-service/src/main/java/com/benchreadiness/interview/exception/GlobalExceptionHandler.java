@@ -89,6 +89,28 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
+    @ExceptionHandler(InterviewExpiredException.class)
+    public ResponseEntity<ErrorResponse> handleInterviewExpired(InterviewExpiredException ex, WebRequest request) {
+        log.warn("Interview access denied - expired: {}", ex.getMessage());
+        ErrorResponse error = new ErrorResponse(
+            HttpStatus.GONE.value(),
+            ex.getMessage(),
+            request.getDescription(false).replace("uri=", "")
+        );
+        return ResponseEntity.status(HttpStatus.GONE).body(error);
+    }
+
+    @ExceptionHandler(InterviewNotYetAvailableException.class)
+    public ResponseEntity<ErrorResponse> handleInterviewNotYetAvailable(InterviewNotYetAvailableException ex, WebRequest request) {
+        log.warn("Interview access denied - not yet available: {}", ex.getMessage());
+        ErrorResponse error = new ErrorResponse(
+            HttpStatus.FORBIDDEN.value(),
+            ex.getMessage(),
+            request.getDescription(false).replace("uri=", "")
+        );
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
     @ExceptionHandler(FeignException.class)
     public ResponseEntity<ErrorResponse> handleFeignException(FeignException ex, WebRequest request) {
         log.error("Feign client error: {} - {}", ex.status(), ex.getMessage());

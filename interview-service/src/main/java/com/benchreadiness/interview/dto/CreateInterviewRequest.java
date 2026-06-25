@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.time.Instant;
 
 public class CreateInterviewRequest {
 
@@ -48,6 +49,12 @@ public class CreateInterviewRequest {
 
     /** When false, interview is theory/verbal only (no coding slot or code editor). Defaults to true. */
     private Boolean includeProgrammingQuestions;
+
+    /** ISO-8601 instant from which the candidate can access the interview (null = immediately). */
+    private Instant scheduledAt;
+
+    /** ISO-8601 instant after which the interview link is inaccessible (null = no expiry). */
+    private Instant expiresAt;
     
     // Constructors
     public CreateInterviewRequest() {}
@@ -226,4 +233,9 @@ public class CreateInterviewRequest {
     public void setIncludeProgrammingQuestions(Boolean includeProgrammingQuestions) {
         this.includeProgrammingQuestions = includeProgrammingQuestions;
     }
+
+    public Instant getScheduledAt() { return scheduledAt; }
+    public void setScheduledAt(Instant scheduledAt) { this.scheduledAt = scheduledAt; }
+    public Instant getExpiresAt() { return expiresAt; }
+    public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
 }

@@ -55,9 +55,11 @@ public class AssessmentService {
         List<Map<String, String>> utterances = parseUtterances(req.getTranscriptJson());
         long candidateWords = utterances.stream()
             .filter(u -> "CANDIDATE".equals(u.get("speaker")))
+            .filter(u -> !"[SKIPPED]".equals(u.get("text")))
             .mapToLong(u -> u.get("text").split("\\s+").length).sum();
         long candidateTurns = utterances.stream()
-            .filter(u -> "CANDIDATE".equals(u.get("speaker"))).count();
+            .filter(u -> "CANDIDATE".equals(u.get("speaker")))
+            .filter(u -> !"[SKIPPED]".equals(u.get("text"))).count();
             
         log.info("Assessment request for interview {}: {} candidate words, {} candidate turns", 
                 req.getInterviewId(), candidateWords, candidateTurns);
@@ -130,7 +132,7 @@ public class AssessmentService {
         List<String> candidateLines = utterances.stream()
             .filter(u -> "CANDIDATE".equals(u.get("speaker")))
             .map(u -> u.getOrDefault("text", "").trim())
-            .filter(t -> !t.isEmpty())
+            .filter(t -> !t.isEmpty() && !"[SKIPPED]".equals(t))
             .toList();
 
         String fullText = String.join(" ", candidateLines);
@@ -667,17 +669,22 @@ public class AssessmentService {
     private String buildEfficientTranscript(List<Map<String, String>> utterances) {
         List<Map<String, String>> candidates = utterances.stream()
             .filter(u -> "CANDIDATE".equals(u.get("speaker"))).toList();
-        
-        // Deduplicate consecutive similar answers
+
+        // Deduplicate consecutive similar answers (skip markers are kept as-is)
         List<Map<String, String>> deduplicated = deduplicateUtterances(candidates);
-        
+
         int start = Math.max(0, deduplicated.size() - 8);
         StringBuilder sb = new StringBuilder();
         for (Map<String, String> ans : deduplicated.subList(start, deduplicated.size())) {
             int idx = utterances.indexOf(ans);
             if (idx > 0 && "BOT".equals(utterances.get(idx - 1).get("speaker")))
                 sb.append("Q: ").append(utterances.get(idx - 1).get("text")).append("\n");
-            sb.append("A: ").append(ans.get("text"), 0, Math.min(600, ans.get("text").length())).append("\n\n");
+            String text = ans.get("text");
+            if ("[SKIPPED]".equals(text)) {
+                sb.append("A: [Skipped by candidate — no answer provided]\n\n");
+            } else {
+                sb.append("A: ").append(text, 0, Math.min(600, text.length())).append("\n\n");
+            }
         }
         return sb.toString().trim();
     }

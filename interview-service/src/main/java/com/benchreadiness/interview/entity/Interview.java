@@ -47,6 +47,9 @@ public class Interview {
     @Column(name = "scheduled_at")
     private Instant scheduledAt;
 
+    @Column(name = "expires_at")
+    private Instant expiresAt;
+
     @Column(name = "started_at")
     private Instant startedAt;
 
@@ -131,6 +134,9 @@ public class Interview {
     @Column(name = "proctoring_mode", length = 8)
     private String proctoringMode;
 
+    @Column(name = "checkpoint_json", columnDefinition = "TEXT")
+    private String checkpointJson;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -168,6 +174,8 @@ public class Interview {
     public void setClientId(java.util.UUID clientId) { this.clientId = clientId; }
     public Instant getScheduledAt() { return scheduledAt; }
     public void setScheduledAt(Instant scheduledAt) { this.scheduledAt = scheduledAt; }
+    public Instant getExpiresAt() { return expiresAt; }
+    public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
     public Instant getStartedAt() { return startedAt; }
     public void setStartedAt(Instant startedAt) { this.startedAt = startedAt; }
     public Instant getEndedAt() { return endedAt; }
@@ -220,6 +228,8 @@ public class Interview {
     public void setCandidateSource(String candidateSource) { this.candidateSource = candidateSource; }
     public String getProctoringMode() { return proctoringMode; }
     public void setProctoringMode(String proctoringMode) { this.proctoringMode = proctoringMode; }
+    public String getCheckpointJson() { return checkpointJson; }
+    public void setCheckpointJson(String checkpointJson) { this.checkpointJson = checkpointJson; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

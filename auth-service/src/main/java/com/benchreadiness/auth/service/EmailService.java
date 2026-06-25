@@ -260,6 +260,112 @@ public class EmailService {
             + escapeHtml(value) + "</td></tr>";
     }
 
+    public void sendInterviewScheduledEmail(String toEmail, String candidateName,
+                                            String scheduledAt, String expiresAt) {
+        if (toEmail == null || toEmail.isBlank()) return;
+        String name = (candidateName != null && !candidateName.isBlank()) ? candidateName : "Candidate";
+        try {
+            MimeMessage mimeMessage = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
+            helper.setFrom(from);
+            helper.setTo(toEmail.trim());
+            helper.setSubject("Your Interview Has Been Scheduled — Bench Readiness");
+            helper.setText(buildInterviewScheduledTemplate(name, scheduledAt, expiresAt), true);
+            mailSender.send(mimeMessage);
+            log.info("Interview scheduled email sent to {}", toEmail);
+        } catch (MessagingException e) {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(from);
+            message.setTo(toEmail.trim());
+            message.setSubject("Your Interview Has Been Scheduled — Bench Readiness");
+            message.setText(buildInterviewScheduledPlainText(name, scheduledAt, expiresAt));
+            mailSender.send(message);
+            log.info("Interview scheduled email (plain text) sent to {}", toEmail);
+        } catch (Exception e) {
+            log.warn("Failed to send interview scheduled email to {}: {}", toEmail, e.getMessage());
+            throw e;
+        }
+    }
+
+    private String buildInterviewScheduledPlainText(String name, String scheduledAt, String expiresAt) {
+        return "Hi " + name + ",\n\n"
+            + "Your interview on the Bench Readiness platform has been scheduled.\n\n"
+            + "Available from: " + scheduledAt + "\n"
+            + (expiresAt != null ? "Access expires:  " + expiresAt + "\n" : "")
+            + "\nPlease log in before the access window closes:\n"
+            + loginUrl + "\n\n"
+            + "Use the email address this message was sent to along with the password shared with you.\n\n"
+            + "Best of luck!\n"
+            + "Bench Readiness Team";
+    }
+
+    private String buildInterviewScheduledTemplate(String name, String scheduledAt, String expiresAt) {
+        String expiryRow = expiresAt != null
+            ? "<tr><td style='color:#718096;font-size:14px;padding:8px 0;border-bottom:1px solid #e2e8f0;'>Access Expires:</td>"
+              + "<td style='color:#e53e3e;font-size:14px;font-weight:600;padding:8px 0;text-align:right;border-bottom:1px solid #e2e8f0;'>"
+              + escapeHtml(expiresAt) + "</td></tr>"
+            : "";
+
+        return "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>Interview Scheduled</title></head>"
+            + "<body style='margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;background:#f5f5f5;'>"
+            + "<table width='100%' cellpadding='0' cellspacing='0' style='background:#f5f5f5;padding:40px 20px;'><tr><td align='center'>"
+            + "<table width='600' cellpadding='0' cellspacing='0' style='background:#ffffff;border-radius:12px;box-shadow:0 4px 6px rgba(0,0,0,0.1);overflow:hidden;'>"
+
+            // Header
+            + "<tr><td style='background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:40px 30px;text-align:center;'>"
+            + "<div style='background-color:rgba(255,255,255,0.95);display:inline-block;padding:12px 28px;border-radius:50px;margin-bottom:20px;'>"
+            + "<span style='color:#667eea;font-size:22px;font-weight:700;letter-spacing:-0.5px;'><span style='color:#764ba2;'>●</span> Bench Readiness</span>"
+            + "</div>"
+            + "<h2 style='margin:0;color:#ffffff;font-size:22px;font-weight:600;'>Your Interview Is Scheduled</h2>"
+            + "</td></tr>"
+
+            // Body
+            + "<tr><td style='padding:40px 30px;'>"
+            + "<p style='margin:0 0 20px;color:#333;font-size:16px;'>Hi <strong>" + escapeHtml(name) + "</strong>,</p>"
+            + "<p style='margin:0 0 25px;color:#555;font-size:15px;line-height:1.6;'>"
+            + "Great news! Your technical interview on the Bench Readiness platform has been scheduled. "
+            + "Please log in during the access window below to begin your interview."
+            + "</p>"
+
+            // Schedule box
+            + "<div style='background:#f7fafc;border-left:4px solid #667eea;padding:20px;margin:25px 0;border-radius:8px;'>"
+            + "<p style='margin:0 0 12px;color:#2d3748;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'>Interview Window</p>"
+            + "<table width='100%' cellpadding='0' cellspacing='0'>"
+            + "<tr><td style='color:#718096;font-size:14px;padding:8px 0;border-bottom:1px solid #e2e8f0;'>Available From:</td>"
+            + "<td style='color:#2d3748;font-size:14px;font-weight:600;padding:8px 0;text-align:right;border-bottom:1px solid #e2e8f0;'>"
+            + escapeHtml(scheduledAt) + "</td></tr>"
+            + expiryRow
+            + "<tr><td style='color:#718096;font-size:14px;padding:8px 0;'>Login URL:</td>"
+            + "<td style='font-size:14px;font-weight:600;padding:8px 0;text-align:right;'>"
+            + "<a href='" + loginUrl + "' style='color:#667eea;text-decoration:none;'>" + loginUrl + "</a></td></tr>"
+            + "</table></div>"
+
+            // CTA
+            + "<div style='text-align:center;margin:30px 0;'>"
+            + "<a href='" + loginUrl + "' style='display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:600;font-size:15px;'>Go to My Interview</a>"
+            + "</div>"
+
+            // Tips
+            + "<div style='background:#fffbeb;border-left:4px solid #f59e0b;padding:15px 20px;margin:25px 0;border-radius:8px;'>"
+            + "<p style='margin:0;color:#92400e;font-size:14px;line-height:1.6;'>"
+            + "<strong>Tips for success:</strong> Find a quiet place, use a stable internet connection, and have a notepad handy. "
+            + "The interview is AI-driven — speak clearly and explain your thought process as you go."
+            + "</p>"
+            + "</div>"
+
+            + "<p style='margin:0;color:#718096;font-size:13px;line-height:1.6;'>"
+            + "Log in using the email address this message was sent to along with the password shared with you. "
+            + "If you have any issues, contact us at <a href='mailto:" + from + "' style='color:#667eea;'>" + from + "</a>."
+            + "</p></td></tr>"
+
+            // Footer
+            + "<tr><td style='background:#f7fafc;padding:30px;text-align:center;border-top:1px solid #e2e8f0;'>"
+            + "<p style='margin:0 0 5px;color:#2d3748;font-size:15px;font-weight:600;'>Best of luck!</p>"
+            + "<p style='margin:0;color:#667eea;font-size:16px;font-weight:700;'>Bench Readiness Team</p>"
+            + "</td></tr>"
+            + "</table></td></tr></table></body></html>";
+    }
+
     private String escapeHtml(String value) {
         if (value == null) {
             return "";

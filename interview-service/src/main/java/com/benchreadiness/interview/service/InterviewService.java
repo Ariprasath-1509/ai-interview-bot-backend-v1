@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import org.springframework.data.domain.PageRequest;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.*;
 
 @Service
@@ -210,7 +211,8 @@ public class InterviewService {
         interview.setClientId(clientId);
         interview.setProctoringMode(resolvedProctoringMode);
         interview.setStatus(InterviewStatus.SCHEDULED);
-        interview.setScheduledAt(Instant.now());
+        interview.setScheduledAt(req.getScheduledAt() != null ? req.getScheduledAt() : Instant.now());
+        interview.setExpiresAt(req.getExpiresAt());
         boolean includeProgramming = req.getIncludeProgrammingQuestions() == null
             || Boolean.TRUE.equals(req.getIncludeProgrammingQuestions());
         interview.setIncludeProgrammingQuestions(includeProgramming);
@@ -230,6 +232,37 @@ public class InterviewService {
         }
         
         Interview saved = interviewRepository.save(interview);
+
+        // Activate market candidate credentials when interview is scheduled
+        try {
+            Map<String, Object> candidateProfile = authServiceClient.getCandidateById(
+                    engineer.getUserId(), createdByUserId);
+            if (candidateProfile != null && "MARKET".equals(candidateProfile.get("source"))) {
+                String candidateUserId = (String) candidateProfile.get("id");
+                if (candidateUserId != null) {
+                    authServiceClient.setUserActive(candidateUserId, Map.of("active", true));
+                    log.info("Activated market candidate {} for interview {}", candidateUserId, saved.getId());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Could not activate market candidate for interview {}: {}", saved.getId(), e.getMessage());
+        }
+
+        // Notify candidate: interview scheduled email
+        try {
+            java.time.format.DateTimeFormatter emailFmt =
+                java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy 'at' hh:mm a 'UTC'")
+                    .withZone(java.time.ZoneOffset.UTC);
+            Map<String, String> notifyBody = new java.util.LinkedHashMap<>();
+            notifyBody.put("email", engineer.getEmail());
+            notifyBody.put("name", engineer.getName() != null ? engineer.getName() : "");
+            notifyBody.put("scheduledAt", emailFmt.format(saved.getScheduledAt()));
+            notifyBody.put("expiresAt", saved.getExpiresAt() != null ? emailFmt.format(saved.getExpiresAt()) : null);
+            authServiceClient.notifyInterviewScheduled(notifyBody);
+            log.info("Interview scheduled notification sent to {}", engineer.getEmail());
+        } catch (Exception e) {
+            log.warn("Failed to send interview scheduled email for {}: {}", saved.getId(), e.getMessage());
+        }
 
         // Fire-and-forget: invite email
         try {
@@ -389,15 +422,35 @@ public class InterviewService {
     }
 
     public Optional<Interview> findByIdForCandidate(String id, String userEmail) {
-        return findById(id).filter(interview ->
-            engineerRepository.findByEmail(userEmail)
+        return findById(id).filter(interview -> {
+            boolean ownsInterview = engineerRepository.findByEmail(userEmail)
                 .map(e -> e.getId().equals(interview.getEngineerId()))
-                .orElse(false)
-        );
+                .orElse(false);
+            if (!ownsInterview) return false;
+
+            Instant now = Instant.now();
+            if (interview.getExpiresAt() != null && now.isAfter(interview.getExpiresAt())) {
+                throw new com.benchreadiness.interview.exception.InterviewExpiredException(
+                        "This interview link has expired.");
+            }
+            if (interview.getScheduledAt() != null && now.isBefore(interview.getScheduledAt())) {
+                throw new com.benchreadiness.interview.exception.InterviewNotYetAvailableException(
+                        "This interview is not yet available. Please come back at the scheduled time.");
+            }
+            return true;
+        });
     }
 
     @Transactional
     public Interview saveInterview(Interview interview) {
+        return interviewRepository.save(interview);
+    }
+
+    @Transactional
+    public Interview saveCheckpoint(String id, String checkpointJson) {
+        Interview interview = interviewRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
+        interview.setCheckpointJson(checkpointJson);
         return interviewRepository.save(interview);
     }
 
@@ -447,12 +500,16 @@ public class InterviewService {
             String jdTitle = jd != null ? jd.getTitle() : "";
             String proposedVerdict = interview.getProposedVerdict() != null ? interview.getProposedVerdict().name() : null;
             String finalVerdict = interview.getFinalVerdict() != null ? interview.getFinalVerdict().name() : null;
-            return new com.benchreadiness.interview.dto.InterviewSummaryDto(
+            com.benchreadiness.interview.dto.InterviewSummaryDto dto = new com.benchreadiness.interview.dto.InterviewSummaryDto(
                     interview.getId(), interview.getStatus().name(), proposedVerdict, finalVerdict,
                     candidateName, candidateEmail, jdTitle,
                     interview.getCreatedAt() != null ? interview.getCreatedAt().toString() : "",
                     interview.getInterviewMode() != null ? interview.getInterviewMode().name() : "SCREENING"
             );
+            dto.setEndedAt(interview.getEndedAt() != null ? interview.getEndedAt().toString() : null);
+            dto.setScheduledAt(interview.getScheduledAt() != null ? interview.getScheduledAt().toString() : null);
+            dto.setExpiresAt(interview.getExpiresAt() != null ? interview.getExpiresAt().toString() : null);
+            return dto;
         }).toList();
     }
 
@@ -491,6 +548,7 @@ public class InterviewService {
         Interview interview = interviewRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
         if (req.getTranscriptJson() != null) interview.setTranscriptJson(req.getTranscriptJson());
+        interview.setCheckpointJson(null);
         if (req.getStatus() != null) {
             try {
                 InterviewStatus requested = InterviewStatus.valueOf(req.getStatus());
@@ -517,6 +575,23 @@ public class InterviewService {
                 }
             } catch (Exception e) {
                 log.warn("Failed to increment system interview count for interview {}: {}", id, e.getMessage());
+            }
+
+            // Deactivate market candidate credentials after interview completion
+            try {
+                Engineer eng = engineerRepository.findById(interview.getEngineerId()).orElse(null);
+                if (eng != null) {
+                    Map<String, Object> profile = authServiceClient.getUserByEmail(eng.getEmail());
+                    if (profile != null && "MARKET".equals(profile.get("source"))) {
+                        String candidateUserId = (String) profile.get("id");
+                        if (candidateUserId != null) {
+                            authServiceClient.setUserActive(candidateUserId, Map.of("active", false));
+                            log.info("Deactivated market candidate {} after completing interview {}", candidateUserId, id);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Could not deactivate market candidate after interview {}: {}", id, e.getMessage());
             }
         }
         
@@ -839,5 +914,111 @@ public class InterviewService {
                 "errorType", e.getClass().getSimpleName()
             );
         }
+    }
+
+    @Transactional
+    public Interview editInterview(String id, com.benchreadiness.interview.dto.UpdateInterviewRequest req) throws Exception {
+        Interview interview = interviewRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
+
+        if (interview.getStatus() != InterviewStatus.DRAFT
+                && interview.getStatus() != InterviewStatus.SCHEDULED
+                && interview.getStatus() != InterviewStatus.EXPIRED) {
+            throw new IllegalStateException(
+                    "Interview can only be edited when in DRAFT, SCHEDULED, or EXPIRED state, current: " + interview.getStatus());
+        }
+
+        if (req.getJdTitle() != null && !req.getJdTitle().isBlank()) {
+            jdRepository.findById(interview.getJdId()).ifPresent(jd -> {
+                jd.setTitle(req.getJdTitle().trim());
+                if (req.getJdText() != null) jd.setText(req.getJdText());
+                jdRepository.save(jd);
+            });
+        }
+        if (req.getInterviewMode() != null) interview.setInterviewMode(req.getInterviewMode());
+        if (req.getCustomDurationMinutes() != null) interview.setCustomDurationMinutes(req.getCustomDurationMinutes());
+        if (req.getRoundName() != null) interview.setRoundName(req.getRoundName());
+        if (req.getIncludeProgrammingQuestions() != null) interview.setIncludeProgrammingQuestions(req.getIncludeProgrammingQuestions());
+        if (req.getScheduledAt() != null) interview.setScheduledAt(req.getScheduledAt());
+        if (req.getExpiresAt() != null) {
+            interview.setExpiresAt(req.getExpiresAt());
+            // Re-open an expired interview when admin pushes the expiry into the future
+            if (interview.getStatus() == InterviewStatus.EXPIRED
+                    && req.getExpiresAt().isAfter(Instant.now())) {
+                interview.setStatus(InterviewStatus.SCHEDULED);
+                log.info("Re-opened expired interview {} — new expiresAt: {}", id, req.getExpiresAt());
+            }
+        }
+
+        if (req.getCustomQuestions() != null) {
+            try {
+                interview.setCustomQuestionsJson(objectMapper.writeValueAsString(req.getCustomQuestions()));
+            } catch (Exception e) {
+                log.warn("Failed to serialize custom questions on edit: {}", e.getMessage());
+            }
+        }
+        if (req.getSelectedQuestionIds() != null) {
+            interview.setUsedQuestionIds("");
+            // Re-resolve question bank questions
+            try {
+                Set<String> selectedIdSet = java.util.Arrays.stream(req.getSelectedQuestionIds().split(","))
+                        .map(String::trim).filter(s -> !s.isBlank())
+                        .collect(java.util.stream.Collectors.toSet());
+                com.fasterxml.jackson.databind.JsonNode resp = questionBankClient.fetchQuestionsForInterview(null, null, 200);
+                if (resp != null && resp.has("data") && resp.get("data").isArray()) {
+                    List<com.fasterxml.jackson.databind.JsonNode> filtered = new ArrayList<>();
+                    for (com.fasterxml.jackson.databind.JsonNode q : resp.get("data")) {
+                        if (selectedIdSet.contains(q.path("id").asText())) filtered.add(q);
+                    }
+                    if (!filtered.isEmpty()) {
+                        interview.setQuestionBankQuestionsJson(objectMapper.writeValueAsString(filtered));
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to re-resolve question bank questions on edit: {}", e.getMessage());
+            }
+        }
+
+        // If re-scheduling (scheduledAt or expiresAt changed), re-activate market candidate + notify candidate
+        if (req.getScheduledAt() != null || req.getExpiresAt() != null) {
+            Engineer engineer = null;
+            try {
+                engineer = engineerRepository.findById(interview.getEngineerId()).orElse(null);
+                if (engineer != null) {
+                    Map<String, Object> profile = authServiceClient.getUserByEmail(engineer.getEmail());
+                    if (profile != null && "MARKET".equals(profile.get("source"))) {
+                        String candidateUserId = (String) profile.get("id");
+                        if (candidateUserId != null) {
+                            authServiceClient.setUserActive(candidateUserId, Map.of("active", true));
+                            log.info("Re-activated market candidate {} on interview edit {}", candidateUserId, id);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Could not re-activate market candidate on interview edit {}: {}", id, e.getMessage());
+            }
+
+            // Send rescheduled notification to candidate
+            try {
+                if (engineer != null && engineer.getEmail() != null) {
+                    java.time.format.DateTimeFormatter emailFmt =
+                        java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy 'at' hh:mm a 'UTC'")
+                            .withZone(java.time.ZoneOffset.UTC);
+                    Instant effectiveScheduledAt = req.getScheduledAt() != null ? req.getScheduledAt() : interview.getScheduledAt();
+                    Instant effectiveExpiresAt   = req.getExpiresAt()   != null ? req.getExpiresAt()   : interview.getExpiresAt();
+                    Map<String, String> notifyBody = new java.util.LinkedHashMap<>();
+                    notifyBody.put("email", engineer.getEmail());
+                    notifyBody.put("name", engineer.getName() != null ? engineer.getName() : "");
+                    notifyBody.put("scheduledAt", effectiveScheduledAt != null ? emailFmt.format(effectiveScheduledAt) : "—");
+                    notifyBody.put("expiresAt", effectiveExpiresAt != null ? emailFmt.format(effectiveExpiresAt) : null);
+                    authServiceClient.notifyInterviewScheduled(notifyBody);
+                    log.info("Rescheduled notification sent to {} for interview {}", engineer.getEmail(), id);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to send rescheduled email for interview {}: {}", id, e.getMessage());
+            }
+        }
+
+        return interviewRepository.save(interview);
     }
 }

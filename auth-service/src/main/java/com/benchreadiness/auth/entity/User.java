@@ -119,6 +119,10 @@ public class User {
     @Column(name = "mentor")
     private String mentor;
 
+    /** When false, login is rejected. Used to gate market candidates between interview schedules. */
+    @Column(name = "active", nullable = false)
+    private boolean active = true;
+
     @PrePersist
     void prePersist() {
         if (id == null) id = java.util.UUID.randomUUID().toString();
@@ -201,7 +205,9 @@ public class User {
     public void setInterviewMentorName(String interviewMentorName) { this.interviewMentorName = interviewMentorName; }
     public String getClientName() { return clientName; }
     public void setClientName(String clientName) { this.clientName = clientName; }
-    
+    public boolean isActive() { return active; }
+    public void setActive(boolean active) { this.active = active; }
+
     // Timestamp getters and setters
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }

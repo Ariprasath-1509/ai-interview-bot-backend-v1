@@ -134,6 +134,22 @@ public class InterviewController {
         }
     }
 
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
+    public ResponseEntity<?> editInterview(@PathVariable String id,
+                                           @RequestBody com.benchreadiness.interview.dto.UpdateInterviewRequest req) {
+        try {
+            Interview updated = interviewService.editInterview(id, req);
+            return ResponseEntity.ok(updated);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(409).body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
     public ResponseEntity<?> getById(@PathVariable String id,
@@ -223,6 +239,24 @@ public class InterviewController {
         try {
             Interview updated = interviewService.completeInterview(id, req);
             return ResponseEntity.ok(updated);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PatchMapping("/{id}/checkpoint")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
+    public ResponseEntity<?> saveCheckpoint(@PathVariable String id,
+                                             @RequestBody Map<String, String> body) {
+        try {
+            String checkpointJson = body.get("checkpointJson");
+            if (checkpointJson == null) {
+                return ResponseEntity.badRequest().body(Map.of("error", "checkpointJson is required"));
+            }
+            Interview updated = interviewService.saveCheckpoint(id, checkpointJson);
+            return ResponseEntity.ok(Map.of("ok", true, "id", updated.getId()));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }

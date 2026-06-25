@@ -50,4 +50,11 @@ public interface AuthServiceClient {
 
     @GetMapping("/auth/proctoring-settings")
     Map<String, Object> getProctoringSettings();
+
+    @PatchMapping("/auth/internal/users/{userId}/active")
+    Map<String, Object> setUserActive(@PathVariable("userId") String userId,
+                                      @RequestBody Map<String, Boolean> body);
+
+    @PostMapping("/auth/internal/notify/interview-scheduled")
+    Map<String, Object> notifyInterviewScheduled(@RequestBody Map<String, String> body);
 }

@@ -367,6 +367,10 @@ public class AuthController {
             auditService.recordLoginFailure(email);
             return ResponseEntity.status(401).body(new ApiErrorResponse("Invalid credentials"));
         }
+        if (user.getRole() == UserRole.CANDIDATE && !user.isActive()) {
+            return ResponseEntity.status(401).body(
+                    new ApiErrorResponse("Your account is not yet active. Please wait until your interview is scheduled."));
+        }
         loginAttemptService.recordSuccess(email);
 
         if (passwordService.needsUpgrade(user.getPassword())) {
@@ -1192,7 +1196,8 @@ public class AuthController {
         map.put("batchMentor", u.getBatchMentor());
         map.put("interviewMentorName", u.getInterviewMentorName());
         map.put("clientName", u.getClientName());
-        
+        map.put("active", u.isActive());
+
         return map;
     }
 
@@ -1372,6 +1377,88 @@ public class AuthController {
         });
         
         return map;
+    }
+
+    /** POST /auth/candidates/market — Create a market candidate (name, email, phone only). Starts inactive. */
+    @PostMapping("/candidates/market")
+    @PreAuthorize("hasAnyRole('" + STAFF_ADMIN_ROLES + "')")
+    public ResponseEntity<?> createMarketCandidate(@RequestBody Map<String, String> body,
+                                                   @RequestHeader("X-User-Branch") String callerBranch) {
+        String name = body.get("name");
+        String email = body.get("email");
+        String contactNumber = body.get("contactNumber");
+
+        if (name == null || name.isBlank() || email == null || email.isBlank()) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse("name and email are required"));
+        }
+        if (userRepository.findByEmailIgnoreCase(email.trim()).isPresent()) {
+            return ResponseEntity.status(409).body(new ApiErrorResponse("A user with this email already exists"));
+        }
+
+        String rawPassword = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        User user = new User();
+        user.setName(name.trim());
+        user.setEmail(email.trim().toLowerCase());
+        user.setContactNumber(contactNumber != null ? contactNumber.trim() : null);
+        user.setPassword(passwordService.encode(rawPassword));
+        user.setRole(UserRole.CANDIDATE);
+        user.setSource("MARKET");
+        user.setActive(false);
+        user.setBranch(Branch.normalize(callerBranch));
+        userRepository.save(user);
+
+        try {
+            emailService.sendCandidateWelcomeEmail(user.getEmail(), user.getName(), user.getEmail(), rawPassword);
+        } catch (Exception e) {
+            logger.warn("Failed to send welcome email to market candidate {}: {}", user.getEmail(), e.getMessage());
+        }
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("id", user.getId());
+        response.put("name", user.getName());
+        response.put("email", user.getEmail());
+        response.put("contactNumber", user.getContactNumber());
+        response.put("source", user.getSource());
+        response.put("active", user.isActive());
+        response.put("generatedPassword", rawPassword);
+        return ResponseEntity.status(201).body(response);
+    }
+
+    /** POST /auth/internal/notify/interview-scheduled — Send interview scheduled email (called by interview-service). */
+    @PostMapping("/internal/notify/interview-scheduled")
+    public ResponseEntity<?> notifyInterviewScheduled(@RequestBody Map<String, String> body) {
+        String toEmail    = body.get("email");
+        String name       = body.get("name");
+        String scheduledAt = body.get("scheduledAt");
+        String expiresAt  = body.get("expiresAt");
+
+        if (toEmail == null || toEmail.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "email is required"));
+        }
+        try {
+            emailService.sendInterviewScheduledEmail(toEmail, name, scheduledAt, expiresAt);
+            return ResponseEntity.ok(Map.of("ok", true));
+        } catch (Exception e) {
+            logger.warn("Failed to send interview scheduled email to {}: {}", toEmail, e.getMessage());
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", e.getMessage()));
+        }
+    }
+
+    /** PATCH /auth/internal/users/{userId}/active — Activate or deactivate a user (internal service-to-service). */
+    @PatchMapping("/internal/users/{userId}/active")
+    public ResponseEntity<?> setUserActive(@PathVariable String userId,
+                                           @RequestBody Map<String, Boolean> body) {
+        Boolean active = body.get("active");
+        if (active == null) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse("'active' field is required"));
+        }
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(404).body(new ApiErrorResponse("User not found"));
+        }
+        user.setActive(active);
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("id", userId, "active", active));
     }
 
 }

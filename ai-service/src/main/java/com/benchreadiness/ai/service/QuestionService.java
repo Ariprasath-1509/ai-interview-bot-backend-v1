@@ -968,6 +968,7 @@ public class QuestionService {
 
     private boolean isSkipOrAdvanceRequest(String answer) {
         if (answer == null || answer.isBlank()) return false;
+        if ("[SKIPPED]".equals(answer.trim())) return true;
         String lower = answer.trim().toLowerCase();
         // Single-word or very short inputs that are clearly not answers
         if (lower.length() < 20 && (lower.equals("ok") || lower.equals("okay") || lower.equals("yes") ||

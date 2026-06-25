@@ -29,4 +29,6 @@ public interface InterviewRepository extends JpaRepository<Interview, String> {
 
     @Query("SELECT i FROM Interview i ORDER BY i.createdAt DESC")
     List<Interview> findAllPaged(Pageable pageable);
+
+    List<Interview> findByStatusAndExpiresAtIsNotNullAndExpiresAtBefore(InterviewStatus status, Instant now);
 }
