@@ -50,7 +50,7 @@ spring:
     host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}
     username: ${MAIL_USERNAME:learningdevelopment.tyss@gmail.com}
-    password: ${MAIL_PASSWORD:xcbc bgrj lbql tgkd}
+    password: ${MAIL_PASSWORD:}
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
@@ -79,7 +79,9 @@ app:
   interview-base-url: https://prod.voiceaibot.in/interview
   frontend-url: https://prod.voiceaibot.in
   digest:
-    cron: 0 0 19 * * *
+    cron: ${APP_DIGEST_CRON:0 30 13 * * *}
+  completion-notify:
+    enabled: ${APP_COMPLETION_NOTIFY_ENABLED:true}
 
 management:
   endpoints:

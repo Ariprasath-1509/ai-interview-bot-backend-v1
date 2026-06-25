@@ -34,6 +34,9 @@ public class EmailService {
     @Value("${app.interview-base-url}")
     private String interviewBaseUrl;
 
+    @Value("${app.completion-notify.enabled:true}")
+    private boolean completionNotifyEnabled;
+
     public EmailService(JavaMailSender mailSender, AuthServiceClient authServiceClient) {
         this.mailSender = mailSender;
         this.authServiceClient = authServiceClient;
@@ -168,6 +171,11 @@ public class EmailService {
      * interviews go only to TESTING staff.
      */
     public void sendInterviewCompletedNotification(Map<String, String> req) {
+        if (!completionNotifyEnabled) {
+            log.debug("Interview completion notifications disabled (app.completion-notify.enabled=false)");
+            return;
+        }
+
         String interviewId    = req.getOrDefault("interviewId", "");
         String branch         = req.getOrDefault("branch", "DEVELOPMENT");
         String candidateName  = req.getOrDefault("candidateName", "Candidate");
@@ -187,12 +195,21 @@ public class EmailService {
             return;
         }
 
+        // Safety cap: never send more than 20 emails from a single interview event.
+        // If you have more than 20 staff, increase APP_COMPLETION_NOTIFY_RECIPIENT_LIMIT.
+        final int RECIPIENT_CAP = 20;
+
         boolean isWithdrawn = "WITHDRAWN".equalsIgnoreCase(status);
         String subject = buildCompletionSubject(isWithdrawn, candidateName, branch, reason);
         String reviewLink = interviewBaseUrl.replace("/interview", "") + "/admin/interviews/" + interviewId + "/review";
 
         Set<String> sentEmails = new HashSet<>();
+        int sent = 0;
         for (Map<String, Object> staff : allStaff) {
+            if (sent >= RECIPIENT_CAP) {
+                log.warn("Completion notification recipient cap ({}) reached for interview {} — remaining staff skipped", RECIPIENT_CAP, interviewId);
+                break;
+            }
             String recipientEmail = (String) staff.get("email");
             if (recipientEmail == null || recipientEmail.isBlank()) continue;
             if (!sentEmails.add(recipientEmail.trim().toLowerCase())) continue;
@@ -211,6 +228,7 @@ public class EmailService {
                 helper.setText(buildCompletionEmailBody(recipientName, interviewId, candidateName,
                         branch, status, proposedVerdict, reason, reviewLink), true);
                 mailSender.send(mime);
+                sent++;
                 log.info("Interview completion notification sent to {} [branch={}] for interview {}", recipientEmail, branch, interviewId);
             } catch (Exception e) {
                 log.warn("Failed to send completion notification to {} for interview {}: {}", recipientEmail, interviewId, e.getMessage());
