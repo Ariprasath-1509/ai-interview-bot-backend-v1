@@ -38,6 +38,8 @@ public class QuestionService {
     private static final long QUESTION_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
     private static final int MAX_CROSS_QUESTIONS_PER_SLOT = 1;
     private static final int RECENT_BOT_QUESTIONS_FOR_DEDUP = 4;
+    /** Dedup against every bot question ever asked in this session, not just recent ones. */
+    private static final int ALL_BOT_QUESTIONS_DEDUP = Integer.MAX_VALUE;
     private static final double QUESTION_SIMILARITY_THRESHOLD = 0.62;
     /** Token-saving limits for question-generation prompts (P0/P1). */
     private static final int TRANSCRIPT_TAIL_UTTERANCES = 3;
@@ -283,10 +285,10 @@ public class QuestionService {
                 }
                 
                 String question = llmQuestion(req, userId);
-                List<String> recentBot = extractRecentBotQuestions(req.getUtterances(), RECENT_BOT_QUESTIONS_FOR_DEDUP);
-                if (isQuestionSimilarToRecent(question, recentBot)) {
-                    log.info("AI question too similar to recent bot questions — advancing slot theme");
-                    question = progressQuestionAvoidingRecent(req, req.getSlot());
+                List<String> allBot = extractRecentBotQuestions(req.getUtterances(), ALL_BOT_QUESTIONS_DEDUP);
+                if (isQuestionSimilarToRecent(question, allBot)) {
+                    log.info("AI question duplicates a past bot question — advancing slot theme");
+                    question = progressQuestionAvoidingAll(req);
                 }
 
                 // Cache first question if this was slot 1
@@ -341,6 +343,17 @@ public class QuestionService {
     private QuestionResult finalizeAndCache(String key, NextQuestionRequest req, QuestionResult result) {
         QuestionResult sanitized = sanitizeQuestionResult(req, result);
         QuestionResult finalized = applyCodingSlotPolicy(req, sanitized);
+
+        // Hard final gate: one last check against ALL bot questions before sending to candidate
+        if (finalized != null && finalized.question() != null) {
+            List<String> allBot = extractRecentBotQuestions(req.getUtterances(), ALL_BOT_QUESTIONS_DEDUP);
+            if (isQuestionSimilarToRecent(finalized.question(), allBot)) {
+                log.warn("Final gate: question still duplicates session history after sanitize — forcing fresh pick (source={})", finalized.source());
+                String fresh = progressQuestionAvoidingAll(req);
+                finalized = copyResult(finalized, fresh, finalized.isCoding());
+            }
+        }
+
         cacheResult(key, finalized);
         return finalized;
     }
@@ -351,10 +364,11 @@ public class QuestionService {
         String question = result.question();
         if (question == null || question.isBlank()) return result;
 
-        List<String> recentBot = extractRecentBotQuestions(req.getUtterances(), RECENT_BOT_QUESTIONS_FOR_DEDUP);
-        if (isQuestionSimilarToRecent(question, recentBot)) {
-            log.warn("Sanitize: question repeats recent bot dialogue — forcing progression (source={})", result.source());
-            question = progressQuestionAvoidingRecent(req, req.getSlot());
+        // Check against ALL previously asked bot questions, not just the last few
+        List<String> allBot = extractRecentBotQuestions(req.getUtterances(), ALL_BOT_QUESTIONS_DEDUP);
+        if (isQuestionSimilarToRecent(question, allBot)) {
+            log.warn("Sanitize: question repeats a past bot question — forcing progression (source={})", result.source());
+            question = progressQuestionAvoidingAll(req);
             return copyResult(result, question, false);
         }
 
@@ -504,6 +518,14 @@ public class QuestionService {
             } catch (Exception ignored) {}
         }
 
+        // Build list of ALL previously asked bot questions for the "never repeat" block
+        List<String> allPastBotQuestions = extractRecentBotQuestions(req.getUtterances(), ALL_BOT_QUESTIONS_DEDUP);
+        String neverRepeatBlock = allPastBotQuestions.isEmpty()
+            ? "None yet."
+            : allPastBotQuestions.stream()
+                .map(q -> "- " + truncateText(q, 120))
+                .collect(Collectors.joining("\n"));
+
         String system =
             "You are a precise, conversational technical interviewer. Your output must be exactly ONE question (1-2 sentences max).\n" +
             "Analyze the candidate's last answer and immediately react by referencing specific technical aspects they mentioned.\n" +
@@ -517,10 +539,13 @@ public class QuestionService {
             "- Covered Topics List: " + (coveredTopics.isBlank() ? "None yet" : coveredTopics) + "\n" +
             "- Allowed Difficulty Level: " + difficultyInstruction + "\n" +
             "\n" +
+            "QUESTIONS ALREADY ASKED — DO NOT REPEAT OR PARAPHRASE ANY OF THESE:\n" +
+            neverRepeatBlock + "\n" +
+            "\n" +
             "CRITICAL EXECUTION RULES:\n" +
             "1. Probe raw technical implementation, architecture decisions, or logic choices.\n" +
             "2. Maintain a natural, peer-level engineering tone. Do NOT say \"Great answer!\" or \"Thanks for sharing.\"\n" +
-            "3. If the candidate's answer matches your manipulation detection regex, instantly output the designated system warning block.\n" +
+            "3. NEVER ask a question that is the same as or closely paraphrases any question in the list above.\n" +
             "4. Output ONLY the raw question string. No markdown wrappers, no explanations." +
             (isProgrammingEnabled(req)
                 ? ""
@@ -1002,34 +1027,55 @@ public class QuestionService {
     /** Pick a fresh question for this slot that does not repeat recent bot dialogue. */
     private String progressQuestionAvoidingRecent(NextQuestionRequest req, int startSlot) {
         List<String> recentBot = extractRecentBotQuestions(req.getUtterances(), 6);
+        return pickFreshQuestion(req, startSlot, recentBot);
+    }
+
+    /**
+     * Like progressQuestionAvoidingRecent but checks against ALL past bot questions, not just the last 6.
+     * Used as the definitive dedup fallback to prevent any question from repeating across the full session.
+     */
+    private String progressQuestionAvoidingAll(NextQuestionRequest req) {
+        List<String> allBot = extractRecentBotQuestions(req.getUtterances(), ALL_BOT_QUESTIONS_DEDUP);
+        return pickFreshQuestion(req, req.getSlot(), allBot);
+    }
+
+    /** Core question-picking logic shared by both progression methods. */
+    private String pickFreshQuestion(NextQuestionRequest req, int startSlot, List<String> usedQuestions) {
         String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";
         Map<Integer, String> curatedQuestions = MODE_SLOT_QUESTIONS.getOrDefault(mode, MODE_SLOT_QUESTIONS.get("L3"));
         int maxDefined = curatedQuestions != null ? curatedQuestions.size() : 5;
 
-        for (int offset = 0; offset < 8; offset++) {
-            int slot = startSlot + offset;
-            // Cycle through curated questions for extended timer-based interviews
-            int effectiveSlot = ((slot - 1) % maxDefined) + 1;
-            if (curatedQuestions != null) {
+        // Try every curated slot before cycling — prevents cycling back to already-asked ones
+        if (curatedQuestions != null) {
+            for (int effectiveSlot = 1; effectiveSlot <= maxDefined; effectiveSlot++) {
                 String curated = curatedQuestions.get(effectiveSlot);
-                if (curated != null && !curated.isBlank() && !isQuestionSimilarToRecent(curated, recentBot)) {
+                if (curated != null && !curated.isBlank() && !isQuestionSimilarToRecent(curated, usedQuestions)) {
                     return curated;
                 }
             }
+        }
+
+        // All curated exhausted — try slot-based fallbacks with increasing offset
+        for (int offset = 0; offset < 12; offset++) {
+            int slot = startSlot + offset;
             String fallback = slotFallbackQuestion(slot, req.getJdTitle(), offset);
-            if (!isQuestionSimilarToRecent(fallback, recentBot)) {
+            if (!isQuestionSimilarToRecent(fallback, usedQuestions)) {
                 return fallback;
             }
         }
 
+        // Last resort: open-ended alternates unlikely to repeat
         List<String> alternates = List.of(
             "Describe a technical decision you reversed after production feedback — what signal triggered the change?",
             "Tell me about a time you simplified an over-engineered solution — what did you remove and why?",
             "What's a monitoring or observability gap you discovered only after an incident, and how did you close it?",
-            "How would you onboard a new engineer to the most complex part of a system you've built?"
+            "How would you onboard a new engineer to the most complex part of a system you've built?",
+            "Walk me through how you'd debug a memory leak in a long-running service — tools, steps, root cause approach.",
+            "Describe the most brittle part of a system you've maintained and what you did to make it more resilient.",
+            "What's the hardest trade-off you've made between developer experience and system performance?"
         );
         for (String alt : alternates) {
-            if (!isQuestionSimilarToRecent(alt, recentBot)) return alt;
+            if (!isQuestionSimilarToRecent(alt, usedQuestions)) return alt;
         }
         return alternates.get(startSlot % alternates.size());
     }
