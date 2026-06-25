@@ -10,10 +10,8 @@ import org.springframework.stereotype.Service;
  * based on the runtime-mutable LlmProviderSettings.
  *
  * Routing defaults (can be changed by admin via /ai/admin/llm-settings):
- *   question  → Ollama  (fast, no data egress)
- *   rubric    → Ollama  (fast, no data egress)
- *   assessment→ Claude  (accuracy matters — 4-stage scoring pipeline)
- *   matching  → Claude  (nuanced candidate ranking)
+ *   All operations → Claude when APP_LLM_PROVIDER=claude (default)
+ *   Hybrid mode also defaults all operations to Claude; admin can route individual ops to Ollama
  */
 @Service
 @Primary
@@ -78,16 +76,23 @@ public class HybridLlmClient implements LlmClient {
     private LlmClient resolve(String providerName) {
         if ("claude".equals(providerName)) {
             if (claude.isConfigured()) return claude;
+            if (!settings.ollamaFallbackEnabled()) {
+                throw new IllegalStateException(
+                    "Claude is required (APP_LLM_PROVIDER=claude) but APP_CLAUDE_API_KEY is not configured");
+            }
             log.warn("[Hybrid] Claude not configured — falling back to Ollama");
             return ollama;
         }
         if ("ollama".equals(providerName)) {
             if (ollama.isConfigured()) return ollama;
+            if (!settings.ollamaFallbackEnabled()) {
+                throw new IllegalStateException("Ollama is required but not reachable at configured base URL");
+            }
             log.warn("[Hybrid] Ollama not configured — falling back to Claude");
             return claude;
         }
-        log.warn("[Hybrid] Unknown provider '{}' — defaulting to Ollama", providerName);
-        return ollama.isConfigured() ? ollama : claude;
+        log.warn("[Hybrid] Unknown provider '{}' — defaulting to Claude", providerName);
+        return claude.isConfigured() ? claude : ollama;
     }
 
     public LlmProviderSettings getSettings() {

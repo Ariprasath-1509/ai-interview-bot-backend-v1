@@ -39,6 +39,15 @@ public class QuestionService {
     private static final int MAX_CROSS_QUESTIONS_PER_SLOT = 1;
     private static final int RECENT_BOT_QUESTIONS_FOR_DEDUP = 4;
     private static final double QUESTION_SIMILARITY_THRESHOLD = 0.62;
+    /** Token-saving limits for question-generation prompts (P0/P1). */
+    private static final int TRANSCRIPT_TAIL_UTTERANCES = 3;
+    private static final int TRANSCRIPT_UTTERANCE_MAX_CHARS = 300;
+    private static final int LAST_ANSWER_MAX_CHARS = 400;
+    private static final int ROLLING_SUMMARY_SLOT_THRESHOLD = 8;
+    private static final int ROLLING_SUMMARY_MAX_CHARS = 1200;
+    private static final int QUESTION_BANK_SNIPPET_CHARS = 80;
+    private static final int JD_DIGEST_CHARS = 600;
+    private static final int RESUME_DIGEST_CHARS = 600;
 
     private static final Map<String, Map<Integer, String>> MODE_SLOT_THEMES = Map.of(
         "SCREENING", Map.of(
@@ -518,22 +527,23 @@ public class QuestionService {
                 : "\n5. THEORY-ONLY interview: ask verbal/conceptual questions only. Do NOT ask the candidate to write code or use a code editor.");
 
         String lastAnswer = req.getLastAnswer() != null ? req.getLastAnswer().trim() : "";
-        String recent = buildTranscriptContext(req.getUtterances());
-        String jdDigest = req.getJdText().substring(0, Math.min(600, req.getJdText().length()));
+        String recent = buildTranscriptContext(req.getUtterances(), req.getSlot());
 
         StringBuilder user = new StringBuilder();
-        if (!lastAnswer.isEmpty()) {
-            user.append("Last answer:\n").append(lastAnswer, 0, Math.min(800, lastAnswer.length())).append("\n\n");
-        } else {
-            user.append("(Opening — no prior answer yet)\n\n");
-        }
-        if (!recent.isEmpty()) user.append("Recent dialogue:\n").append(recent).append("\n\n");
+        appendDialogueContext(user, req, lastAnswer, recent);
         user.append("Role: ").append(req.getJdTitle()).append("\n");
-        if (req.getResumeSummary() != null && !req.getResumeSummary().isBlank())
-            user.append("Resume:\n").append(req.getResumeSummary(), 0, Math.min(600, req.getResumeSummary().length())).append("\n\n");
-        if (req.getFocusAreas() != null && !req.getFocusAreas().isBlank())
-            user.append("Focus: ").append(req.getFocusAreas()).append("\n");
-        user.append("JD:\n").append(jdDigest).append("\n\n");
+        if (req.getSlot() == 1) {
+            if (req.getFocusAreas() != null && !req.getFocusAreas().isBlank()) {
+                user.append("Focus: ").append(req.getFocusAreas()).append("\n");
+            }
+            if (req.getResumeSummary() != null && !req.getResumeSummary().isBlank()) {
+                user.append("Resume:\n")
+                    .append(truncateText(req.getResumeSummary(), RESUME_DIGEST_CHARS))
+                    .append("\n\n");
+            }
+            String jdDigest = req.getJdText().substring(0, Math.min(JD_DIGEST_CHARS, req.getJdText().length()));
+            user.append("JD:\n").append(jdDigest).append("\n\n");
+        }
         user.append(lastAnswer.isEmpty()
             ? "Ask your opening technical question now. One or two sentences, no career narrative."
             : "Ask your next question now. Must follow from their last answer.");
@@ -550,15 +560,102 @@ public class QuestionService {
             .collect(Collectors.joining(" | "));
     }
 
-    private String buildTranscriptContext(List<NextQuestionRequest.Utterance> utterances) {
-        if (utterances == null || utterances.isEmpty()) return "";
-        int total = utterances.size();
-        int tailSize = Math.min(10, total);
-        List<NextQuestionRequest.Utterance> tail = utterances.subList(total - tailSize, total);
+    private String truncateText(String text, int maxChars) {
+        if (text == null || text.isBlank()) return "";
+        String trimmed = text.trim();
+        if (trimmed.length() <= maxChars) return trimmed;
+        return trimmed.substring(0, maxChars) + "...";
+    }
+
+    private String formatUtteranceLine(NextQuestionRequest.Utterance utterance) {
+        String role = "BOT".equals(utterance.speaker()) ? "Interviewer" : "Candidate";
+        return role + ": " + truncateText(utterance.text(), TRANSCRIPT_UTTERANCE_MAX_CHARS);
+    }
+
+    private String buildRollingSummary(List<NextQuestionRequest.Utterance> utterances) {
+        if (utterances == null || utterances.size() <= TRANSCRIPT_TAIL_UTTERANCES) return "";
+        int headEnd = utterances.size() - TRANSCRIPT_TAIL_UTTERANCES;
         StringBuilder sb = new StringBuilder();
-        tail.forEach(u -> sb.append("BOT".equals(u.speaker()) ? "Interviewer" : "Candidate")
-            .append(": ").append(u.text()).append("\n"));
+        for (int i = 0; i < headEnd; i++) {
+            sb.append(formatUtteranceLine(utterances.get(i))).append("\n");
+        }
+        return truncateText(sb.toString().trim(), ROLLING_SUMMARY_MAX_CHARS);
+    }
+
+    private String buildTranscriptContext(List<NextQuestionRequest.Utterance> utterances, int slot) {
+        if (utterances == null || utterances.isEmpty()) return "";
+
+        StringBuilder sb = new StringBuilder();
+        if (slot > ROLLING_SUMMARY_SLOT_THRESHOLD) {
+            String summary = buildRollingSummary(utterances);
+            if (!summary.isBlank()) {
+                sb.append("Earlier conversation (compressed):\n").append(summary).append("\n\n");
+            }
+        }
+
+        int total = utterances.size();
+        int tailSize = Math.min(TRANSCRIPT_TAIL_UTTERANCES, total);
+        List<NextQuestionRequest.Utterance> tail = utterances.subList(total - tailSize, total);
+        sb.append("Recent exchanges:\n");
+        tail.forEach(u -> sb.append(formatUtteranceLine(u)).append("\n"));
         return sb.toString().trim();
+    }
+
+    private void appendDialogueContext(StringBuilder user, NextQuestionRequest req, String lastAnswer, String recent) {
+        if (!lastAnswer.isEmpty()) {
+            user.append("Last answer:\n")
+                .append(truncateText(lastAnswer, LAST_ANSWER_MAX_CHARS))
+                .append("\n\n");
+        } else {
+            user.append("(Opening — no prior answer yet)\n\n");
+        }
+        if (!recent.isEmpty()) {
+            user.append(recent).append("\n\n");
+        }
+    }
+
+    private String formatCompactBankQuestionLine(int index, com.fasterxml.jackson.databind.JsonNode question) {
+        return index + ". [ID: " + question.path("id").asText() + "] "
+            + "[Type: " + question.path("questionType").asText("TECHNICAL") + "] "
+            + "[Relevancy: " + question.path("relevancyLabel").asText("MEDIUM") + "] "
+            + "\"" + truncateText(question.path("text").asText(), QUESTION_BANK_SNIPPET_CHARS) + "\"\n";
+    }
+
+    private String buildCompactQuestionBankContext(List<com.fasterxml.jackson.databind.JsonNode> unusedQuestions) {
+        boolean hasHighOrMedium = unusedQuestions.stream()
+            .anyMatch(q -> relevancyScore(q.path("relevancyLabel").asText("MEDIUM")) >= 2);
+        StringBuilder questionBankContext = new StringBuilder("Available Question Bank Questions:\n");
+        int line = 1;
+        for (com.fasterxml.jackson.databind.JsonNode q : unusedQuestions) {
+            if (hasHighOrMedium && relevancyScore(q.path("relevancyLabel").asText("MEDIUM")) < 2) {
+                continue;
+            }
+            questionBankContext.append(formatCompactBankQuestionLine(line++, q));
+        }
+        if (questionBankContext.length() < 80) {
+            questionBankContext.setLength(0);
+            questionBankContext.append("Available Question Bank Questions:\n");
+            line = 1;
+            for (com.fasterxml.jackson.databind.JsonNode q : unusedQuestions) {
+                questionBankContext.append(formatCompactBankQuestionLine(line++, q));
+            }
+        }
+        return questionBankContext.toString();
+    }
+
+    private String resolveBankQuestionText(
+            String questionBankId,
+            List<com.fasterxml.jackson.databind.JsonNode> unusedQuestions,
+            String fallbackText) {
+        if (questionBankId == null || questionBankId.isBlank()) {
+            return fallbackText;
+        }
+        for (com.fasterxml.jackson.databind.JsonNode q : unusedQuestions) {
+            if (questionBankId.equals(q.path("id").asText())) {
+                return q.path("text").asText(fallbackText);
+            }
+        }
+        return fallbackText;
     }
 
     private String getDifficultyForMode(String mode) {
@@ -1021,19 +1118,21 @@ public class QuestionService {
             log.info("Blocked duplicate/overflow cross-question — using bank fallback");
             return pickBestBankQuestionFallback(req, unusedQuestions, "CROSS_DEDUP");
         }
-        if (isQuestionSimilarToRecent(questionText, recentBot)) {
-            log.info("Bank/LLM question duplicates recent dialogue — using bank fallback");
-            return pickBestBankQuestionFallback(req, unusedQuestions, "DEDUP");
-        }
 
         String bankQuestionType = null;
-        if (questionBankId != null && !questionBankId.isBlank()) {
+        if (questionBankId != null && !questionBankId.isBlank() && !crossQuestion) {
+            questionText = resolveBankQuestionText(questionBankId, unusedQuestions, questionText);
             for (com.fasterxml.jackson.databind.JsonNode q : unusedQuestions) {
                 if (questionBankId.equals(q.path("id").asText())) {
                     bankQuestionType = q.path("questionType").asText(null);
                     break;
                 }
             }
+        }
+
+        if (isQuestionSimilarToRecent(questionText, recentBot)) {
+            log.info("Bank/LLM question duplicates recent dialogue — using bank fallback");
+            return pickBestBankQuestionFallback(req, unusedQuestions, "DEDUP");
         }
 
         boolean isCoding = resolveIsCoding(questionText, bankQuestionType);
@@ -1103,38 +1202,14 @@ public class QuestionService {
         String slotTheme = slotThemes.getOrDefault(req.getSlot(),
             "Continue probing technical depth and communication quality relevant to the role.");
 
-        // Build question bank context (prefer HIGH/MEDIUM; avoid LOW when alternatives exist)
-        StringBuilder questionBankContext = new StringBuilder("Available Question Bank Questions:\n");
-        boolean hasHighOrMedium = unusedQuestions.stream()
-            .anyMatch(q -> relevancyScore(q.path("relevancyLabel").asText("MEDIUM")) >= 2);
-        for (int i = 0; i < unusedQuestions.size(); i++) {
-            com.fasterxml.jackson.databind.JsonNode q = unusedQuestions.get(i);
-            if (hasHighOrMedium && relevancyScore(q.path("relevancyLabel").asText("MEDIUM")) < 2) {
-                continue;
-            }
-            questionBankContext.append(i + 1).append(". ")
-                .append("[ID: ").append(q.path("id").asText()).append("] ")
-                .append("[Type: ").append(q.path("questionType").asText("TECHNICAL")).append("] ")
-                .append(q.path("text").asText())
-                .append(" (Relevancy: ").append(q.path("relevancyLabel").asText("MEDIUM")).append(")\n");
-        }
-        if (questionBankContext.length() < 80) {
-            questionBankContext.setLength(0);
-            questionBankContext.append("Available Question Bank Questions:\n");
-            for (int i = 0; i < unusedQuestions.size(); i++) {
-                com.fasterxml.jackson.databind.JsonNode q = unusedQuestions.get(i);
-                questionBankContext.append(i + 1).append(". ")
-                    .append("[ID: ").append(q.path("id").asText()).append("] ")
-                    .append("[Type: ").append(q.path("questionType").asText("TECHNICAL")).append("] ")
-                    .append(q.path("text").asText())
-                    .append(" (Relevancy: ").append(q.path("relevancyLabel").asText("MEDIUM")).append(")\n");
-            }
-        }
+        String questionBankContext = buildCompactQuestionBankContext(unusedQuestions);
 
         List<String> recentBot = extractRecentBotQuestions(req.getUtterances(), RECENT_BOT_QUESTIONS_FOR_DEDUP);
         String recentQuestionsBlock = recentBot.isEmpty()
             ? "None"
-            : String.join("\n- ", recentBot);
+            : recentBot.stream()
+                .map(q -> truncateText(q, 120))
+                .collect(Collectors.joining("\n- ", "- ", ""));
 
         boolean crossBlocked = shouldBlockCrossQuestion(req);
 
@@ -1146,7 +1221,7 @@ public class QuestionService {
             "Question Bank: " + questionBankContext + "\n" +
             "Active Slot Theme: " + slotTheme + "\n" +
             "Active Mode: " + mode + "\n" +
-            "Recently asked (DO NOT repeat or paraphrase closely):\n- " + recentQuestionsBlock + "\n" +
+            "Recently asked (DO NOT repeat or paraphrase closely):\n" + recentQuestionsBlock + "\n" +
             "\n" +
             "SELECTION LOGIC:\n" +
             "1. Prefer unused bank questions with relevancy HIGH, then MEDIUM. Do not pick LOW if HIGH/MEDIUM exist.\n" +
@@ -1161,7 +1236,7 @@ public class QuestionService {
             "OUTPUT SPECIFICATION:\n" +
             "You must output ONLY a valid, raw JSON object. Do NOT wrap it in markdown fences like ```json. Do NOT include any trailing comments.\n" +
             "{\n" +
-            "  \"question\": \"Insert selected question text or your custom cross-question here\",\n" +
+            "  \"question\": \"Cross-question text only when source is AI_CROSS_QUESTION; otherwise empty string\",\n" +
             "  \"questionBankId\": \"Insert UUID string or null if AI_CROSS_QUESTION\",\n" +
             "  \"source\": \"QUESTION_BANK\" or \"AI_CROSS_QUESTION\",\n" +
             "  \"isCoding\": true or false,\n" +
@@ -1169,14 +1244,12 @@ public class QuestionService {
             "}";
 
         String lastAnswer = req.getLastAnswer() != null ? req.getLastAnswer().trim() : "";
-        String recent = buildTranscriptContext(req.getUtterances());
+        String recent = buildTranscriptContext(req.getUtterances(), req.getSlot());
 
         StringBuilder user = new StringBuilder();
-        if (!lastAnswer.isEmpty()) {
-            user.append("Last answer:\n").append(lastAnswer, 0, Math.min(800, lastAnswer.length())).append("\n\n");
-        }
-        if (!recent.isEmpty()) user.append("Recent dialogue:\n").append(recent).append("\n\n");
+        appendDialogueContext(user, req, lastAnswer, recent);
         user.append("Select the best question from the question bank or decide to ask a cross-question.\n");
+        user.append("For QUESTION_BANK selections, return questionBankId only — the server resolves full question text.\n");
         user.append("Return ONLY valid JSON, no markdown fences.");
 
         String result = llmClient.chatQuestionWithSlotAndTracking(system, user.toString(), req.getSlot(), req.getInterviewId(), userId);

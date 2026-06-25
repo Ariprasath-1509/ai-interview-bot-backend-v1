@@ -76,10 +76,7 @@ public class TranscribeService {
                 try {
                     return callFasterWhisper(tmp, language);
                 } catch (Exception e) {
-                    log.warn("[STT] faster-whisper failed, trying Ollama fallback: {}", e.getMessage());
-                    if (ollamaBaseUrl != null && !ollamaBaseUrl.isBlank()) {
-                        return callOllamaTranscribe(tmp, language);
-                    }
+                    log.warn("[STT] faster-whisper failed: {}", e.getMessage());
                     throw e;
                 }
             }

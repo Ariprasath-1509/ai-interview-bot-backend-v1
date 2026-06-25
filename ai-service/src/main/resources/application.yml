@@ -28,9 +28,9 @@ eureka:
 
 app:
   llm:
-    # 'hybrid' routes per-operation (question/rubric→Ollama, assessment/matching→Claude)
-    # 'claude' routes everything to Claude; 'ollama' routes everything to Ollama
-    provider: ${APP_LLM_PROVIDER:hybrid}
+    # 'claude' routes everything to Claude (recommended for production quality)
+    # 'hybrid' allows per-operation routing via admin UI; 'ollama' routes everything to Ollama
+    provider: ${APP_LLM_PROVIDER:claude}
   jwt:
     secret: ${JWT_SECRET:}
     issuer: ${JWT_ISSUER:benchreadiness-auth}

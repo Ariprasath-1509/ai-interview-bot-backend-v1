@@ -80,9 +80,7 @@ public class OpenAiClient {
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatQuestionWithSlot(String systemPrompt, String userPrompt, int slot) throws Exception {
-        // Slots 1-5: use haiku (fast, cheap), Slots 6-10: use sonnet (higher quality)
-        String model = slot <= 5 ? questionModel : assessmentModel;
-        return chat(systemPrompt, userPrompt, model, questionTemperature, questionMaxTokens);
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, questionMaxTokens);
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
@@ -191,8 +189,7 @@ public class OpenAiClient {
     }
 
     public String chatQuestionWithSlotAndTracking(String systemPrompt, String userPrompt, int slot, String interviewId, String userId) throws Exception {
-        String model = slot <= 5 ? questionModel : assessmentModel;
-        return chat(systemPrompt, userPrompt, model, questionTemperature, questionMaxTokens, interviewId, "question", userId);
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, questionMaxTokens, interviewId, "question", userId);
     }
 
     public String chatAssessmentWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {

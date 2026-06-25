@@ -540,6 +540,7 @@ services:
       MAIL_PASSWORD: "${MAIL_PASSWORD:-xcbc bgrj lbql tgkd}"
       APP_CLAUDE_API_KEY: ${APP_CLAUDE_API_KEY:-}
       APP_CLAUDE_MODEL: ${APP_CLAUDE_MODEL:-claude-haiku-4-5}
+      APP_LLM_PROVIDER: ${APP_LLM_PROVIDER:-claude}
       JAVA_OPTS: "-Xms512m -Xmx1024m -XX:+UseG1GC"
     depends_on:
       eureka-server:

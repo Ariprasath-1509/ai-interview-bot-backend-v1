@@ -182,6 +182,10 @@ public class DigestService {
                 return claudeService.parse(rawText, categoryList, converter);
             }
         } catch (Exception e) {
+            if ("claude".equals(primaryProvider)) {
+                log.error("Claude digest parse failed (Ollama fallback disabled): {}", e.getMessage());
+                throw new RuntimeException("Claude digest parse failed: " + e.getMessage(), e);
+            }
             log.warn("Primary provider ({}) failed: {}. Attempting fallback: {}",
                     primaryProvider, e.getMessage(), fallbackProvider);
             try {

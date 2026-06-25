@@ -91,8 +91,7 @@ public class ClaudeAiClient implements LlmClient {
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String chatQuestionWithSlot(String systemPrompt, String userPrompt, int slot) throws Exception {
-        String model = slot <= 5 ? questionModel : assessmentModel;
-        return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForOperation("question"));
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForOperation("question"));
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
@@ -240,8 +239,7 @@ public class ClaudeAiClient implements LlmClient {
 
     @Override
     public String chatQuestionWithSlotAndTracking(String systemPrompt, String userPrompt, int slot, String interviewId, String userId) throws Exception {
-        String model = slot <= 5 ? questionModel : assessmentModel;
-        return chat(systemPrompt, userPrompt, model, questionTemperature, getMaxTokensForOperation("question"), interviewId, "question", userId);
+        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForOperation("question"), interviewId, "question", userId);
     }
 
     @Override

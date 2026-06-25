@@ -16,7 +16,7 @@ public class LlmProviderSettings {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(LlmProviderSettings.class);
 
-    @Value("${app.llm.provider:hybrid}")
+    @Value("${app.llm.provider:claude}")
     private String startupProvider;
 
     // Per-operation provider: "claude" or "ollama"
@@ -28,9 +28,9 @@ public class LlmProviderSettings {
     @PostConstruct
     public void init() {
         if ("hybrid".equals(startupProvider)) {
-            // Default routing: fast/cheap ops → Ollama, accuracy-critical ops → Claude
-            questionProvider   = "ollama";
-            rubricProvider     = "ollama";
+            // Hybrid mode: default all operations to Claude (override per-op via admin UI if needed)
+            questionProvider   = "claude";
+            rubricProvider     = "claude";
             assessmentProvider = "claude";
             matchingProvider   = "claude";
         } else {
@@ -42,6 +42,13 @@ public class LlmProviderSettings {
         }
         log.info("[LlmProviderSettings] Initialized — question={}, rubric={}, assessment={}, matching={}",
                 questionProvider, rubricProvider, assessmentProvider, matchingProvider);
+    }
+
+    public String getStartupProvider() { return startupProvider; }
+
+    /** When true, HybridLlmClient may fall back to Ollama if Claude is unavailable. */
+    public boolean ollamaFallbackEnabled() {
+        return "hybrid".equals(startupProvider) || "ollama".equals(startupProvider);
     }
 
     public String getQuestionProvider()   { return questionProvider; }
