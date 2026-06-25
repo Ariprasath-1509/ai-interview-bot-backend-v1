@@ -38,7 +38,7 @@ app:
   claude:
     api-key: ${APP_CLAUDE_API_KEY:}
     model: ${APP_CLAUDE_MODEL:claude-haiku-4-5}
-    assessment-model: ${APP_CLAUDE_ASSESSMENT_MODEL:claude-sonnet-4-5}
+    assessment-model: ${APP_CLAUDE_ASSESSMENT_MODEL:claude-sonnet-4-6}
     question-temperature: ${APP_CLAUDE_QUESTION_TEMPERATURE:0.55}
     assessment-temperature: ${APP_CLAUDE_ASSESSMENT_TEMPERATURE:0.25}
   ollama:
