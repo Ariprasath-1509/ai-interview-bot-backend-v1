@@ -890,9 +890,13 @@ public class AssessmentService {
     }
 
     private Map<String, Object> parseCandidateProfile(String profileJson) {
-        if (profileJson == null || profileJson.isBlank()) return Map.of("level", "mid", "yearsOfExperience", 0);
+        if (profileJson == null || profileJson.isBlank() || "null".equals(profileJson.trim())) {
+            return Map.of("level", "mid", "yearsOfExperience", 0);
+        }
         try {
-            return objectMapper.readValue(profileJson, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            Map<String, Object> result = objectMapper.readValue(profileJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            return result != null ? result : Map.of("level", "mid", "yearsOfExperience", 0);
         } catch (Exception e) { return Map.of("level", "mid", "yearsOfExperience", 0); }
     }
 
