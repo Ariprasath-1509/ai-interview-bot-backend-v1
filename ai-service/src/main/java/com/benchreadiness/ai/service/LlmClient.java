@@ -21,5 +21,8 @@ public interface LlmClient {
 
     /** Candidate matching. */
     String chatMatching(String systemPrompt, String userPrompt) throws Exception;
+
+    /** Digest parse — large structured JSON output from raw interview text. */
+    String chatDigest(String systemPrompt, String userPrompt) throws Exception;
 }
 

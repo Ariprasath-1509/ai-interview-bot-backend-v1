@@ -1,12 +1,15 @@
 package com.benchreadiness.ai.controller;
 
 import com.benchreadiness.ai.dto.AssessmentRequest;
+import com.benchreadiness.ai.dto.DigestAiResponse;
+import com.benchreadiness.ai.dto.DigestParseRequest;
 import com.benchreadiness.ai.dto.MatchingRequest;
 import com.benchreadiness.ai.dto.NextQuestionRequest;
 import com.benchreadiness.ai.dto.RubricRequest;
 import com.benchreadiness.ai.service.AiMatchingService;
 import com.benchreadiness.ai.service.AssessmentService;
 import com.benchreadiness.ai.service.AsyncAssessmentService;
+import com.benchreadiness.ai.service.DigestParseService;
 import com.benchreadiness.ai.service.HybridLlmClient;
 import com.benchreadiness.ai.service.LlmClient;
 import com.benchreadiness.ai.service.LlmProviderSettings;
@@ -16,6 +19,7 @@ import com.benchreadiness.ai.service.MediaHealthService;
 import com.benchreadiness.ai.service.TranscribeService;
 import com.benchreadiness.ai.service.TtsService;
 import com.benchreadiness.ai.service.JsonRepairUtil;
+import jakarta.validation.Valid;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,13 +46,15 @@ public class AiController {
     private final TranscribeService transcribeService;
     private final TtsService ttsService;
     private final MediaHealthService mediaHealthService;
+    private final DigestParseService digestParseService;
     private final ObjectMapper objectMapper;
 
     public AiController(QuestionService questionService, AssessmentService assessmentService,
                        AsyncAssessmentService asyncAssessmentService, RubricService rubricService,
                        AiMatchingService aiMatchingService, LlmClient llmClient,
                        TranscribeService transcribeService, TtsService ttsService,
-                       MediaHealthService mediaHealthService, ObjectMapper objectMapper) {
+                       MediaHealthService mediaHealthService, DigestParseService digestParseService,
+                       ObjectMapper objectMapper) {
         this.questionService = questionService;
         this.assessmentService = assessmentService;
         this.asyncAssessmentService = asyncAssessmentService;
@@ -58,6 +64,7 @@ public class AiController {
         this.transcribeService = transcribeService;
         this.ttsService = ttsService;
         this.mediaHealthService = mediaHealthService;
+        this.digestParseService = digestParseService;
         this.objectMapper = objectMapper;
     }
 
@@ -430,6 +437,25 @@ public class AiController {
                 "error", "tts_failed",
                 "detail", e.getMessage()
             ));
+        }
+    }
+
+    /**
+     * POST /ai/digest-parse
+     * Accepts raw interview text + allowed category list from the questionbank-service,
+     * calls the LLM, and returns structured sessions + questions.
+     * The questionbank-service then performs fuzzy matching and DB commit separately.
+     */
+    @PostMapping("/digest-parse")
+    public ResponseEntity<?> digestParse(@Valid @RequestBody DigestParseRequest req) {
+        try {
+            DigestAiResponse result = digestParseService.parse(req.rawText(), req.categoryList());
+            return ResponseEntity.ok(Map.of("success", true, "data", result));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(503).body(Map.of("success", false, "message", e.getMessage()));
+        } catch (Exception e) {
+            log.error("[DigestParse] Failed: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", "Digest parse failed: " + e.getMessage()));
         }
     }
 

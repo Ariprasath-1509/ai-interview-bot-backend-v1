@@ -1,11 +1,14 @@
-package com.qb.ai.dto;
+package com.benchreadiness.ai.dto;
 
 import java.util.List;
 
 /**
- * Structured DTO representing the JSON shape returned by the ai-service digest-parse endpoint.
+ * Structured response from the LLM for interview text parsing.
+ * Mirrors the questionbank-service DigestAiResponse shape so both services
+ * share the same JSON contract.
  */
 public record DigestAiResponse(List<AiSession> sessions) {
+
     public record AiSession(
             String candidateName,
             String company,

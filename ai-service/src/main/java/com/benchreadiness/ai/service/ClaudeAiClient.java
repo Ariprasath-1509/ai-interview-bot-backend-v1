@@ -251,4 +251,10 @@ public class ClaudeAiClient implements LlmClient {
     public String chatRubricWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
         return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForOperation("rubric"), interviewId, "rubric", userId);
     }
+
+    @Override
+    @Retryable(maxAttempts = 2, backoff = @Backoff(delay = 2000, multiplier = 2))
+    public String chatDigest(String systemPrompt, String userPrompt) throws Exception {
+        return chat(systemPrompt, userPrompt, assessmentModel, 0.1, 8000);
+    }
 }

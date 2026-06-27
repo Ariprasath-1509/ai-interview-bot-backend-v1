@@ -99,6 +99,11 @@ public class OllamaAiClient implements LlmClient {
         return chat(systemPrompt, userPrompt, matchingModel, assessmentTemperature, null, null, null);
     }
 
+    @Override
+    public String chatDigest(String systemPrompt, String userPrompt) throws Exception {
+        return chat(systemPrompt, userPrompt, assessmentModel, 0.1, null, null, null);
+    }
+
     private String chat(String systemPrompt, String userPrompt, String model,
                         double temperature, String interviewId, String operationType, String userId) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();

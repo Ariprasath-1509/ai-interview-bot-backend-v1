@@ -5,8 +5,7 @@ import com.qb.ai.dto.*;
 import com.qb.ai.dto.DigestCommitRequest.CommitQuestion;
 import com.qb.ai.dto.DigestCommitRequest.CommitSession;
 import com.qb.ai.dto.DigestParseResponse.*;
-import com.qb.ai.llm.PromptTemplates;
-import com.qb.config.LlmConfig;
+import com.qb.client.AiServiceClient;
 import com.qb.core.entity.*;
 import com.qb.core.repository.OccurrenceRepository;
 import com.qb.core.repository.QuestionRepository;
@@ -15,13 +14,11 @@ import com.qb.core.service.CompanyService;
 import com.qb.core.service.RelevancyScoreService;
 import com.qb.core.service.TagService;
 import com.qb.core.repository.SessionRepository;
-import org.springframework.ai.converter.BeanOutputConverter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import jakarta.annotation.PostConstruct;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -30,17 +27,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Orchestrates the two-step digest workflow:
- * 1. PARSE: Raw text → LLM (Claude or Ollama with fallback) → Structured sessions + fuzzy match
- * 2. COMMIT: Admin-approved data → Database insert/link
+ * 1. PARSE  — forwards raw text + categories to ai-service for LLM parsing
+ * 2. COMMIT — saves admin-approved data to the questionbank DB
  */
 @Slf4j
 @Service
 public class DigestService {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final LlmConfig config;
-    private final ClaudeService claudeService;
-    private final OllamaService ollamaService;
+    private final AiServiceClient aiServiceClient;
     private final FuzzyMatchService fuzzyMatchService;
     private final CompanyService companyService;
     private final CategoryService categoryService;
@@ -51,9 +46,7 @@ public class DigestService {
     private final RelevancyScoreService relevancyScoreService;
 
     public DigestService(
-            LlmConfig config,
-            ClaudeService claudeService,
-            OllamaService ollamaService,
+            AiServiceClient aiServiceClient,
             FuzzyMatchService fuzzyMatchService,
             CompanyService companyService,
             CategoryService categoryService,
@@ -63,9 +56,7 @@ public class DigestService {
             OccurrenceRepository occurrenceRepo,
             RelevancyScoreService relevancyScoreService
     ) {
-        this.config = config;
-        this.claudeService = claudeService;
-        this.ollamaService = ollamaService;
+        this.aiServiceClient = aiServiceClient;
         this.fuzzyMatchService = fuzzyMatchService;
         this.companyService = companyService;
         this.categoryService = categoryService;
@@ -76,31 +67,17 @@ public class DigestService {
         this.relevancyScoreService = relevancyScoreService;
     }
 
-    @PostConstruct
-    public void init() {
-        log.info("Initialized DigestService with LLM provider: {} (fallback enabled)",
-                config.getLlm().getProvider());
-    }
-
     private LocalDate parseDate(String dateStr) {
         if (dateStr == null || dateStr.isBlank()) return null;
-        // Try multiple date formats
         String[] patterns = {
-                "d MMMM yyyy",    // "29th April 2026"
-                "d MMM yyyy",     // "29 Apr 2026"
-                "yyyy-MM-dd",     // "2026-04-29"
-                "dd/MM/yyyy",     // "29/04/2026"
-                "MM/dd/yyyy",     // "04/29/2026"
-                "dd-MM-yyyy"      // "29-04-2026"
+                "d MMMM yyyy", "d MMM yyyy", "yyyy-MM-dd",
+                "dd/MM/yyyy", "MM/dd/yyyy", "dd-MM-yyyy"
         };
         for (String pattern : patterns) {
             try {
                 return LocalDate.parse(dateStr, DateTimeFormatter.ofPattern(pattern));
-            } catch (Exception e) {
-                // try next pattern
-            }
+            } catch (Exception ignored) {}
         }
-        // Try to clean ordinal suffix (1st, 2nd, 3rd, 4th etc)
         try {
             String cleaned = dateStr.replaceAll("(?<=\\d)(st|nd|rd|th)\\b", "");
             return LocalDate.parse(cleaned, DateTimeFormatter.ofPattern("d MMMM yyyy"));
@@ -113,20 +90,41 @@ public class DigestService {
     // ─── STEP 1: PARSE ───────────────────────────────────────────────
 
     /**
-     * Parse raw interview text using AI (with fallback) and enhance with fuzzy matching.
-     * This is Step 1 of the digest flow — returns preview data for admin review.
+     * Delegates LLM parsing to ai-service, then enhances the result with
+     * fuzzy matching against existing questions.
      */
     public DigestParseResponse parse(String rawText) {
-        // 1. Fetch category list from DB for constrained classification
         String categoryList = String.join(", ", categoryService.getAllCategoryNames());
+        log.info("[Digest] Delegating LLM parse to ai-service ({} chars, categories: {})",
+                rawText.length(), categoryList);
 
-        // 2. Call LLM (Claude or Ollama) with fallback
-        log.info("Calling LLM to parse interview text ({} chars)", rawText.length());
+        // Call ai-service — it owns all LLM keys and provider routing
+        Map<String, String> requestBody = Map.of(
+                "rawText", rawText,
+                "categoryList", categoryList
+        );
 
-        BeanOutputConverter<DigestAiResponse> converter = new BeanOutputConverter<>(DigestAiResponse.class);
-        DigestAiResponse aiResult = callLLMWithFallback(rawText, categoryList, converter);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> response = aiServiceClient.digestParse(requestBody);
 
-        // 3. Convert AI output to response DTOs + run fuzzy matching
+        if (!Boolean.TRUE.equals(response.get("success"))) {
+            String msg = (String) response.getOrDefault("message", "AI service returned failure");
+            log.error("[Digest] ai-service digest-parse failed: {}", msg);
+            throw new RuntimeException("AI parsing failed: " + msg);
+        }
+
+        // Deserialize the nested DigestAiResponse
+        DigestAiResponse aiResult;
+        try {
+            Object data = response.get("data");
+            String json = objectMapper.writeValueAsString(data);
+            aiResult = objectMapper.readValue(json, DigestAiResponse.class);
+        } catch (Exception e) {
+            log.error("[Digest] Failed to deserialize ai-service response: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to parse AI response: " + e.getMessage(), e);
+        }
+
+        // Enhance with fuzzy matching + category normalization
         List<String> allowedCategories = categoryService.getAllCategoryNames();
         List<ParsedSession> sessions = new ArrayList<>();
         int tempCounter = 0;
@@ -139,7 +137,6 @@ public class DigestService {
                 String questionText = qNode.text();
                 String category = categoryService.normalizeCategoryName(qNode.category(), allowedCategories);
 
-                // Suggest possible duplicate — admin must opt in to link on commit
                 ExistingMatch match = fuzzyMatchService.findBestMatch(questionText, category).orElse(null);
 
                 questions.add(new ParsedQuestion(
@@ -161,53 +158,161 @@ public class DigestService {
             ));
         }
 
-        log.info("Parsed {} sessions with {} total questions", sessions.size(), tempCounter);
+        log.info("[Digest] Parsed {} sessions, {} total questions", sessions.size(), tempCounter);
         return new DigestParseResponse(sessions);
     }
 
-    /**
-     * Call LLM with primary provider and automatic fallback.
-     * If primary (Claude or Ollama) fails, automatically tries the other.
-     */
-    private DigestAiResponse callLLMWithFallback(String rawText, String categoryList,
-                                                 BeanOutputConverter<DigestAiResponse> converter) {
-        String primaryProvider = config.getLlm().getProvider().toLowerCase();
-        String fallbackProvider = "claude".equals(primaryProvider) ? "ollama" : "claude";
+    // ─── STEP 1b: CHUNKED PARSE ──────────────────────────────────────
 
-        try {
-            log.info("Attempting primary LLM provider: {}", primaryProvider);
-            if ("ollama".equals(primaryProvider)) {
-                return ollamaService.parse(rawText, categoryList, converter);
-            } else {
-                return claudeService.parse(rawText, categoryList, converter);
-            }
-        } catch (Exception e) {
-            if ("claude".equals(primaryProvider)) {
-                log.error("Claude digest parse failed (Ollama fallback disabled): {}", e.getMessage());
-                throw new RuntimeException("Claude digest parse failed: " + e.getMessage(), e);
-            }
-            log.warn("Primary provider ({}) failed: {}. Attempting fallback: {}",
-                    primaryProvider, e.getMessage(), fallbackProvider);
+    /**
+     * For large documents: splits the text into chunks, parses each via ai-service,
+     * and merges all resulting sessions into a single DigestParseResponse.
+     */
+    public DigestParseResponse parseChunked(String fullText) {
+        List<String> chunks = chunkText(fullText, 3500);
+        log.info("[Digest] Chunking {} chars into {} chunks", fullText.length(), chunks.size());
+
+        String categoryList = String.join(", ", categoryService.getAllCategoryNames());
+        List<String> allowedCategories = categoryService.getAllCategoryNames();
+        List<ParsedSession> allSessions = new ArrayList<>();
+        int tempCounter = 0;
+
+        for (int i = 0; i < chunks.size(); i++) {
+            String chunk = chunks.get(i);
+            log.info("[Digest] Processing chunk {}/{} ({} chars)", i + 1, chunks.size(), chunk.length());
             try {
-                if ("ollama".equals(fallbackProvider)) {
-                    return ollamaService.parse(rawText, categoryList, converter);
-                } else {
-                    return claudeService.parse(rawText, categoryList, converter);
+                Map<String, String> requestBody = Map.of("rawText", chunk, "categoryList", categoryList);
+                @SuppressWarnings("unchecked")
+                Map<String, Object> response = aiServiceClient.digestParse(requestBody);
+
+                if (!Boolean.TRUE.equals(response.get("success"))) {
+                    log.warn("[Digest] Chunk {}/{} failed: {}", i + 1, chunks.size(), response.get("message"));
+                    continue;
                 }
-            } catch (Exception fallbackError) {
-                log.error("Both LLM providers failed. Primary: {}, Fallback: {}",
-                        e.getMessage(), fallbackError.getMessage());
-                throw new RuntimeException("All LLM providers failed: " + fallbackError.getMessage(), fallbackError);
+
+                DigestAiResponse aiResult;
+                try {
+                    Object data = response.get("data");
+                    String json = objectMapper.writeValueAsString(data);
+                    aiResult = objectMapper.readValue(json, DigestAiResponse.class);
+                } catch (Exception e) {
+                    log.warn("[Digest] Chunk {}/{} deserialize failed: {}", i + 1, chunks.size(), e.getMessage());
+                    continue;
+                }
+
+                for (DigestAiResponse.AiSession sessionNode : aiResult.sessions()) {
+                    List<ParsedQuestion> questions = new ArrayList<>();
+                    for (DigestAiResponse.AiQuestion qNode : sessionNode.questions()) {
+                        tempCounter++;
+                        String questionText = qNode.text();
+                        String category = categoryService.normalizeCategoryName(qNode.category(), allowedCategories);
+                        ExistingMatch match = fuzzyMatchService.findBestMatch(questionText, category).orElse(null);
+                        questions.add(new ParsedQuestion(
+                                "t" + tempCounter,
+                                questionText,
+                                category,
+                                qNode.suggestedTags() != null ? qNode.suggestedTags() : new ArrayList<>(),
+                                match
+                        ));
+                    }
+                    allSessions.add(new ParsedSession(
+                            sessionNode.candidateName() != null ? sessionNode.candidateName() : "Unknown",
+                            sessionNode.company() != null ? sessionNode.company() : "Unknown",
+                            sessionNode.round() != null ? sessionNode.round() : "L1",
+                            sessionNode.date(),
+                            sessionNode.interviewer(),
+                            questions
+                    ));
+                }
+            } catch (Exception e) {
+                log.warn("[Digest] Chunk {}/{} exception: {}", i + 1, chunks.size(), e.getMessage());
             }
+        }
+
+        log.info("[Digest] Chunked parse complete: {} sessions total", allSessions.size());
+        return new DigestParseResponse(allSessions);
+    }
+
+    private List<String> chunkText(String text, int maxChars) {
+        // Normalize line endings
+        text = text.replace("\r\n", "\n").replace("\r", "\n");
+
+        String[] lines = text.split("\n");
+        List<String> chunks = new ArrayList<>();
+
+        java.util.regex.Pattern boundaryPattern = java.util.regex.Pattern.compile(
+                "(?i)^(interview|candidate[:\\s]|company[:\\s]|round[:\\s]|date[:\\s]|name[:\\s])" +
+                "|^[A-Z][A-Z\\s]{18,}$"  // all-caps header lines
+        );
+
+        int boundaryCount = 0;
+        for (String line : lines) {
+            if (boundaryPattern.matcher(line.trim()).find() && !line.trim().isEmpty()) {
+                boundaryCount++;
+            }
+        }
+
+        if (boundaryCount >= 2) {
+            // Boundary-based splitting: flush a new chunk at each detected session header
+            StringBuilder current = new StringBuilder();
+            for (String line : lines) {
+                boolean isBoundary = boundaryPattern.matcher(line.trim()).find() && !line.trim().isEmpty();
+                if (isBoundary && current.length() > 200) {
+                    String segment = current.toString().trim();
+                    if (!segment.isEmpty()) {
+                        flushSegment(segment, maxChars, chunks);
+                    }
+                    current = new StringBuilder();
+                }
+                current.append(line).append("\n");
+            }
+            String remaining = current.toString().trim();
+            if (!remaining.isEmpty()) {
+                flushSegment(remaining, maxChars, chunks);
+            }
+        } else {
+            // Paragraph-based splitting: group double-newline-separated paragraphs
+            String[] paragraphs = text.split("\n\n+");
+            StringBuilder current = new StringBuilder();
+            for (String para : paragraphs) {
+                if (current.length() + para.length() + 2 > maxChars && current.length() > 0) {
+                    chunks.add(current.toString().trim());
+                    current = new StringBuilder();
+                }
+                current.append(para).append("\n\n");
+            }
+            String remaining = current.toString().trim();
+            if (!remaining.isEmpty()) {
+                chunks.add(remaining);
+            }
+        }
+
+        return chunks.isEmpty() ? List.of(text) : chunks;
+    }
+
+    private void flushSegment(String segment, int maxChars, List<String> chunks) {
+        if (segment.length() <= maxChars) {
+            chunks.add(segment);
+            return;
+        }
+        // Hard split with 150-char overlap
+        int start = 0;
+        while (start < segment.length()) {
+            int end = Math.min(start + maxChars, segment.length());
+            if (end < segment.length()) {
+                int lastNewline = segment.lastIndexOf('\n', end);
+                if (lastNewline > start + 500) {
+                    end = lastNewline;
+                }
+            }
+            chunks.add(segment.substring(start, end).trim());
+            start = end - 150;
+            if (start < 0) start = 0;
         }
     }
 
     // ─── STEP 2: COMMIT ──────────────────────────────────────────────
 
-    /**
-     * Commit admin-approved digest data to the database.
-     * Creates companies, sessions, questions, tags, and occurrences.
-     */
     @Caching(evict = {
             @CacheEvict(value = "questions",       allEntries = true),
             @CacheEvict(value = "question",        allEntries = true),
@@ -224,10 +329,8 @@ public class DigestService {
         AtomicInteger tagsCreated = new AtomicInteger(0);
 
         for (CommitSession cs : request.sessions()) {
-            // 1. Find or create company
             Company company = companyService.findOrCreateByName(cs.companyName());
 
-            // 2. Create interview session
             InterviewSession session = InterviewSession.builder()
                     .candidateName(cs.candidateName())
                     .candidateId(cs.candidateId())
@@ -239,7 +342,6 @@ public class DigestService {
             sessionRepo.save(session);
             sessionsCreated.incrementAndGet();
 
-            // 3. Process each question
             for (CommitQuestion cq : cs.questions()) {
                 Question question;
                 String categoryName = categoryService.normalizeCategoryName(
@@ -282,7 +384,6 @@ public class DigestService {
                             .count());
                 }
 
-                // 4. Create occurrence (links question ↔ session)
                 question.incrementOccurrenceCount();
                 questionRepo.save(question);
 
@@ -294,10 +395,9 @@ public class DigestService {
             }
         }
 
-        log.info("Digest committed: {} sessions, {} new questions, {} linked, {} tags",
+        log.info("[Digest] Committed: {} sessions, {} new questions, {} linked, {} tags",
                 sessionsCreated.get(), questionsCreated.get(), questionsLinked.get(), tagsCreated.get());
 
-        // Recompute relevancy scores for all questions since occurrence counts changed
         relevancyScoreService.recomputeAll();
 
         return new DigestCommitResponse(
@@ -308,7 +408,7 @@ public class DigestService {
         );
     }
 
-    private static String inferQuestionType(String text, String categoryName, java.util.List<String> tags) {
+    private static String inferQuestionType(String text, String categoryName, List<String> tags) {
         if ("DSA".equalsIgnoreCase(categoryName)) return "CODING";
         if (tags != null && tags.stream().anyMatch(t -> t != null && t.toLowerCase().matches(".*(coding|algorithm|dsa|leetcode).*"))) {
             return "CODING";

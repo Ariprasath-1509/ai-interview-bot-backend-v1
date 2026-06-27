@@ -69,6 +69,12 @@ public class HybridLlmClient implements LlmClient {
         return resolve(settings.getMatchingProvider()).chatMatching(systemPrompt, userPrompt);
     }
 
+    @Override
+    public String chatDigest(String systemPrompt, String userPrompt) throws Exception {
+        log.debug("[Hybrid] chatDigest → {}", settings.getAssessmentProvider());
+        return resolve(settings.getAssessmentProvider()).chatDigest(systemPrompt, userPrompt);
+    }
+
     /**
      * Resolve the concrete client for the requested provider.
      * Falls back to whichever client is configured if the preferred one isn't.
