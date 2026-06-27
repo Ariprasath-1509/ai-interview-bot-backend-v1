@@ -28,17 +28,9 @@ public class AdminUserController {
         List<UserProfileDTO> users = new ArrayList<>();
 
         try {
-            List<Map<String, Object>> staff = authServiceClient.getStaff();
-            for (Map<String, Object> s : staff) {
-                users.add(mapToUserProfile(s, false));
-            }
-        } catch (Exception e) {
-        }
-
-        try {
-            List<Map<String, Object>> admins = authServiceClient.getAdmins();
-            for (Map<String, Object> a : admins) {
-                users.add(mapToUserProfile(a, true));
+            List<Map<String, Object>> candidates = authServiceClient.getCandidatesInternal();
+            for (Map<String, Object> c : candidates) {
+                users.add(mapToUserProfile(c, false));
             }
         } catch (Exception e) {
         }

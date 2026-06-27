@@ -583,6 +583,23 @@ public class AuthController {
             .toList());
     }
 
+    /** GET /auth/internal/candidates — service-to-service: all active candidates for email dispatch */
+    @GetMapping("/internal/candidates")
+    public ResponseEntity<?> listCandidatesInternal() {
+        List<User> candidates = userRepository.findByRole(UserRole.CANDIDATE);
+        return ResponseEntity.ok(candidates.stream()
+            .filter(u -> u.getEmail() != null && !u.getEmail().isBlank())
+            .map(u -> {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("id", u.getId());
+                map.put("name", u.getName() != null ? u.getName() : "");
+                map.put("email", u.getEmail());
+                map.put("phone", u.getContactNumber());
+                return map;
+            })
+            .toList());
+    }
+
     /** GET /auth/internal/pipeline-status — branch-scoped pipeline for digest */
     @GetMapping("/internal/pipeline-status")
     public ResponseEntity<?> getInternalPipelineStatus(@RequestParam(required = false) String branch) {

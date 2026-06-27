@@ -9,6 +9,8 @@ import com.qb.core.service.QuestionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -89,8 +91,19 @@ public class EmailController {
         Instant fromInstant = from != null ? LocalDate.parse(from).atStartOfDay().toInstant(ZoneOffset.UTC) : null;
         Instant toInstant   = to   != null ? LocalDate.parse(to).atTime(23, 59, 59).toInstant(ZoneOffset.UTC) : null;
 
+        Specification<EmailLog> spec = Specification.where(null);
+        if (sentByUuid != null) {
+            spec = spec.and((root, q, cb) -> cb.equal(root.get("sentBy"), sentByUuid));
+        }
+        if (fromInstant != null) {
+            spec = spec.and((root, q, cb) -> cb.greaterThanOrEqualTo(root.get("sentAt"), fromInstant));
+        }
+        if (toInstant != null) {
+            spec = spec.and((root, q, cb) -> cb.lessThanOrEqualTo(root.get("sentAt"), toInstant));
+        }
+
         Page<EmailLogDTO> logs = emailLogRepo
-                .findFiltered(sentByUuid, fromInstant, toInstant, PageRequest.of(page, size))
+                .findAll(spec, PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "sentAt")))
                 .map(this::toDTO);
 
         return ResponseEntity.ok(ApiResponse.ok(logs));
