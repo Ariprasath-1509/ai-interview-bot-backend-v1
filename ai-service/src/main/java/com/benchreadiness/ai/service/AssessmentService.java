@@ -381,7 +381,7 @@ public class AssessmentService {
 
         try {
             String assessmentJson = objectMapper.writeValueAsString(result);
-            storeAssessmentResponse(req.getInterviewId(), assessmentJson, 0, "ollama-four-stage", userId);
+            storeAssessmentResponse(req.getInterviewId(), assessmentJson, 0, "claude-four-stage", userId);
             finalizeInterviewTokens(req.getInterviewId(), userId);
         } catch (Exception e) {
             log.warn("Failed to store assessment response for interview {}: {}", req.getInterviewId(), e.getMessage());
@@ -585,7 +585,7 @@ public class AssessmentService {
             // Legacy path — structured brief is generated on demand via ClientBriefGenerationService.
             result.put("clientBrief", objectMapper.convertValue(clientBriefJson, Map.class));
         }
-        result.put("source", "ollama-four-stage");
+        result.put("source", "claude-four-stage");
         return result;
     }
 

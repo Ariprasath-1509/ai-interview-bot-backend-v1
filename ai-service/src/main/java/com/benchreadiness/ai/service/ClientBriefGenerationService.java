@@ -337,7 +337,8 @@ public class ClientBriefGenerationService {
             return 10;
         }
         if (!scores.isEmpty() && scores.values().stream().allMatch(v -> v >= 1 && v <= 5)) {
-            return "ollama-four-stage".equals(stringVal(assessment.get("source"))) ? 10 : 5;
+            // All scores 1-5 on a 1-10 scale means genuinely low scores — scoreMax is 10
+            return 10;
         }
         return 10;
     }
