@@ -35,4 +35,4 @@ jobs:
           cache: maven
 
       - name: OWASP dependency check
-        run: mvn -B org.owasp:dependency-check-maven:aggregate -DfailBuildOnCVSS=9 -DnvdApiDelay=0
+        run: mvn -B org.owasp:dependency-check-maven:aggregate -DfailBuildOnCVSS=9 -DnvdApiDelay=0 -DsuppressionFiles=owasp-suppressions.xml

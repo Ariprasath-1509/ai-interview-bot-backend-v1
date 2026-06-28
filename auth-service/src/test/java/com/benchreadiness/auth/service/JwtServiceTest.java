@@ -12,6 +12,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -34,7 +35,7 @@ class JwtServiceTest {
                 1800000,
                 604800000
         );
-        when(tokenRevocationService.isRevoked(anyString())).thenReturn(false);
+        lenient().when(tokenRevocationService.isRevoked(anyString())).thenReturn(false);
     }
 
     @Test
