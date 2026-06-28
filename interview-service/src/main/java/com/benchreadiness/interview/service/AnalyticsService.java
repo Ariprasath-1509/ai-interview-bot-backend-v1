@@ -479,25 +479,33 @@ public class AnalyticsService {
                                                   String branchScope) {
         Map<String, Object> report = new HashMap<>();
 
+        Instant sevenDaysAgo = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant().minusSeconds(6 * 24 * 3600);
+        List<Interview> weekInterviews = scopedInterviews.stream()
+                .filter(i -> i.getCreatedAt().isAfter(sevenDaysAgo))
+                .collect(Collectors.toList());
+
+        // Status counts reflect current pipeline state (not just today's created interviews)
         Map<String, Object> interviewMetrics = new HashMap<>();
         interviewMetrics.put("totalToday", todayInterviews.size());
-        interviewMetrics.put("scheduled", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.SCHEDULED).count());
-        interviewMetrics.put("inProgress", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.IN_PROGRESS).count());
-        interviewMetrics.put("completed", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.COMPLETED).count());
-        interviewMetrics.put("reviewPending", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.REVIEW_PENDING).count());
-        interviewMetrics.put("signedOff", todayInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.SIGNED_OFF).count());
+        interviewMetrics.put("totalThisWeek", weekInterviews.size());
+        interviewMetrics.put("scheduled",     scopedInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.SCHEDULED).count());
+        interviewMetrics.put("inProgress",    scopedInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.IN_PROGRESS).count());
+        interviewMetrics.put("completed",     scopedInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.COMPLETED).count());
+        interviewMetrics.put("reviewPending", scopedInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.REVIEW_PENDING).count());
+        interviewMetrics.put("signedOff",     scopedInterviews.stream().filter(i -> i.getStatus() == InterviewStatus.SIGNED_OFF).count());
 
-        Map<String, Long> modeDistribution = todayInterviews.stream()
+        Map<String, Long> modeDistribution = weekInterviews.stream()
                 .collect(Collectors.groupingBy(
                     i -> i.getInterviewMode() != null ? i.getInterviewMode().name() : "UNKNOWN",
                     Collectors.counting()
                 ));
         interviewMetrics.put("modeDistribution", modeDistribution);
 
-        long readyCount = todayInterviews.stream()
+        // Success rate based on all signed-off interviews (all-time), not just today
+        long readyCount = scopedInterviews.stream()
                 .filter(i -> i.getFinalVerdict() == ReadinessVerdict.READY)
                 .count();
-        long totalAssessed = todayInterviews.stream()
+        long totalAssessed = scopedInterviews.stream()
                 .filter(i -> i.getFinalVerdict() != null)
                 .count();
         double successRate = totalAssessed > 0 ? (double) readyCount / totalAssessed * 100 : 0;
@@ -506,6 +514,15 @@ public class AnalyticsService {
         interviewMetrics.put("successRate", Math.round(successRate * 100.0) / 100.0);
         report.put("interviewMetrics", interviewMetrics);
 
+        // Full verdict breakdown across all signed-off interviews
+        Map<String, Long> verdictBreakdown = new LinkedHashMap<>();
+        verdictBreakdown.put("READY",             readyCount);
+        verdictBreakdown.put("NEEDS_1_WEEK_PREP", scopedInterviews.stream().filter(i -> i.getFinalVerdict() == ReadinessVerdict.NEEDS_1_WEEK_PREP).count());
+        verdictBreakdown.put("NEEDS_RESKILLING",  scopedInterviews.stream().filter(i -> i.getFinalVerdict() == ReadinessVerdict.NEEDS_RESKILLING).count());
+        verdictBreakdown.put("MISMATCH_WITH_JD",  scopedInterviews.stream().filter(i -> i.getFinalVerdict() == ReadinessVerdict.MISMATCH_WITH_JD).count());
+        report.put("verdictBreakdown", verdictBreakdown);
+
+        // Violations scoped to today only (actionable for the day)
         Map<String, Object> violations = new HashMap<>();
         long withdrawnCount = todayInterviews.stream()
                 .filter(i -> i.getProposedVerdict() == ReadinessVerdict.WITHDRAWN || i.getFinalVerdict() == ReadinessVerdict.WITHDRAWN)
@@ -542,28 +559,63 @@ public class AnalyticsService {
         violations.put("details", violationDetails);
         report.put("violations", violations);
 
-        Instant oneDayAgo = Instant.now().minusSeconds(24 * 3600);
-        List<Map<String, Object>> pendingReviews = scopedInterviews.stream()
+        // Pending review split: critical (>72h) shown in full (capped at 10), warning (24–72h) count only
+        Instant oneDayAgo   = Instant.now().minusSeconds(24 * 3600);
+        Instant threeDaysAgo = Instant.now().minusSeconds(72 * 3600);
+
+        List<Map<String, Object>> allPendingReviews = scopedInterviews.stream()
                 .filter(i -> i.getStatus() == InterviewStatus.REVIEW_PENDING)
                 .filter(i -> i.getEndedAt() != null && i.getEndedAt().isBefore(oneDayAgo))
                 .map(i -> {
                     Engineer engineer = engineerRepository.findById(i.getEngineerId()).orElse(null);
                     JobDescription jd = jdRepository.findById(i.getJdId()).orElse(null);
-
+                    long hoursWaiting = (Instant.now().getEpochSecond() - i.getEndedAt().getEpochSecond()) / 3600;
                     Map<String, Object> pending = new HashMap<>();
                     pending.put("interviewId", i.getId());
                     pending.put("candidateName", engineer != null ? engineer.getName() : "Unknown");
                     pending.put("jdTitle", jd != null ? jd.getTitle() : "Unknown");
                     pending.put("completedAt", i.getEndedAt().toString());
-                    pending.put("hoursWaiting", (Instant.now().getEpochSecond() - i.getEndedAt().getEpochSecond()) / 3600);
+                    pending.put("hoursWaiting", hoursWaiting);
                     return pending;
                 })
                 .collect(Collectors.toList());
 
+        List<Map<String, Object>> criticalPending = allPendingReviews.stream()
+                .filter(p -> ((Number) p.get("hoursWaiting")).longValue() >= 72)
+                .sorted(Comparator.comparingLong(p -> -((Number) p.get("hoursWaiting")).longValue()))
+                .limit(10)
+                .collect(Collectors.toList());
+
+        long warningPendingCount = allPendingReviews.stream()
+                .filter(p -> ((Number) p.get("hoursWaiting")).longValue() < 72)
+                .count();
+
         Map<String, Object> alerts = new HashMap<>();
-        alerts.put("pendingReviewCount", pendingReviews.size());
-        alerts.put("pendingReviews", pendingReviews);
+        alerts.put("pendingReviewCount", allPendingReviews.size());
+        alerts.put("criticalPendingReviews", criticalPending);
+        alerts.put("warningPendingCount", warningPendingCount);
+        // Keep legacy key so existing callers still work
+        alerts.put("pendingReviews", criticalPending);
         report.put("alerts", alerts);
+
+        // Interviews expiring in the next 48 hours
+        Instant in48h = Instant.now().plusSeconds(48 * 3600);
+        List<Map<String, Object>> expiringInterviews = scopedInterviews.stream()
+                .filter(i -> i.getExpiresAt() != null)
+                .filter(i -> i.getExpiresAt().isAfter(Instant.now()) && i.getExpiresAt().isBefore(in48h))
+                .filter(i -> i.getStatus() == InterviewStatus.SCHEDULED || i.getStatus() == InterviewStatus.IN_PROGRESS)
+                .sorted(Comparator.comparing(Interview::getExpiresAt))
+                .map(i -> {
+                    Engineer engineer = engineerRepository.findById(i.getEngineerId()).orElse(null);
+                    Map<String, Object> exp = new HashMap<>();
+                    exp.put("candidateName", engineer != null ? engineer.getName() : "Unknown");
+                    exp.put("expiresAt", i.getExpiresAt().toString());
+                    exp.put("mode", i.getInterviewMode() != null ? i.getInterviewMode().name() : "UNKNOWN");
+                    exp.put("interviewId", i.getId());
+                    return exp;
+                })
+                .collect(Collectors.toList());
+        report.put("expiringInterviews", expiringInterviews);
 
         List<Map<String, Object>> interviewList = todayInterviews.stream()
                 .map(i -> {
