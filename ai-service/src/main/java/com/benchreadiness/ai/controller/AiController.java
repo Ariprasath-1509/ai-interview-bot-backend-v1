@@ -516,8 +516,8 @@ public class AiController {
             }
 
             String response = "structured".equals(mode)
-                ? llmClient.chatAssessment(system, user)   // 4000 tokens — enough for full JSON
-                : llmClient.chatQuestion(system, user);    // 300 tokens — short answers
+                ? llmClient.chatDigest(system, user)    // 8000 tokens — enough for full JSON
+                : llmClient.chatQuestion(system, user); // 300 tokens — short answers
 
             return ResponseEntity.ok(Map.of(
                 "success", true,
