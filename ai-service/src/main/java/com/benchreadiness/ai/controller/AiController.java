@@ -508,13 +508,17 @@ public class AiController {
         try {
             String system = (String) request.getOrDefault("system", "You are a helpful assistant.");
             String user = (String) request.getOrDefault("user", "");
-            
+            // caller can pass "mode": "structured" for large JSON responses (e.g. problem formatting)
+            String mode = (String) request.getOrDefault("mode", "question");
+
             if (user.trim().isEmpty()) {
                 return ResponseEntity.badRequest().body(Map.of("error", "user message is required"));
             }
-            
-            String response = llmClient.chatQuestion(system, user);
-            
+
+            String response = "structured".equals(mode)
+                ? llmClient.chatAssessment(system, user)   // 4000 tokens — enough for full JSON
+                : llmClient.chatQuestion(system, user);    // 300 tokens — short answers
+
             return ResponseEntity.ok(Map.of(
                 "success", true,
                 "response", response
