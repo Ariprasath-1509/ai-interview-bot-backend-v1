@@ -97,7 +97,7 @@ services:
           memory: 512M
 
   eureka-server:
-    image: registry.gitlab.com/ty_optimize/optimize/ai_eurekha:latest
+    image: registry.gitlab.com/tyssdev/ty_aibot/ai_eurekha:latest
     container_name: eureka-server
     mem_limit: 512m
     memswap_limit: 512m
@@ -126,7 +126,7 @@ services:
 
   ops-service:
     <<: *default-env-file
-    image: registry.gitlab.com/ty_optimize/optimize/ops_service:latest
+    image: registry.gitlab.com/tyssdev/ty_aibot/ops_service:latest
     container_name: ops-service
     mem_limit: 1536m
     memswap_limit: 1536m
@@ -175,7 +175,7 @@ services:
 
   auth-service:
     <<: *default-env-file
-    image: registry.gitlab.com/ty_optimize/optimize/ai_auth:latest
+    image: registry.gitlab.com/tyssdev/ty_aibot/ai_auth:latest
     container_name: auth-service
     mem_limit: 1536m
     memswap_limit: 1536m
@@ -227,7 +227,7 @@ services:
 
   interview-service:
     <<: *default-env-file
-    image: registry.gitlab.com/ty_optimize/optimize/interview_service:latest
+    image: registry.gitlab.com/tyssdev/ty_aibot/interview_service:latest
     container_name: interview-service
     mem_limit: 4g
     memswap_limit: 4g
@@ -276,7 +276,7 @@ services:
 
   ai-service:
     <<: *default-env-file
-    image: registry.gitlab.com/ty_optimize/optimize/ai_service:latest
+    image: registry.gitlab.com/tyssdev/ty_aibot/ai_service:latest
     container_name: ai-service
     mem_limit: 4g
     memswap_limit: 4g
@@ -339,7 +339,7 @@ services:
 
   review-service:
     <<: *default-env-file
-    image: registry.gitlab.com/ty_optimize/optimize/review_service:latest
+    image: registry.gitlab.com/tyssdev/ty_aibot/review_service:latest
     container_name: review-service
     mem_limit: 1g
     memswap_limit: 1g
@@ -382,7 +382,7 @@ services:
 
   api-gateway:
     <<: *default-env-file
-    image: registry.gitlab.com/ty_optimize/optimize/api_gateway:latest
+    image: registry.gitlab.com/tyssdev/ty_aibot/api_gateway:latest
     container_name: api-gateway
     mem_limit: 2g
     memswap_limit: 2g
@@ -514,7 +514,7 @@ services:
 
   questionbank-service:
     <<: *default-env-file
-    image: registry.gitlab.com/ty_optimize/optimize/questionbank_service:latest
+    image: registry.gitlab.com/tyssdev/ty_aibot/questionbank_service:latest
     container_name: questionbank-service
     mem_limit: 1g
     memswap_limit: 1g
