@@ -368,8 +368,9 @@ public class InterviewService {
             Engineer engineer = engineerRepository.findById(engineerId).orElse(null);
             JobDescription jd = jdRepository.findById(jdId).orElse(null);
             
-            // Send cancellation email to candidate
-            if (engineer != null && engineer.getEmail() != null) {
+            // Send cancellation email only when the interview was scheduled but not yet attended
+            if (engineer != null && engineer.getEmail() != null
+                    && interview.getStatus() == InterviewStatus.SCHEDULED) {
                 try {
                     Map<String, String> cancelRequest = Map.of(
                         "candidateEmail", engineer.getEmail(),
