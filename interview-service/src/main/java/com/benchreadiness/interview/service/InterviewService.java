@@ -4,10 +4,13 @@ import com.benchreadiness.interview.branch.InterviewBranchFilter;
 import com.benchreadiness.interview.branch.InterviewCandidateBranchLookup;
 import com.benchreadiness.interview.client.*;
 import com.benchreadiness.interview.dto.AbandonInterviewRequest;
+import com.benchreadiness.interview.dto.BulkCreateInterviewRequest;
+import com.benchreadiness.interview.dto.BulkCreateInterviewResult;
 import com.benchreadiness.interview.dto.CreateInterviewRequest;
 import com.benchreadiness.interview.entity.*;
 import com.benchreadiness.interview.repository.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +18,10 @@ import org.springframework.data.domain.PageRequest;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @Service
 public class InterviewService {
@@ -35,6 +42,7 @@ public class InterviewService {
     private final QuestionBankClient questionBankClient;
     private final InterviewProctoringSupport proctoringSupport;
     private final InterviewCandidateBranchLookup candidateBranchLookup;
+    private final Executor bulkInterviewExecutor;
 
     public InterviewService(InterviewRepository interviewRepository,
                             EngineerRepository engineerRepository,
@@ -47,7 +55,8 @@ public class InterviewService {
                             AuthServiceClient authServiceClient,
                             QuestionBankClient questionBankClient,
                             InterviewProctoringSupport proctoringSupport,
-                            InterviewCandidateBranchLookup candidateBranchLookup) {
+                            InterviewCandidateBranchLookup candidateBranchLookup,
+                            @Qualifier("bulkInterviewExecutor") Executor bulkInterviewExecutor) {
         this.interviewRepository = interviewRepository;
         this.engineerRepository = engineerRepository;
         this.jdRepository = jdRepository;
@@ -60,6 +69,7 @@ public class InterviewService {
         this.questionBankClient = questionBankClient;
         this.proctoringSupport = proctoringSupport;
         this.candidateBranchLookup = candidateBranchLookup;
+        this.bulkInterviewExecutor = bulkInterviewExecutor;
     }
 
     public Interview createInterview(CreateInterviewRequest req, String createdByUserId,
@@ -1019,5 +1029,79 @@ public class InterviewService {
         }
 
         return interviewRepository.save(interview);
+    }
+
+    /**
+     * Creates interviews for multiple candidates concurrently.
+     * Each candidate gets its own CompletableFuture on the bulkInterviewExecutor.
+     * One failure does NOT stop the others.
+     * Returns HTTP 207 Multi-Status via the controller.
+     */
+    public BulkCreateInterviewResult createBulkInterviews(
+            BulkCreateInterviewRequest req,
+            String createdByUserId,
+            String userRole,
+            com.benchreadiness.interview.service.BranchInterviewValidator branchValidator) {
+
+        List<CompletableFuture<BulkCreateInterviewResult.CandidateResult>> futures =
+            req.getCandidates().stream().map(candidate ->
+                CompletableFuture.supplyAsync(() -> {
+                    try {
+                        // Build a per-candidate CreateInterviewRequest from shared config
+                        CreateInterviewRequest single = new CreateInterviewRequest();
+                        single.setJdTitle(req.getJdTitle());
+                        single.setJdText(req.getJdText());
+                        single.setFocusAreas(req.getFocusAreas());
+                        single.setInterviewMode(req.getInterviewMode());
+                        single.setCustomDurationMinutes(req.getCustomDurationMinutes());
+                        single.setIncludeProgrammingQuestions(req.getIncludeProgrammingQuestions());
+                        single.setScheduledAt(req.getScheduledAt());
+                        single.setExpiresAt(req.getExpiresAt());
+                        single.setRoundName(req.getRoundName());
+                        single.setEngineerEmail(candidate.getEngineerEmail());
+                        single.setEngineerName(candidate.getEngineerName());
+                        single.setResumeSummary(candidate.getResumeSummary());
+                        single.setClientId(candidate.getClientId());
+
+                        // Reuse the same branch validation logic as single-interview creation
+                        String branch = branchValidator.validateAndResolveBranch(single, createdByUserId, userRole);
+
+                        java.util.UUID clientUuid = null;
+                        if (candidate.getClientId() != null && !candidate.getClientId().isBlank()) {
+                            try { clientUuid = java.util.UUID.fromString(candidate.getClientId()); }
+                            catch (IllegalArgumentException ignored) { }
+                        }
+
+                        Interview created = createInterview(single, createdByUserId, branch, clientUuid);
+                        log.info("[Bulk] Created interview {} for {}", created.getId(), candidate.getEngineerEmail());
+                        return BulkCreateInterviewResult.CandidateResult
+                                .ok(candidate.getEngineerEmail(), created.getId());
+                    } catch (Exception e) {
+                        log.warn("[Bulk] Failed to create interview for {}: {}",
+                                candidate.getEngineerEmail(), e.getMessage());
+                        return BulkCreateInterviewResult.CandidateResult
+                                .failed(candidate.getEngineerEmail(), e.getMessage());
+                    }
+                }, bulkInterviewExecutor)
+            ).collect(Collectors.toList());
+
+        // Wait for all — max 120s (rubric generation per candidate can take 30-60s each, but they run in parallel)
+        try {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                    .get(120, TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            log.warn("[Bulk] Timed out waiting for all candidates — collecting partial results");
+        } catch (Exception e) {
+            log.warn("[Bulk] Error waiting for futures: {}", e.getMessage());
+        }
+
+        List<BulkCreateInterviewResult.CandidateResult> results = futures.stream().map(f -> {
+            if (f.isDone() && !f.isCompletedExceptionally()) {
+                try { return f.get(); } catch (Exception ignored) { }
+            }
+            return BulkCreateInterviewResult.CandidateResult.failed("unknown", "Timed out or internal error");
+        }).collect(Collectors.toList());
+
+        return new BulkCreateInterviewResult(results);
     }
 }

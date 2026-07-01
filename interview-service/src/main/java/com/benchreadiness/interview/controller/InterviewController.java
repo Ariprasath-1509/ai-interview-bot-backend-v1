@@ -1,5 +1,7 @@
 package com.benchreadiness.interview.controller;
 
+import com.benchreadiness.interview.dto.BulkCreateInterviewRequest;
+import com.benchreadiness.interview.dto.BulkCreateInterviewResult;
 import com.benchreadiness.interview.dto.ClientBriefDto;
 import com.benchreadiness.interview.dto.AutoFillPreview;
 import com.benchreadiness.interview.dto.CandidateMatchingResult;
@@ -115,6 +117,27 @@ public class InterviewController {
                 interview = interviewService.createInterview(req, userId, branch, clientUuid);
             }
             return ResponseEntity.ok(Map.of("id", interview.getId(), "status", interview.getStatus()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/bulk")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    public ResponseEntity<?> createBulk(@Valid @RequestBody BulkCreateInterviewRequest req,
+                                        @RequestHeader("X-User-Id") String userId,
+                                        @RequestHeader("X-User-Role") String userRole) {
+        if (req.getCandidates() == null || req.getCandidates().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "At least one candidate is required"));
+        }
+        if (req.getCandidates().size() > 20) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Maximum 20 candidates per bulk request"));
+        }
+        try {
+            BulkCreateInterviewResult result = interviewService.createBulkInterviews(
+                    req, userId, userRole, branchInterviewValidator);
+            // 207 Multi-Status — always returned so the caller can inspect per-candidate outcomes
+            return ResponseEntity.status(207).body(result);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
