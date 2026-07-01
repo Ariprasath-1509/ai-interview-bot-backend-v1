@@ -89,7 +89,11 @@
       <artifactId>tika-parsers-standard-package</artifactId>
       <version>2.9.1</version>
     </dependency>
-    <!-- Feign HTTP Client for PATCH support -->
+    <!-- Feign HTTP Client for PATCH support (default JDK HttpURLConnection rejects PATCH) -->
+    <dependency>
+      <groupId>io.github.openfeign</groupId>
+      <artifactId>feign-hc5</artifactId>
+    </dependency>
     <!-- Caffeine Cache for in-memory caching -->
     <dependency>
       <groupId>com.github.ben-manes.caffeine</groupId>

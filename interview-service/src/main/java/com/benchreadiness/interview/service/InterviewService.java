@@ -235,8 +235,7 @@ public class InterviewService {
 
         // Activate market candidate credentials when interview is scheduled
         try {
-            Map<String, Object> candidateProfile = authServiceClient.getCandidateById(
-                    engineer.getUserId(), createdByUserId);
+            Map<String, Object> candidateProfile = authServiceClient.getUserByEmail(engineer.getEmail());
             if (candidateProfile != null && "MARKET".equals(candidateProfile.get("source"))) {
                 String candidateUserId = (String) candidateProfile.get("id");
                 if (candidateUserId != null) {

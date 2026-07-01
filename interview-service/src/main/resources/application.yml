@@ -13,6 +13,9 @@ spring:
     compatibility-verifier:
       enabled: false
     openfeign:
+      httpclient:
+        hc5:
+          enabled: true
       client:
         config:
           default:
