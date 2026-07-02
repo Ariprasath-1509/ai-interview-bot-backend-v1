@@ -1,6 +1,5 @@
 package com.benchreadiness.ops.observer.service;
 
-import com.benchreadiness.ops.branch.BranchSegregation;
 import com.benchreadiness.ops.observer.client.AuthServiceClient;
 import com.benchreadiness.ops.observer.client.InterviewServiceClient;
 import jakarta.mail.internet.MimeMessage;
@@ -24,7 +23,7 @@ public class DigestService {
     private final AuthServiceClient authServiceClient;
     private final InterviewServiceClient interviewServiceClient;
 
-    @Value("${spring.mail.username}")
+    @Value("${app.mail.from}")
     private String from;
 
     @Value("${app.interview-base-url}")
@@ -40,10 +39,6 @@ public class DigestService {
     @Scheduled(cron = "${app.digest.cron}")
     public void sendDailyDigest() {
         log.info("Sending daily platform report...");
-        if (from == null || from.isBlank()) {
-            log.error("Daily digest skipped: spring.mail.username is not configured");
-            return;
-        }
         try {
             List<Map<String, Object>> recipients = authServiceClient.getAdmins();
             if (recipients.isEmpty()) {
@@ -53,15 +48,25 @@ public class DigestService {
 
             for (Map<String, Object> recipient : recipients) {
                 String email = recipient.get("email") != null ? recipient.get("email").toString() : null;
+                String role  = recipient.get("role") != null ? recipient.get("role").toString() : "";
+
                 if (email == null || email.isBlank()) {
                     log.warn("Skipping admin with no email address");
                     continue;
                 }
-                String branch = recipient.get("branch") != null ? recipient.get("branch").toString() : null;
-                String digestBranch = null;
-                if (BranchSegregation.isEnabled() && !"SUPER_ADMIN".equals(recipient.get("role"))) {
-                    digestBranch = branch;
-                }
+                // SUPER_ADMIN → full report (no branch filter)
+                // ADMIN       → DEVELOPMENT branch only
+                // TESTING_ADMIN → TESTING branch only
+                String digestBranch = switch (role) {
+                    case "SUPER_ADMIN"    -> null;
+                    case "ADMIN"          -> "DEVELOPMENT";
+                    case "TESTING_ADMIN"  -> "TESTING";
+                    default -> {
+                        log.debug("Skipping digest for unsupported role {} ({})", role, email);
+                        yield "SKIP";
+                    }
+                };
+                if ("SKIP".equals(digestBranch)) continue;
 
                 Map<String, Object> reportData = interviewServiceClient.getDailyReportDataForBranch(digestBranch);
 
@@ -83,7 +88,7 @@ public class DigestService {
                     helper.setSubject(subject);
                     helper.setText(htmlBody, true);
                     mailSender.send(message);
-                    log.info("Daily report sent to: {} (branch={})", email, digestBranch != null ? digestBranch : "ALL");
+                    log.info("Daily report sent to: {} [role={}, branch={}]", email, role, digestBranch != null ? digestBranch : "ALL");
                 } catch (Exception e) {
                     log.warn("Failed to send report to {}: {}", email, e.getMessage());
                 }

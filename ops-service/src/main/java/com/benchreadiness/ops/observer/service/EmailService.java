@@ -7,7 +7,6 @@ import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -28,7 +27,7 @@ public class EmailService {
     private final JavaMailSender mailSender;
     private final AuthServiceClient authServiceClient;
 
-    @Value("${spring.mail.username}")
+    @Value("${app.mail.from}")
     private String from;
 
     @Value("${app.interview-base-url}")
@@ -42,25 +41,24 @@ public class EmailService {
         this.authServiceClient = authServiceClient;
     }
 
-    public void sendInterviewInvite(String toEmail, String candidateName, String interviewId) {
-        String name = (candidateName != null && !candidateName.isBlank()) ? candidateName : "Candidate";
+    private void sendEmail(String toEmail, String subject, String html) {
         try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
+            MimeMessage mime = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mime, true, "UTF-8");
             helper.setFrom(from);
             helper.setTo(toEmail);
-            helper.setSubject("Your Technical Interview is Scheduled - Bench Readiness");
-            helper.setText(buildInterviewInviteTemplate(name, interviewId), true);
-            mailSender.send(mimeMessage);
+            helper.setSubject(subject);
+            helper.setText(html, true);
+            mailSender.send(mime);
         } catch (MessagingException e) {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
-            message.setTo(toEmail);
-            message.setSubject("Your Technical Interview is Scheduled - Bench Readiness");
-            message.setText("Hi " + name + ",\n\nYour technical interview has been scheduled.\n\n"
-                + interviewBaseUrl + "/" + interviewId + "\n\nGood luck!\nBench Readiness Team");
-            mailSender.send(message);
+            throw new RuntimeException("Mail send error: " + e.getMessage(), e);
         }
+    }
+
+    public void sendInterviewInvite(String toEmail, String candidateName, String interviewId) {
+        String name = (candidateName != null && !candidateName.isBlank()) ? candidateName : "Candidate";
+        sendEmail(toEmail, "Your Technical Interview is Scheduled - Bench Readiness",
+                buildInterviewInviteTemplate(name, interviewId));
     }
 
     public void sendInterviewAbandoned(String createdByUserId, String interviewId, String reason) {
@@ -75,23 +73,8 @@ public class EmailService {
         }
         if (managerEmail == null || managerEmail.isBlank()) return;
 
-        try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-            helper.setFrom(from);
-            helper.setTo(managerEmail);
-            helper.setSubject(abandonedSubject(reason));
-            helper.setText(buildInterviewAbandonedTemplate(managerName, interviewId, reason), true);
-            mailSender.send(mimeMessage);
-        } catch (MessagingException e) {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
-            message.setTo(managerEmail);
-            message.setSubject(abandonedSubject(reason));
-            message.setText("Interview ID: " + interviewId + "\nReason: " + reason
-                + "\nReview: " + interviewBaseUrl.replace("/interview", "") + "/admin/interviews/" + interviewId + "/review");
-            mailSender.send(message);
-        }
+        sendEmail(managerEmail, abandonedSubject(reason),
+                buildInterviewAbandonedTemplate(managerName, interviewId, reason));
     }
 
     private String abandonedSubject(String reason) {
@@ -132,36 +115,8 @@ public class EmailService {
     }
 
     private void sendClientNotificationEmail(String recipientName, String toEmail, ClientCreatedRequest req) {
-        try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-            helper.setFrom(from);
-            helper.setTo(toEmail);
-            helper.setSubject("New Client Added — " + safe(req.getClientName()) + " (" + safe(req.getJdRole()) + ")");
-            helper.setText(buildClientCreatedTemplate(recipientName, req), true);
-            mailSender.send(mimeMessage);
-        } catch (MessagingException e) {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
-            message.setTo(toEmail);
-            message.setSubject("New Client Added — " + safe(req.getClientName()));
-            message.setText(buildClientCreatedPlainText(recipientName, req));
-            mailSender.send(message);
-        }
-    }
-
-    private String buildClientCreatedPlainText(String recipientName, ClientCreatedRequest req) {
-        return "Hi " + safe(recipientName) + ",\n\n"
-            + "A new client has been added to Bench Readiness.\n\n"
-            + "Client: " + safe(req.getClientName()) + "\n"
-            + "Role: " + safe(req.getJdRole()) + "\n"
-            + "Positions vacant: " + safeInt(req.getPositionsVacant()) + "\n"
-            + "Bench/B2B needed: " + safeInt(req.getBenchB2bCandidatesNeeded()) + "\n"
-            + "Market needed: " + safeInt(req.getMarketCandidatesNeeded()) + "\n"
-            + "JD file: " + safe(req.getJdFileName()) + "\n\n"
-            + "Job description:\n" + safe(req.getJdDescription()) + "\n\n"
-            + "Requirements:\n" + safe(req.getSkillRequirementsSummary()) + "\n\n"
-            + "Review: " + interviewBaseUrl.replace("/interview", "") + "/admin/clients";
+        sendEmail(toEmail, "New Client Added — " + safe(req.getClientName()) + " (" + safe(req.getJdRole()) + ")",
+                buildClientCreatedTemplate(recipientName, req));
     }
 
     /**
@@ -220,14 +175,8 @@ public class EmailService {
 
             String recipientName = (String) staff.getOrDefault("name", "Team");
             try {
-                MimeMessage mime = mailSender.createMimeMessage();
-                MimeMessageHelper helper = new MimeMessageHelper(mime, true, "UTF-8");
-                helper.setFrom(from);
-                helper.setTo(recipientEmail);
-                helper.setSubject(subject);
-                helper.setText(buildCompletionEmailBody(recipientName, interviewId, candidateName,
-                        branch, status, proposedVerdict, reason, reviewLink), true);
-                mailSender.send(mime);
+                sendEmail(recipientEmail, subject, buildCompletionEmailBody(recipientName, interviewId,
+                        candidateName, branch, status, proposedVerdict, reason, reviewLink));
                 sent++;
                 log.info("Interview completion notification sent to {} [branch={}] for interview {}", recipientEmail, branch, interviewId);
             } catch (Exception e) {
@@ -295,25 +244,8 @@ public class EmailService {
 
     public void sendInterviewCancellation(String toEmail, String candidateName, String interviewId, String jdTitle, String reason) {
         String name = (candidateName != null && !candidateName.isBlank()) ? candidateName : "Candidate";
-        try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-            helper.setFrom(from);
-            helper.setTo(toEmail);
-            helper.setSubject("Interview Cancelled - Bench Readiness");
-            helper.setText(buildCancellationEmailTemplate(name, interviewId, jdTitle, reason), true);
-            mailSender.send(mimeMessage);
-        } catch (MessagingException e) {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
-            message.setTo(toEmail);
-            message.setSubject("Interview Cancelled - Bench Readiness");
-            message.setText("Hi " + name + ",\n\nYour interview has been cancelled.\nInterview ID: " + interviewId
-                + (jdTitle != null ? "\nPosition: " + jdTitle : "")
-                + (reason != null ? "\nReason: " + reason : "")
-                + "\n\nBench Readiness Team");
-            mailSender.send(message);
-        }
+        sendEmail(toEmail, "Interview Cancelled - Bench Readiness",
+                buildCancellationEmailTemplate(name, interviewId, jdTitle, reason));
     }
 
     private String buildCancellationEmailTemplate(String candidateName, String interviewId, String jdTitle, String reason) {

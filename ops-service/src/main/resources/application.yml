@@ -47,13 +47,15 @@ spring:
     connect-retries-interval: 10s
     lock-retry-count: 150
   mail:
-    host: ${MAIL_HOST:smtp.gmail.com}
+    host: ${MAIL_HOST:smtp-relay.brevo.com}
     port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:learningdevelopment.tyss@gmail.com}
+    username: ${MAIL_USERNAME:}
     password: ${MAIL_PASSWORD:}
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 10000
 
 eureka:
   client:
@@ -78,6 +80,8 @@ app:
     enabled: ${APP_BRANCH_SEGREGATION_ENABLED:true}
   interview-base-url: https://prod.voiceaibot.in/interview
   frontend-url: https://prod.voiceaibot.in
+  mail:
+    from: ${MAIL_FROM:noreply@voiceaibot.in}
   digest:
     cron: ${APP_DIGEST_CRON:0 30 13 * * *}
   completion-notify:

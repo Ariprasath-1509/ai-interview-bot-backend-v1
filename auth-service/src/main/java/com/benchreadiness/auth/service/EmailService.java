@@ -20,7 +20,7 @@ public class EmailService {
 
     private final JavaMailSender mailSender;
 
-    @Value("${spring.mail.username}")
+    @Value("${app.mail.from:noreply@prod.voiceaibot.in}")
     private String from;
 
     @Value("${app.login-url}")

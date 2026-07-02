@@ -39,9 +39,9 @@ spring:
     connect-retries: 5
     connect-retries-interval: 10s
   mail:
-    host: ${MAIL_HOST:smtp.gmail.com}
+    host: ${MAIL_HOST:smtp-relay.brevo.com}
     port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:learningdevelopment.tyss@gmail.com}
+    username: ${MAIL_USERNAME:}
     password: ${MAIL_PASSWORD:}
     properties:
       mail:
@@ -64,6 +64,8 @@ eureka:
 
 app:
   login-url: ${APP_LOGIN_URL:https://prod.voiceaibot.in/login}
+  mail:
+    from: ${MAIL_FROM:noreply@voiceaibot.in}
   jwt:
     secret: ${JWT_SECRET:}
     issuer: ${JWT_ISSUER:benchreadiness-auth}
