@@ -158,6 +158,16 @@ public class InterviewService {
     }
 
     @Transactional
+    /** Normalize to EASY/MEDIUM/HARD; anything else (including blank) becomes null = mode-derived. */
+    private static String normalizeQuestionDifficulty(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String upper = raw.trim().toUpperCase();
+        return switch (upper) {
+            case "EASY", "MEDIUM", "HARD" -> upper;
+            default -> null;
+        };
+    }
+
     protected Interview persistInterview(CreateInterviewRequest req, String createdByUserId,
                                          String rubricJson, String candidateProfileJson,
                                          String questionBankQuestionsJson,
@@ -215,6 +225,7 @@ public class InterviewService {
         interview.setPlanId(plan.getId());
         interview.setInterviewMode(req.getInterviewMode());
         interview.setRoundName(req.getRoundName());
+        interview.setQuestionDifficulty(normalizeQuestionDifficulty(req.getQuestionDifficulty()));
         interview.setCustomDurationMinutes(req.getCustomDurationMinutes());
         interview.setCreatedByUserId(createdByUserId);
         interview.setBranch(branch != null ? branch : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
@@ -948,6 +959,10 @@ public class InterviewService {
         if (req.getInterviewMode() != null) interview.setInterviewMode(req.getInterviewMode());
         if (req.getCustomDurationMinutes() != null) interview.setCustomDurationMinutes(req.getCustomDurationMinutes());
         if (req.getRoundName() != null) interview.setRoundName(req.getRoundName());
+        if (req.getQuestionDifficulty() != null) {
+            // Blank clears the override (back to mode-derived difficulty)
+            interview.setQuestionDifficulty(normalizeQuestionDifficulty(req.getQuestionDifficulty()));
+        }
         if (req.getIncludeProgrammingQuestions() != null) interview.setIncludeProgrammingQuestions(req.getIncludeProgrammingQuestions());
         if (req.getScheduledAt() != null) interview.setScheduledAt(req.getScheduledAt());
         if (req.getExpiresAt() != null) {
@@ -1059,6 +1074,7 @@ public class InterviewService {
                         single.setScheduledAt(req.getScheduledAt());
                         single.setExpiresAt(req.getExpiresAt());
                         single.setRoundName(req.getRoundName());
+                        single.setQuestionDifficulty(req.getQuestionDifficulty());
                         single.setEngineerEmail(candidate.getEngineerEmail());
                         single.setEngineerName(candidate.getEngineerName());
                         single.setResumeSummary(candidate.getResumeSummary());

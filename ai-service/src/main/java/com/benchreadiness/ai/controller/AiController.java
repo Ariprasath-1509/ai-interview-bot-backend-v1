@@ -207,6 +207,26 @@ public class AiController {
         return ResponseEntity.ok(body);
     }
 
+    /**
+     * Restates the current interview question in simpler language for the candidate.
+     * Does not advance the interview or count as an answer — purely a comprehension aid.
+     */
+    @PostMapping("/explain-question")
+    public ResponseEntity<?> explainQuestion(@RequestBody Map<String, String> body,
+                                             @RequestHeader("X-User-Id") String userId) {
+        String questionText = body.get("questionText");
+        if (questionText == null || questionText.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "questionText is required"));
+        }
+        String explanation = questionService.explainQuestion(
+            questionText,
+            body.get("jdTitle"),
+            body.get("interviewMode"),
+            body.get("interviewId"),
+            userId);
+        return ResponseEntity.ok(Map.of("explanation", explanation));
+    }
+
     @PostMapping("/assess")
     public ResponseEntity<?> assess(@RequestBody AssessmentRequest req,
                                    @RequestHeader("X-User-Id") String userId) {

@@ -251,12 +251,20 @@ public class AuthController {
         if (userRepository.findByEmail(req.getEmail()).isPresent()) {
             return ResponseEntity.status(409).body(Map.of("ok", false, "error", "Email already registered"));
         }
+        // Explicit branch wins (validated against master data); otherwise default from role as before.
+        String resolvedBranch;
+        if (req.getBranch() != null && !req.getBranch().isBlank()) {
+            masterDataService.requireValid(MasterDataCategory.BRANCH, req.getBranch());
+            resolvedBranch = masterDataService.normalizeCode(req.getBranch());
+        } else {
+            resolvedBranch = BranchAccess.resolveStaffBranch(req.getRole());
+        }
         User user = new User();
         user.setEmail(req.getEmail());
         user.setName(req.getName());
         user.setPassword(passwordService.encode(req.getPassword()));
         user.setRole(req.getRole());
-        user.setBranch(BranchAccess.resolveStaffBranch(req.getRole()));
+        user.setBranch(resolvedBranch);
         if (req.getRole() == UserRole.ADMIN || req.getRole() == UserRole.TESTING_ADMIN) {
             user.setAdminSource(masterDataService.normalizeCode(req.getAdminSource()));
         }
@@ -310,8 +318,17 @@ public class AuthController {
             } else {
                 user.setAdminSource(null);
             }
+            // Explicit branch wins (validated against master data). Otherwise: re-derive only when
+            // the role actually changed (matches legacy promote/demote behavior); if role is
+            // unchanged, leave the currently assigned branch untouched — resetting it on every
+            // unrelated edit (name/password) would defeat manual per-user branch assignment.
+            if (req.getBranch() != null && !req.getBranch().isBlank()) {
+                masterDataService.requireValid(MasterDataCategory.BRANCH, req.getBranch());
+                user.setBranch(masterDataService.normalizeCode(req.getBranch()));
+            } else if (req.getRole() != user.getRole()) {
+                user.setBranch(BranchAccess.resolveStaffBranch(req.getRole()));
+            }
             user.setRole(req.getRole());
-            user.setBranch(BranchAccess.resolveStaffBranch(req.getRole()));
         } else if (editingSelf && req.getRole() != UserRole.SUPER_ADMIN) {
             return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "You cannot change your own role"));
         }
@@ -339,7 +356,7 @@ public class AuthController {
         if (user.getAdminSource() != null) {
             response.put("adminSource", user.getAdminSource());
         }
-        response.put("branch", BranchAccess.resolveStaffBranch(user.getRole()));
+        response.put("branch", user.getBranch());
         return ResponseEntity.ok(response);
     }
 
@@ -557,7 +574,8 @@ public class AuthController {
                     map.put("adminSource", u.getAdminSource());
                 }
                 if (u.getRole().isStaff()) {
-                    map.put("branch", BranchAccess.resolveStaffBranch(u.getRole()));
+                    map.put("branch", u.getBranch() != null && !u.getBranch().isBlank()
+                            ? u.getBranch() : BranchAccess.resolveStaffBranch(u.getRole()));
                 }
                 return map;
             })

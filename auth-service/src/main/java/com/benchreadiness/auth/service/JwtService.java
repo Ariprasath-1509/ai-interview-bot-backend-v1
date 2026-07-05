@@ -144,7 +144,12 @@ public class JwtService {
             builder.claim("adminSource", user.getAdminSource());
         }
         if (user.getRole().isStaff()) {
-            builder.claim("branch", com.benchreadiness.auth.branch.BranchAccess.resolveStaffBranch(user.getRole()));
+            // Trust the persisted per-user assignment; only fall back to the role default
+            // when a staff record predates explicit branch assignment (branch column unset).
+            String branch = (user.getBranch() != null && !user.getBranch().isBlank())
+                    ? user.getBranch()
+                    : com.benchreadiness.auth.branch.BranchAccess.resolveStaffBranch(user.getRole());
+            builder.claim("branch", branch);
         } else if (user.getBranch() != null && !user.getBranch().isBlank()) {
             builder.claim("branch", user.getBranch());
         }

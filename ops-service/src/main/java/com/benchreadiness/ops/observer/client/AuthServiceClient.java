@@ -25,4 +25,8 @@ public interface AuthServiceClient {
 
     @GetMapping("/auth/internal/pipeline-status")
     Map<String, Object> getCandidatePipelineStatus(@RequestParam(required = false) String branch);
+
+    @GetMapping("/auth/master-data/{category}")
+    List<Map<String, Object>> getMasterDataByCategory(@PathVariable("category") String category,
+                                                      @RequestParam(value = "includeInactive", defaultValue = "false") boolean includeInactive);
 }

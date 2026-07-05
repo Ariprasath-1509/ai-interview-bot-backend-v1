@@ -114,6 +114,10 @@ public class Interview {
     @Column(name = "round_name", length = 128)
     private String roundName;
 
+    /** Per-round question difficulty override (EASY | MEDIUM | HARD); null derives from interviewMode. */
+    @Column(name = "question_difficulty", length = 16)
+    private String questionDifficulty;
+
     @Column(name = "recording_bytes")
     private Long recordingBytes;
 
@@ -216,6 +220,8 @@ public class Interview {
     public void setClientBriefJson(String clientBriefJson) { this.clientBriefJson = clientBriefJson; }
     public String getRoundName() { return roundName; }
     public void setRoundName(String roundName) { this.roundName = roundName; }
+    public String getQuestionDifficulty() { return questionDifficulty; }
+    public void setQuestionDifficulty(String questionDifficulty) { this.questionDifficulty = questionDifficulty; }
     public Long getRecordingBytes() { return recordingBytes; }
     public void setRecordingBytes(Long recordingBytes) { this.recordingBytes = recordingBytes; }
     public String getProctoringEventsJson() { return proctoringEventsJson; }

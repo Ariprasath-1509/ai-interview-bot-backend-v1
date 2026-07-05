@@ -16,6 +16,9 @@ public class QuestionCacheService {
     private record CachedQuestion(String question, Instant createdAt) {}
 
     public String getCachedFirstQuestion(String jdTitle, String jdText, String focusAreas, String interviewMode) {
+        // Blank JD means the key would collide across unrelated interviews — never serve a
+        // question cached for a different role.
+        if (jdText == null || jdText.isBlank()) return null;
         String key = generateCacheKey(jdTitle, jdText, focusAreas, interviewMode);
         CachedQuestion cached = cache.get(key);
         
@@ -32,14 +35,20 @@ public class QuestionCacheService {
     }
 
     public void cacheFirstQuestion(String jdTitle, String jdText, String focusAreas, String interviewMode, String question) {
+        if (jdText == null || jdText.isBlank()) {
+            log.debug("Skipping first-question cache write — blank JD text would create a shared key");
+            return;
+        }
         String key = generateCacheKey(jdTitle, jdText, focusAreas, interviewMode);
         cache.put(key, new CachedQuestion(question, Instant.now()));
         log.debug("Cached first question: {}", key.substring(0, 8));
     }
 
     private String generateCacheKey(String jdTitle, String jdText, String focusAreas, String interviewMode) {
-        String combined = (jdTitle != null ? jdTitle : "") + "|" + 
-                        (jdText != null ? jdText.substring(0, Math.min(500, jdText.length())) : "") + "|" +
+        // Hash the FULL JD text — truncating to a prefix made JDs with shared boilerplate
+        // headers collide and serve each other's first questions.
+        String combined = (jdTitle != null ? jdTitle : "") + "|" +
+                        (jdText != null ? jdText : "") + "|" +
                         (focusAreas != null ? focusAreas : "") + "|" +
                         (interviewMode != null ? interviewMode : "L3");
         try {

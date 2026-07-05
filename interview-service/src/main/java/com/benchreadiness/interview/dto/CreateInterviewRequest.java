@@ -47,6 +47,9 @@ public class CreateInterviewRequest {
     /** Client-facing round label for reports (e.g. Hands-On, Technical Screen). */
     private String roundName;
 
+    /** Per-round question difficulty override (EASY | MEDIUM | HARD); null derives from interviewMode. */
+    private String questionDifficulty;
+
     /** When false, interview is theory/verbal only (no coding slot or code editor). Defaults to true. */
     private Boolean includeProgrammingQuestions;
 
@@ -116,7 +119,12 @@ public class CreateInterviewRequest {
     public String getRoundName() {
         return roundName;
     }
-    
+
+    public String getQuestionDifficulty() {
+        return questionDifficulty;
+    }
+
+
     public String getCandidateId() {
         return candidateId;
     }
@@ -193,7 +201,12 @@ public class CreateInterviewRequest {
     public void setRoundName(String roundName) {
         this.roundName = roundName;
     }
-    
+
+    public void setQuestionDifficulty(String questionDifficulty) {
+        this.questionDifficulty = questionDifficulty;
+    }
+
+
     public void setCandidateId(String candidateId) {
         this.candidateId = candidateId;
     }

@@ -75,7 +75,7 @@ public class ReviewService {
     }
 
     @Transactional
-    public SignOff signOff(SignOffRequest req, String reviewerUserId) {
+    public SignOff signOff(SignOffRequest req, String reviewerUserId, String reviewerRole) {
         log.info("Sign-off requested for interview {} by user {} with verdict {}", 
             req.getInterviewId(), reviewerUserId, req.getVerdict());
         
@@ -108,7 +108,7 @@ public class ReviewService {
 
         // Log audit trail
         String action = oldVerdict == null ? "INTERVIEW_SIGNED_OFF" : "SIGN_OFF_UPDATED";
-        logAudit(reviewerUserId, null, "ADMIN", action, req.getInterviewId(),
+        logAudit(reviewerUserId, null, reviewerRole != null && !reviewerRole.isBlank() ? reviewerRole : "ADMIN", action, req.getInterviewId(),
             String.format("Verdict: %s, Note: %s", req.getVerdict(), req.getNote() != null ? req.getNote() : "N/A"),
             oldVerdict, req.getVerdict().name());
 

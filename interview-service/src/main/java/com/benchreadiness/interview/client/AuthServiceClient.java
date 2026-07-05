@@ -51,6 +51,10 @@ public interface AuthServiceClient {
     @GetMapping("/auth/proctoring-settings")
     Map<String, Object> getProctoringSettings();
 
+    @GetMapping("/auth/master-data/{category}")
+    List<Map<String, Object>> getMasterDataByCategory(@PathVariable("category") String category,
+                                                      @RequestParam(value = "includeInactive", defaultValue = "false") boolean includeInactive);
+
     @PatchMapping("/auth/internal/users/{userId}/active")
     Map<String, Object> setUserActive(@PathVariable("userId") String userId,
                                       @RequestBody Map<String, Boolean> body);

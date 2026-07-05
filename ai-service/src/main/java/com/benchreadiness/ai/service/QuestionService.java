@@ -51,6 +51,13 @@ public class QuestionService {
     private static final int JD_DIGEST_CHARS = 600;
     private static final int RESUME_DIGEST_CHARS = 600;
 
+    /**
+     * Marks BOT utterances that explain/simplify the current question rather than ask a new one.
+     * Explanations intentionally overlap the question's wording, so anything with this prefix is
+     * excluded from question dedup and exempt from the sanitize/final-gate similarity checks.
+     */
+    public static final String EXPLANATION_PREFIX = "In simpler terms: ";
+
     private static final Map<String, Map<Integer, String>> MODE_SLOT_THEMES = Map.of(
         "SCREENING", Map.of(
             1, "Basic intro — establish context: what they've built, their primary stack, and the scale they've operated under.",
@@ -162,6 +169,114 @@ public class QuestionService {
         )
     );
 
+    /** DevOps/SRE/platform variant of the curated pool — same mode/slot structure as MODE_SLOT_QUESTIONS. */
+    private static final Map<String, Map<Integer, String>> DEVOPS_MODE_SLOT_QUESTIONS = Map.of(
+        "SCREENING", Map.of(
+            1, "Walk me through the infrastructure you've supported most recently — what it ran on, how deployments worked, and the scale it operated at.",
+            2, "Pick the one tool in this role's stack you use most — containers, IaC, or your CI system — explain how it works under the hood and a case where you'd avoid it.",
+            3, "You need a script that finds all log files over 1 GB across a fleet of servers and archives them safely — walk me through your approach and what could go wrong.",
+            4, "Production deployments started failing overnight — how would you explain what's happening to a product manager, and what's your first diagnostic step?",
+            5, "What specifically draws you to a DevOps role like this one, and what's the one technical area you most want to grow in over the next year?"
+        ),
+        "L1", Map.of(
+            1, "Walk me through a pipeline or automation you shipped recently — what problem it solved, what you owned specifically, and the one decision you'd make differently.",
+            2, "Explain the difference between a container and a virtual machine, and describe a real scenario where containerization caused you trouble.",
+            3, "Write a script that parses a log file and reports the top five most frequent error messages — walk me through your approach and edge cases.",
+            4, "How do you decide when a CI/CD pipeline change is production-ready — what's your quality bar, and what corners have you cut and later regretted?",
+            5, "Describe how you validate an infrastructure change before rolling it out — what you test, how you stage it, and where you'd stop.",
+            6, "Tell me about a tool or practice you learned in the last six months and applied in real work — what drove you to pick it up?",
+            7, "Walk me through a time you worked with developers to fix a deployment or environment issue — how did you split the work?"
+        ),
+        "L2", Map.of(
+            1, "Describe the environments and deployment topology you've managed — how code moves from commit to production and what happens when a stage fails.",
+            2, "Tell me about a decision where you traded deployment speed for safety or vice versa — what tipped the scale and what problems followed?",
+            3, "Walk me through a production incident you owned — what you saw first, how you isolated the root cause, and what you changed to prevent recurrence.",
+            4, "How do you manage infrastructure state and configuration drift — what patterns have you used and where did they break down in practice?",
+            5, "Describe a capacity or performance bottleneck you traced in infrastructure — tooling, root cause, and what the fix cost you elsewhere.",
+            6, "Walk me through your incident playbook — how you detect, communicate, root-cause, and formally close out a production outage.",
+            7, "Which deployment strategy have you applied most deliberately — blue-green, canary, rolling — why you chose it, and a case where you opted for something simpler?",
+            8, "Describe a third-party or cloud service integration that caused you production pain — what the failure mode was and how you made your systems resilient to it."
+        ),
+        "L3", Map.of(
+            1, "Walk me through a platform or infrastructure architecture you designed from scratch — requirements, key component decisions, and the two choices you'd revisit with hindsight.",
+            2, "Design a highly available container platform across multiple availability zones — explain the core trade-offs and how you'd handle a zone failure.",
+            3, "Describe your approach to preventing cascading failures in infrastructure — health checks, autoscaling limits, circuit breakers — with a concrete production example.",
+            4, "Walk me through how you profiled and fixed an infrastructure performance ceiling — CPU, network, or I/O — tooling, root cause, and what the fix cost elsewhere.",
+            5, "How do you design log, metric, and trace storage for a large fleet — retention, cost, and query performance trade-offs?",
+            6, "What does your observability stack look like in production — metrics, logging, tracing — and what alert fired last that actually mattered?",
+            7, "Walk me through how you've hardened infrastructure — secrets management, network policies, least-privilege access — and the gap you'd fix first today.",
+            8, "Describe a time you drove a significant infrastructure change — how you built consensus, managed migration risk, and handled rollback.",
+            9, "You need to migrate a high-traffic system to new infrastructure with zero downtime — what's your sequencing strategy?",
+            10, "A vague reliability requirement arrives — \"make it more stable\" — walk me through how you turn it into a scoped, measurable plan."
+        ),
+        "L4", Map.of(
+            1, "Design a multi-region deployment platform serving hundreds of services with automated failover — walk me through the architecture and failure recovery.",
+            2, "Compare running your own container orchestration against managed services for a large organization — defend your choice under real cost and reliability constraints.",
+            3, "Walk me through a chaos engineering exercise you designed or ran — what hypotheses you tested, what you found, and what you changed.",
+            4, "Describe a cross-team reliability or platform alignment problem you solved — competing priorities, key stakeholders, and how you drove an actual decision.",
+            5, "A VP wants to adopt a new cloud provider or major platform — what's your evaluation framework and how do you manage the risk of being wrong?",
+            6, "What does your platform roadmap look like for the next 18 months and how do you balance it against immediate delivery pressure?",
+            7, "How do you establish and enforce infrastructure standards across multiple teams without creating bureaucratic drag that slows delivery?",
+            8, "Walk me through a technology bet you made that didn't pay off — what you evaluated, what went wrong, and what you'd do differently.",
+            9, "How do you identify high-potential engineers and grow them toward staff-level impact — what does your actual approach look like in practice?",
+            10, "A critical business initiative depends on a technical decision you believe is wrong — how do you handle it?"
+        )
+    );
+
+    /** Role-neutral curated pool used when the JD doesn't clearly match a dedicated family. */
+    private static final Map<String, Map<Integer, String>> GENERIC_MODE_SLOT_QUESTIONS = Map.of(
+        "SCREENING", Map.of(
+            1, "Walk me through the most recent system you built or supported significantly — what problem it solved, your tooling, and the scale it operated at.",
+            2, "Pick the one technology in this role's stack you use most — explain how it works under the hood and a case where you'd avoid it.",
+            3, "Describe a small technical problem you solved recently end to end — your approach, what you checked, and how you verified the result.",
+            4, "Something you own slowed down or started failing overnight — how would you explain what's happening to a product manager, and what's your first diagnostic step?",
+            5, "What specifically draws you to this role, and what's the one technical area you most want to grow in over the next year?"
+        ),
+        "L1", Map.of(
+            1, "Walk me through something you shipped recently — what problem it solved, what you owned specifically, and the one decision you'd make differently.",
+            2, "Pick the core technology in the JD you know best — explain how it works internally and a real scenario where it caused you trouble.",
+            3, "Describe how you'd turn a repetitive manual task from your work into an automated solution — approach, edge cases, and how you'd verify it.",
+            4, "How do you decide when your work is production-ready — what's your personal quality bar, and what corners have you cut and later regretted?",
+            5, "Describe your approach to testing or validating a change before it reaches users — what you check and where you'd stop.",
+            6, "Tell me about a technology or practice you learned in the last six months and applied in real work — what drove you to pick it up?",
+            7, "Walk me through a review where you either gave or received feedback that genuinely changed how you work."
+        ),
+        "L2", Map.of(
+            1, "Describe a multi-component system you've worked on — how the pieces communicate, where ownership boundaries sit, and how it behaves when one part is down.",
+            2, "Tell me about a design decision where you traded one quality for another — speed versus correctness, cost versus reliability — what tipped the scale and what problems followed?",
+            3, "Walk me through a production issue you owned — what you saw first, how you isolated the root cause, and what you changed to prevent recurrence.",
+            4, "How do you manage shared state or configuration across components — what patterns have you used and where did they break down in practice?",
+            5, "Describe a performance bottleneck you traced and fixed — tooling, root cause, and what the fix cost you elsewhere.",
+            6, "Walk me through your incident playbook — how you detect, communicate, root-cause, and formally close out a production issue.",
+            7, "Which recurring pattern or practice have you applied most deliberately in production — why you chose it, and a case where you opted for something simpler?",
+            8, "Describe an external dependency that caused you production pain — what the failure mode was and how you made your system resilient to it."
+        ),
+        "L3", Map.of(
+            1, "Walk me through a system you designed from scratch — requirements, key decisions, and the two choices you'd revisit with hindsight.",
+            2, "Design a system in your domain that must stay available through partial failures — explain the core trade-offs and how you'd handle losing a critical component.",
+            3, "Describe your approach to preventing small failures from becoming big ones — with a concrete production example.",
+            4, "Walk me through how you profiled and optimized something hitting its performance ceiling — tooling, root cause, and what the fix cost elsewhere.",
+            5, "How do you decide where data or state should live in a system — the storage and caching trade-offs you weigh?",
+            6, "What does your monitoring or quality-signal setup look like — and what alert or signal fired last that actually mattered?",
+            7, "Walk me through how you think about security in your work — what risks you check for and how you harden against them.",
+            8, "Describe a time you drove a significant technical change — how you built consensus, managed risk, and handled rollback.",
+            9, "You need to migrate a critical system to a new platform with zero downtime — what's your sequencing strategy?",
+            10, "A vague requirement arrives that looks technically risky — walk me through how you turn it into a scoped, low-risk plan."
+        ),
+        "L4", Map.of(
+            1, "Design a system in your domain that must handle a tenfold traffic increase within a year — walk me through the architecture and how you'd stage the investment.",
+            2, "Compare two competing architectural approaches you've had to choose between at scale — defend your choice under real load and cost constraints.",
+            3, "Walk me through a chaos engineering exercise you designed or ran — what hypotheses you tested, what you found, and what you changed.",
+            4, "Describe a cross-team technical alignment problem you solved — competing priorities, key stakeholders, and how you drove an actual decision.",
+            5, "A VP wants to adopt a new core technology for the platform — what's your evaluation framework and how do you manage the risk of being wrong?",
+            6, "What does your team's technical roadmap look like for the next 18 months and how do you balance it against immediate product delivery pressure?",
+            7, "How do you establish and enforce technical standards across multiple teams without creating bureaucratic drag that slows delivery?",
+            8, "Walk me through a technology bet you made that didn't pay off — what you evaluated, what went wrong, and what you'd do differently.",
+            9, "How do you identify high-potential engineers and grow them toward staff-level impact — what does your actual approach look like in practice?",
+            10, "A critical business initiative depends on a technical decision you believe is wrong — how do you handle it?"
+        )
+    );
+
     /** Designated slot for the single coding exercise per interview mode. */
     private static final Map<String, Integer> CODING_SLOT_BY_MODE = Map.of(
         "SCREENING", 3,
@@ -218,9 +333,9 @@ public class QuestionService {
         }
 
         if (isClarificationRequest(req.getLastAnswer())) {
-            log.info("Clarification request detected — re-phrasing last question (slot={})", req.getSlot());
+            log.info("Clarification request detected — explaining last question in simpler terms (slot={})", req.getSlot());
             QuestionResult result = new QuestionResult(
-                rephraseLastQuestion(req),
+                rephraseLastQuestion(req, userId),
                 false, false, null, "AI_GENERATED"
             );
             return finalizeAndCache(requestCacheKey, req, result);
@@ -259,13 +374,20 @@ public class QuestionService {
                     int recentProbeCount = countRecentProbeQuestions(req.getUtterances());
                     if (recentProbeCount >= 1 || lastQuestionWasProbe(req.getUtterances())
                         || countSimilarRepeatedBotQuestions(req.getUtterances()) >= 1) {
-                        QuestionResult result = new QuestionResult(
-                            progressQuestionAvoidingRecent(req, req.getSlot()),
-                            false,
-                            false,
-                            null,
-                            "AI_GENERATED"
-                        );
+                        // Probe budget spent — ask the LLM for a fresh on-topic question instead of
+                        // jumping straight to the curated pool; curated stays as the error fallback.
+                        String progressed;
+                        try {
+                            progressed = llmQuestion(req, userId, true);
+                            List<String> allBotQs = extractRecentBotQuestions(req.getUtterances(), ALL_BOT_QUESTIONS_DEDUP);
+                            if (isQuestionSimilarToRecent(progressed, allBotQs)) {
+                                progressed = progressQuestionAvoidingAll(req);
+                            }
+                        } catch (Exception e) {
+                            log.warn("Thin-answer LLM progression failed, using curated pool: {}", e.getMessage());
+                            progressed = progressQuestionAvoidingRecent(req, req.getSlot());
+                        }
+                        QuestionResult result = new QuestionResult(progressed, false, false, null, "AI_GENERATED");
                         return finalizeAndCache(requestCacheKey, req, result);
                     }
                     QuestionResult result = new QuestionResult(getVagueAnswerProbe(), false, false, null, "AI_GENERATED");
@@ -344,8 +466,10 @@ public class QuestionService {
         QuestionResult sanitized = sanitizeQuestionResult(req, result);
         QuestionResult finalized = applyCodingSlotPolicy(req, sanitized);
 
-        // Hard final gate: one last check against ALL bot questions before sending to candidate
-        if (finalized != null && finalized.question() != null) {
+        // Hard final gate: one last check against ALL bot questions before sending to candidate.
+        // Explanations are exempt — they intentionally restate the question they simplify.
+        if (finalized != null && finalized.question() != null
+                && !finalized.question().startsWith(EXPLANATION_PREFIX)) {
             List<String> allBot = extractRecentBotQuestions(req.getUtterances(), ALL_BOT_QUESTIONS_DEDUP);
             if (isQuestionSimilarToRecent(finalized.question(), allBot)) {
                 log.warn("Final gate: question still duplicates session history after sanitize — forcing fresh pick (source={})", finalized.source());
@@ -363,6 +487,9 @@ public class QuestionService {
         if (result == null) return null;
         String question = result.question();
         if (question == null || question.isBlank()) return result;
+
+        // Explanations deliberately mirror the question they simplify — never dedup them away
+        if (question.startsWith(EXPLANATION_PREFIX)) return result;
 
         // Check against ALL previously asked bot questions, not just the last few
         List<String> allBot = extractRecentBotQuestions(req.getUtterances(), ALL_BOT_QUESTIONS_DEDUP);
@@ -483,6 +610,10 @@ public class QuestionService {
     }
 
     private String llmQuestion(NextQuestionRequest req, String userId) throws Exception {
+        return llmQuestion(req, userId, false);
+    }
+
+    private String llmQuestion(NextQuestionRequest req, String userId, boolean thinAnswerMode) throws Exception {
         String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";
         String slotTheme = resolveSlotTheme(mode, req.getSlot());
         String coveredTopics = extractCoveredTopics(req.getUtterances());
@@ -490,8 +621,8 @@ public class QuestionService {
         String targetSkill = pickTargetSkill(req.getSlot(), rubricLabels, coveredTopics);
         String coverageHint = buildCoverageHint(rubricLabels, coveredTopics);
 
-        // Parse candidate profile for difficulty calibration, but override with mode difficulty
-        String difficultyInstruction = getDifficultyForMode(mode);
+        // Difficulty: explicit per-round selection wins; otherwise derived from mode
+        String difficultyInstruction = resolveDifficulty(req);
         String levelInstruction = "";
         if (req.getCandidateProfileJson() != null && !req.getCandidateProfileJson().isBlank()) {
             try {
@@ -557,21 +688,28 @@ public class QuestionService {
         StringBuilder user = new StringBuilder();
         appendDialogueContext(user, req, lastAnswer, recent);
         user.append("Role: ").append(req.getJdTitle()).append("\n");
-        if (req.getSlot() == 1) {
-            if (req.getFocusAreas() != null && !req.getFocusAreas().isBlank()) {
-                user.append("Focus: ").append(req.getFocusAreas()).append("\n");
-            }
-            if (req.getResumeSummary() != null && !req.getResumeSummary().isBlank()) {
-                user.append("Resume:\n")
-                    .append(truncateText(req.getResumeSummary(), RESUME_DIGEST_CHARS))
-                    .append("\n\n");
-            }
-            String jdDigest = req.getJdText().substring(0, Math.min(JD_DIGEST_CHARS, req.getJdText().length()));
-            user.append("JD:\n").append(jdDigest).append("\n\n");
+        if (req.getFocusAreas() != null && !req.getFocusAreas().isBlank()) {
+            user.append("Focus: ").append(req.getFocusAreas()).append("\n");
         }
-        user.append(lastAnswer.isEmpty()
-            ? "Ask your opening technical question now. One or two sentences, no career narrative."
-            : "Ask your next question now. Must follow from their last answer.");
+        if (req.getSlot() == 1 && req.getResumeSummary() != null && !req.getResumeSummary().isBlank()) {
+            user.append("Resume:\n")
+                .append(truncateText(req.getResumeSummary(), RESUME_DIGEST_CHARS))
+                .append("\n\n");
+        }
+        // JD digest on EVERY slot — without it the model loses role grounding after slot 1
+        // and drifts into generic (often wrong-stack) questions.
+        if (req.getJdText() != null && !req.getJdText().isBlank()) {
+            user.append("JD:\n").append(truncateText(req.getJdText(), JD_DIGEST_CHARS)).append("\n\n");
+        }
+        if (thinAnswerMode) {
+            user.append("The candidate's last answer was thin — do NOT probe it again. "
+                + "Move to a NEW topic that fits the slot theme and the JD's actual technology stack. "
+                + "Ask your next question now.");
+        } else {
+            user.append(lastAnswer.isEmpty()
+                ? "Ask your opening technical question now. One or two sentences, no career narrative."
+                : "Ask your next question now. Must follow from their last answer.");
+        }
 
         String result = llmClient.chatQuestionWithSlotAndTracking(system, user.toString(), req.getSlot(), req.getInterviewId(), userId);
         return result.replaceAll("^[\"'\\s]+|[\"'\\s]+$", "");
@@ -681,6 +819,21 @@ public class QuestionService {
             }
         }
         return fallbackText;
+    }
+
+    /** Explicit per-round difficulty override wins; falls back to the mode's default. */
+    String resolveDifficulty(NextQuestionRequest req) { // package-private for tests
+        String override = req.getQuestionDifficulty();
+        if (override != null && !override.isBlank()) {
+            switch (override.trim().toUpperCase()) {
+                case "EASY": return "easy difficulty";
+                case "MEDIUM": return "medium difficulty";
+                case "HARD": return "hard difficulty";
+                default:
+                    log.warn("Unknown questionDifficulty '{}' — falling back to mode default", override);
+            }
+        }
+        return getDifficultyForMode(req.getInterviewMode() != null ? req.getInterviewMode() : "L3");
     }
 
     private String getDifficultyForMode(String mode) {
@@ -886,7 +1039,8 @@ public class QuestionService {
         List<String> bot = new ArrayList<>();
         for (int i = utterances.size() - 1; i >= 0 && bot.size() < max; i--) {
             NextQuestionRequest.Utterance u = utterances.get(i);
-            if ("BOT".equals(u.speaker()) && u.text() != null && !u.text().isBlank()) {
+            if ("BOT".equals(u.speaker()) && u.text() != null && !u.text().isBlank()
+                    && !u.text().trim().startsWith(EXPLANATION_PREFIX)) {
                 bot.add(u.text().trim());
             }
         }
@@ -989,6 +1143,46 @@ public class QuestionService {
      * Detects when the candidate is asking for clarification or rephrasing of the last question
      * rather than attempting to answer it.
      */
+    /**
+     * Restate an interview question in plainer language without leaking the answer.
+     * Returned text always carries {@link #EXPLANATION_PREFIX} so downstream dedup skips it.
+     * Falls back to a slow repeat of the original question when the LLM is unavailable.
+     */
+    public String explainQuestion(String questionText, String jdTitle, String interviewMode,
+                                  String interviewId, String userId) {
+        String question = questionText == null ? "" : questionText.trim();
+        if (question.isBlank()) {
+            return EXPLANATION_PREFIX + "take the question one part at a time and describe your own experience with it.";
+        }
+        if (llmClient.isConfigured()) {
+            try {
+                String system =
+                    "You are a technical interviewer helping a candidate understand the current question.\n"
+                    + "Restate the question below in simpler, plainer language — 2 to 3 short sentences.\n"
+                    + "You may say what KIND of answer is expected (e.g., \"describe a real project\" or \"walk through the steps you would take\").\n"
+                    + "RULES:\n"
+                    + "1. Do NOT answer the question, hint at the answer, or give examples that reveal the solution.\n"
+                    + "2. Do NOT introduce a new or different question.\n"
+                    + "3. Keep every technical requirement of the original question intact — simplify the wording, not the task.\n"
+                    + "4. Output ONLY the plain explanation text. No preamble, no markdown, no quotes.";
+                String user = "Role: " + (jdTitle != null ? jdTitle : "Target role") + "\n"
+                    + "Interview question:\n" + truncateText(question, 600) + "\n\n"
+                    + "Explain this question in easy terms now.";
+                String explanation = llmClient
+                    .chatQuestionWithSlotAndTracking(system, user, 0, interviewId, userId)
+                    .replaceAll("^[\"'\\s]+|[\"'\\s]+$", "");
+                if (!explanation.isBlank()) {
+                    return EXPLANATION_PREFIX + explanation;
+                }
+            } catch (Exception e) {
+                log.warn("Question explanation LLM call failed, using plain repeat: {}", e.getMessage());
+            }
+        }
+        return EXPLANATION_PREFIX + "let me repeat it slowly — "
+            + Character.toLowerCase(question.charAt(0)) + question.substring(1)
+            + " Take your time and answer whichever part you're most comfortable with first.";
+    }
+
     private boolean isClarificationRequest(String answer) {
         if (answer == null || answer.isBlank()) return false;
         String lower = answer.trim().toLowerCase();
@@ -1006,19 +1200,22 @@ public class QuestionService {
     }
 
     /**
-     * Returns a re-phrased version of the last bot question, or a fresh question
-     * if no recent bot utterance is found.
+     * Returns a genuinely simplified version of the last bot question (LLM-backed, plain-repeat
+     * fallback), or a fresh question if no recent bot question is found. Skips explanation
+     * utterances so a second clarification still targets the real question.
      */
-    private String rephraseLastQuestion(NextQuestionRequest req) {
+    private String rephraseLastQuestion(NextQuestionRequest req, String userId) {
         List<NextQuestionRequest.Utterance> utterances = req.getUtterances();
         if (utterances != null) {
             for (int i = utterances.size() - 1; i >= 0; i--) {
                 NextQuestionRequest.Utterance u = utterances.get(i);
-                if ("BOT".equals(u.speaker()) && u.text() != null && !u.text().isBlank()) {
+                if ("BOT".equals(u.speaker()) && u.text() != null && !u.text().isBlank()
+                        && !u.text().trim().startsWith(EXPLANATION_PREFIX)) {
                     String lastQ = u.text().trim();
                     // Strip any meta prefixes like "For [Role], " that snuck through
                     lastQ = lastQ.replaceAll("^For [^,]+, ", "");
-                    return "Let me re-phrase — " + Character.toLowerCase(lastQ.charAt(0)) + lastQ.substring(1);
+                    return explainQuestion(lastQ, req.getJdTitle(), req.getInterviewMode(),
+                        req.getInterviewId(), userId);
                 }
             }
         }
@@ -1043,7 +1240,8 @@ public class QuestionService {
     /** Core question-picking logic shared by both progression methods. */
     private String pickFreshQuestion(NextQuestionRequest req, int startSlot, List<String> usedQuestions) {
         String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";
-        Map<Integer, String> curatedQuestions = MODE_SLOT_QUESTIONS.getOrDefault(mode, MODE_SLOT_QUESTIONS.get("L3"));
+        Map<String, Map<Integer, String>> familyPool = curatedPoolForRole(req.getJdTitle(), req.getJdText());
+        Map<Integer, String> curatedQuestions = familyPool.getOrDefault(mode, familyPool.get("L3"));
         int maxDefined = curatedQuestions != null ? curatedQuestions.size() : 5;
 
         // Try every curated slot before cycling — prevents cycling back to already-asked ones
@@ -1079,6 +1277,83 @@ public class QuestionService {
             if (!isQuestionSimilarToRecent(alt, usedQuestions)) return alt;
         }
         return alternates.get(startSlot % alternates.size());
+    }
+
+    /**
+     * Pick the curated question pool matching the JD's role family.
+     * Title keywords win (high precision); otherwise the JD text is scored per family and the
+     * winner must have at least 2 keyword hits — anything ambiguous falls back to the
+     * role-neutral pool so we never ask backend-dev questions in a non-backend interview.
+     */
+    Map<String, Map<Integer, String>> curatedPoolForRole(String jdTitle, String jdText) { // package-private for tests
+        String family = inferRoleFamily(jdTitle, jdText);
+        return switch (family) {
+            case "BACKEND" -> MODE_SLOT_QUESTIONS;
+            case "DEVOPS" -> DEVOPS_MODE_SLOT_QUESTIONS;
+            default -> GENERIC_MODE_SLOT_QUESTIONS;
+        };
+    }
+
+    private static final Map<String, String[]> ROLE_TITLE_SIGNALS = Map.of(
+        "DEVOPS", new String[]{"devops", "site reliability", "sre", "platform engineer", "infrastructure engineer",
+            "cloud engineer", "release engineer", "build and release", "systems engineer"},
+        "BACKEND", new String[]{"backend", "back-end", "back end", "java developer", "java engineer", "spring",
+            "node", "python developer", "python engineer", ".net", "golang", "go developer", "api developer",
+            "full stack", "full-stack", "fullstack"},
+        "FRONTEND", new String[]{"frontend", "front-end", "front end", "react", "angular", "vue", "ui developer",
+            "ui engineer", "web developer"},
+        "DATA", new String[]{"data engineer", "data scientist", "machine learning", "ml engineer", "ai engineer",
+            "data analyst", "big data", "etl"},
+        "MOBILE", new String[]{"android", "ios", "mobile", "flutter", "react native"},
+        "QA", new String[]{"qa", "test engineer", "sdet", "quality assurance", "automation tester", "test analyst"}
+    );
+
+    private static final Map<String, String[]> ROLE_TEXT_SIGNALS = Map.of(
+        "DEVOPS", new String[]{"devops", "terraform", "ansible", "kubernetes", "docker", "jenkins", "ci/cd",
+            "prometheus", "grafana", "helm", "cloudformation", "infrastructure as code", "site reliability"},
+        "BACKEND", new String[]{"spring boot", "spring", "hibernate", "java", "node.js", "django", "microservices",
+            "rest api", "restful", "kafka", ".net", "golang", "backend"},
+        "FRONTEND", new String[]{"react", "angular", "vue", "css", "html", "frontend", "responsive", "ui/ux",
+            "javascript", "typescript"},
+        "DATA", new String[]{"machine learning", "data pipeline", "spark", "hadoop", "etl", "data warehouse",
+            "pandas", "tensorflow", "pytorch", "airflow"},
+        "MOBILE", new String[]{"android", "ios", "swift", "kotlin", "flutter", "react native", "mobile app"},
+        "QA", new String[]{"selenium", "test automation", "test cases", "sdet", "cypress", "playwright",
+            "quality assurance"}
+    );
+
+    /** Deterministic match order: specific families first, BACKEND last (its keywords are broadest). */
+    private static final List<String> ROLE_FAMILY_ORDER =
+        List.of("DEVOPS", "FRONTEND", "DATA", "MOBILE", "QA", "BACKEND");
+
+    String inferRoleFamily(String jdTitle, String jdText) { // package-private for tests
+        String title = jdTitle == null ? "" : jdTitle.toLowerCase();
+        for (String family : ROLE_FAMILY_ORDER) {
+            for (String signal : ROLE_TITLE_SIGNALS.get(family)) {
+                if (title.contains(signal)) return family;
+            }
+        }
+        String text = jdText == null ? "" : truncateText(jdText, 3000).toLowerCase();
+        if (text.isBlank()) return "GENERIC";
+        String bestFamily = "GENERIC";
+        int bestScore = 0;
+        boolean tie = false;
+        for (String family : ROLE_FAMILY_ORDER) {
+            int score = 0;
+            for (String signal : ROLE_TEXT_SIGNALS.get(family)) {
+                if (text.contains(signal)) score++;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                bestFamily = family;
+                tie = false;
+            } else if (score == bestScore && score > 0) {
+                tie = true;
+            }
+        }
+        // Require a clear winner with at least 2 signals; otherwise stay neutral
+        if (bestScore < 2 || tie) return "GENERIC";
+        return bestFamily;
     }
 
     private String slotFallbackQuestion(int slot, String jdTitle, int variantSeed) {
@@ -1268,6 +1543,7 @@ public class QuestionService {
             "Question Bank: " + questionBankContext + "\n" +
             "Active Slot Theme: " + slotTheme + "\n" +
             "Active Mode: " + mode + "\n" +
+            "Target Difficulty: " + resolveDifficulty(req) + " — prefer bank questions whose complexity matches this level; cross-questions must also match it.\n" +
             "Recently asked (DO NOT repeat or paraphrase closely):\n" + recentQuestionsBlock + "\n" +
             "\n" +
             "SELECTION LOGIC:\n" +
@@ -1396,6 +1672,8 @@ public class QuestionService {
 
     private QuestionResult applyCodingSlotPolicy(NextQuestionRequest req, QuestionResult result) {
         if (result == null) return null;
+        // An explanation is not a question — never convert it into the forced coding prompt
+        if (result.question() != null && result.question().startsWith(EXPLANATION_PREFIX)) return result;
         if (!isProgrammingEnabled(req)) {
             if (result.isCoding()) {
                 log.info("Theory-only interview — converting coding question to verbal at slot {}", req.getSlot());

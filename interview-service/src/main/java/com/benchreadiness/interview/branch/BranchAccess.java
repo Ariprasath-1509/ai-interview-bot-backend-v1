@@ -17,11 +17,20 @@ public final class BranchAccess {
      * @return allowed branch code, or {@code null} when the role may access every branch
      */
     public static String resolveAllowedBranch(String role) {
-        if (role == null) {
-            return Branch.DEVELOPMENT.code();
-        }
         if ("SUPER_ADMIN".equals(role)) {
             return null;
+        }
+        // The gateway forwards X-User-Branch from the JWT's branch claim, which now reflects
+        // the user's actual persisted assignment rather than a fixed role default — this lets
+        // a branch added after the two originals actually gate access for a staff member
+        // assigned to it. Falls back to the legacy role-based default when absent (older
+        // tokens, internal calls) so behavior is unchanged for anything not yet re-authenticated.
+        String contextBranch = BranchContext.get();
+        if (contextBranch != null && BranchRegistry.isValid(contextBranch)) {
+            return contextBranch;
+        }
+        if (role == null) {
+            return Branch.DEVELOPMENT.code();
         }
         if (TESTING_ROLES.contains(role)) {
             return Branch.TESTING.code();

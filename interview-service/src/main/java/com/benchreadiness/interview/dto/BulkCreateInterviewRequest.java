@@ -41,6 +41,10 @@ public class BulkCreateInterviewRequest {
     @Size(max = 100)
     private String roundName;
 
+    /** Optional: per-round question difficulty override (EASY | MEDIUM | HARD). */
+    @Size(max = 16)
+    private String questionDifficulty;
+
     /** Per-candidate entries. Max 20 per request. */
     @NotEmpty(message = "At least one candidate is required")
     @Valid
@@ -93,6 +97,8 @@ public class BulkCreateInterviewRequest {
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
     public String getRoundName() { return roundName; }
     public void setRoundName(String roundName) { this.roundName = roundName; }
+    public String getQuestionDifficulty() { return questionDifficulty; }
+    public void setQuestionDifficulty(String questionDifficulty) { this.questionDifficulty = questionDifficulty; }
     public List<CandidateEntry> getCandidates() { return candidates; }
     public void setCandidates(List<CandidateEntry> candidates) { this.candidates = candidates; }
 }

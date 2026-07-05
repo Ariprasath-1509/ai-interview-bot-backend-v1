@@ -20,6 +20,9 @@ public class UpdateStaffRequest {
 
     private String adminSource;
 
+    /** Optional: explicit branch code (validated against master data). Null leaves the stored branch unchanged. */
+    private String branch;
+
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getEmail() { return email; }
@@ -30,4 +33,6 @@ public class UpdateStaffRequest {
     public void setRole(UserRole role) { this.role = role; }
     public String getAdminSource() { return adminSource; }
     public void setAdminSource(String adminSource) { this.adminSource = adminSource; }
+    public String getBranch() { return branch; }
+    public void setBranch(String branch) { this.branch = branch; }
 }

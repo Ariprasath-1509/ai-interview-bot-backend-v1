@@ -21,16 +21,9 @@ public enum Branch {
         return branch.trim().toUpperCase();
     }
 
+    /** Delegates to {@link BranchRegistry}, which is kept in sync with the BRANCH master-data
+     * category so branches added after DEVELOPMENT/TESTING validate correctly. */
     public static boolean isValid(String branch) {
-        if (branch == null || branch.isBlank()) {
-            return false;
-        }
-        String normalized = branch.trim().toUpperCase();
-        for (Branch value : values()) {
-            if (value.code.equals(normalized)) {
-                return true;
-            }
-        }
-        return false;
+        return BranchRegistry.isValid(branch);
     }
 }

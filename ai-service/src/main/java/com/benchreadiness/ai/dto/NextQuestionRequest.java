@@ -16,6 +16,8 @@ public class NextQuestionRequest {
     private String rubricJson;
     private String candidateProfileJson;
     private String interviewMode;
+    /** EASY | MEDIUM | HARD — explicit per-round override; null/blank derives difficulty from interviewMode. */
+    private String questionDifficulty;
     private String interviewId;
     private String questionBankQuestionsJson;
     private String customQuestionsJson;
@@ -49,6 +51,8 @@ public class NextQuestionRequest {
     public void setCandidateProfileJson(String candidateProfileJson) { this.candidateProfileJson = candidateProfileJson; }
     public String getInterviewMode() { return interviewMode; }
     public void setInterviewMode(String interviewMode) { this.interviewMode = interviewMode; }
+    public String getQuestionDifficulty() { return questionDifficulty; }
+    public void setQuestionDifficulty(String questionDifficulty) { this.questionDifficulty = questionDifficulty; }
     public String getInterviewId() { return interviewId; }
     public void setInterviewId(String interviewId) { this.interviewId = interviewId; }
     public String getQuestionBankQuestionsJson() { return questionBankQuestionsJson; }

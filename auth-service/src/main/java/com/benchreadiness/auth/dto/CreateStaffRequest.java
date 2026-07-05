@@ -22,6 +22,9 @@ public class CreateStaffRequest {
 
     private String adminSource;
 
+    /** Optional: explicit branch code (validated against master data). Defaults from role when absent. */
+    private String branch;
+
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getEmail() { return email; }
@@ -32,4 +35,6 @@ public class CreateStaffRequest {
     public void setRole(UserRole role) { this.role = role; }
     public String getAdminSource() { return adminSource; }
     public void setAdminSource(String adminSource) { this.adminSource = adminSource; }
+    public String getBranch() { return branch; }
+    public void setBranch(String branch) { this.branch = branch; }
 }

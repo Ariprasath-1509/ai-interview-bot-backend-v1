@@ -12,6 +12,8 @@ public class UpdateInterviewRequest {
     private InterviewMode interviewMode;
     private Integer customDurationMinutes;
     private String roundName;
+    /** EASY | MEDIUM | HARD; null leaves the stored value unchanged. */
+    private String questionDifficulty;
     private Boolean includeProgrammingQuestions;
     private Instant scheduledAt;
     private Instant expiresAt;
@@ -30,6 +32,8 @@ public class UpdateInterviewRequest {
     public void setCustomDurationMinutes(Integer customDurationMinutes) { this.customDurationMinutes = customDurationMinutes; }
     public String getRoundName() { return roundName; }
     public void setRoundName(String roundName) { this.roundName = roundName; }
+    public String getQuestionDifficulty() { return questionDifficulty; }
+    public void setQuestionDifficulty(String questionDifficulty) { this.questionDifficulty = questionDifficulty; }
     public Boolean getIncludeProgrammingQuestions() { return includeProgrammingQuestions; }
     public void setIncludeProgrammingQuestions(Boolean includeProgrammingQuestions) { this.includeProgrammingQuestions = includeProgrammingQuestions; }
     public Instant getScheduledAt() { return scheduledAt; }
