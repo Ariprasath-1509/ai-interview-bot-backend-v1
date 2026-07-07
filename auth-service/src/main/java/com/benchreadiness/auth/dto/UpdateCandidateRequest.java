@@ -23,6 +23,8 @@ public class UpdateCandidateRequest {
     private String clientName;
     /** SUPER_ADMIN only — change candidate branch. */
     private String branch;
+    /** Soft delete/restore — false blocks candidate login without removing the row. */
+    private Boolean active;
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
@@ -60,4 +62,6 @@ public class UpdateCandidateRequest {
     public void setClientName(String clientName) { this.clientName = clientName; }
     public String getBranch() { return branch; }
     public void setBranch(String branch) { this.branch = branch; }
+    public Boolean getActive() { return active; }
+    public void setActive(Boolean active) { this.active = active; }
 }

@@ -35,7 +35,9 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         "/auth/internal/introspect",
         "/api/qb",
         "/api/questionbank",
-        "/questionbank"
+        "/questionbank",
+        "/api/screening/public",
+        "/screening/public"
     );
 
     private final SecretKey signingKey;

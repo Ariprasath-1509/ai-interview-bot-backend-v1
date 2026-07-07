@@ -203,6 +203,8 @@ public class AuthController {
         if (req.getYop() != null) user.setYop(req.getYop());
         if (req.getInterviewMentorName() != null) user.setInterviewMentorName(req.getInterviewMentorName());
         if (req.getClientName() != null) user.setClientName(req.getClientName());
+        // Soft delete/restore — inactive candidates are blocked at login but the row is kept.
+        if (req.getActive() != null) user.setActive(req.getActive());
         // Source and email — SUPER_ADMIN only
         if (callerRole.equals("SUPER_ADMIN")) {
             if (req.getSource() != null) {
@@ -222,8 +224,12 @@ public class AuthController {
         if (req.getNoOfInterviews() != null) changes.append("Interviews: ").append(req.getNoOfInterviews()).append(", ");
         if (req.getName() != null) changes.append("Name: ").append(req.getName()).append(", ");
         if (req.getSource() != null) changes.append("Source: ").append(req.getSource());
-        
-        auditService.record(callerId, null, callerRole, "CANDIDATE_UPDATED", "CANDIDATE", user.getId(),
+        if (req.getActive() != null) changes.append("Active: ").append(req.getActive());
+
+        String auditAction = req.getActive() != null
+                ? (req.getActive() ? "CANDIDATE_REACTIVATED" : "CANDIDATE_DEACTIVATED")
+                : "CANDIDATE_UPDATED";
+        auditService.record(callerId, null, callerRole, auditAction, "CANDIDATE", user.getId(),
             String.format("Updated %s: %s", user.getName(), changes.toString()));
         
         return ResponseEntity.ok(Map.of("ok", true, "message", "Candidate updated"));

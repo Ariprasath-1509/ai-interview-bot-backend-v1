@@ -19,6 +19,7 @@
     <module>ops-service</module>
     <module>review-service</module>
     <module>questionbank-service</module>
+    <module>screening-service</module>
   </modules>
 
   <parent>

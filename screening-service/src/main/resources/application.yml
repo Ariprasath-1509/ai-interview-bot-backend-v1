@@ -1,0 +1,92 @@
+server:
+  port: 6017
+
+logstash:
+  host: logstash
+
+spring:
+  application:
+    name: screening-service
+  # Optional .env at repo root (see .env.example). Override with ENV_FILE=/path/to/.env
+  config:
+    import:
+      - optional:file:${ENV_FILE:${user.dir}/../.env}[.properties]
+      - optional:file:${user.dir}/.env[.properties]
+  datasource:
+    # Shared Postgres instance — same DB_URL/credentials as the other services, own schema below.
+    url: ${DB_URL:${DATABASE_URL:}}
+    username: ${DB_USERNAME:${DB_USER:}}
+    password: ${DB_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 120000
+      validation-timeout: 15000
+      idle-timeout: 120000
+      max-lifetime: 300000
+      keepalive-time: 30000
+      initialization-fail-timeout: 120000
+      leak-detection-threshold: 180000
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        default_schema: screening_svc
+    open-in-view: false
+  flyway:
+    schemas: screening_svc
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: false
+    connect-retries: 5
+    connect-retries-interval: 10s
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 10000
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:6009/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    hostname: localhost
+    prefer-ip-address: false
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+
+app:
+  claude:
+    api-key: ${APP_CLAUDE_API_KEY:}
+    model: ${APP_SCREENING_CLAUDE_MODEL:claude-sonnet-4-6}
+    question-temperature: ${APP_SCREENING_QUESTION_TEMPERATURE:0.5}
+    grading-temperature: ${APP_SCREENING_GRADING_TEMPERATURE:0.1}
+  ollama:
+    base-url: ${APP_SCREENING_OLLAMA_BASE_URL:http://127.0.0.1:11434}
+    model: ${APP_SCREENING_OLLAMA_MODEL:qwen2.5:14b}
+  mail:
+    from: ${MAIL_USERNAME:learningdevelopment.tyss@gmail.com}
+  screening:
+    frontend-base-url: ${APP_FRONTEND_URL:https://prod.voiceaibot.in}
+    candidate-link-path: ${APP_SCREENING_LINK_PATH:/screening}
+    retention-hours: ${APP_SCREENING_RETENTION_HOURS:72}
+    ollama-fallback-enabled: ${APP_SCREENING_OLLAMA_FALLBACK_ENABLED:true}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

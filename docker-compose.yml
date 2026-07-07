@@ -563,6 +563,55 @@ services:
           cpus: '0.5'
           memory: 512M
 
+  screening-service:
+    <<: *default-env-file
+    image: registry.gitlab.com/tyssdev/ty_aibot/screening_service:latest
+    container_name: screening-service
+    mem_limit: 1g
+    memswap_limit: 1g
+    ports:
+      - "6017:6017"
+    env_file:
+      - ${ENV_FILE:-.env}
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_URL: ${DB_URL:-}
+      DB_USERNAME: ${DB_USERNAME:-}
+      DATABASE_URL: ${DATABASE_URL:-}
+      DB_USER: ${DB_USER:-}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      GATEWAY_SHARED_KEY: ${GATEWAY_SHARED_KEY:-}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: "${MAIL_USERNAME:-learningdevelopment.tyss@gmail.com}"
+      MAIL_PASSWORD: "${MAIL_PASSWORD:-xcbc bgrj lbql tgkd}"
+      APP_CLAUDE_API_KEY: ${APP_CLAUDE_API_KEY:-}
+      APP_SCREENING_CLAUDE_MODEL: ${APP_SCREENING_CLAUDE_MODEL:-claude-sonnet-4-6}
+      APP_SCREENING_OLLAMA_FALLBACK_ENABLED: "false"
+      APP_FRONTEND_URL: ${APP_FRONTEND_URL:-https://prod.voiceaibot.in}
+      APP_SCREENING_RETENTION_HOURS: ${APP_SCREENING_RETENTION_HOURS:-72}
+      JAVA_OPTS: "-Xms512m -Xmx1024m -XX:+UseG1GC"
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - bench-network
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6017' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
 volumes:
   elasticsearch-data:
     driver: local

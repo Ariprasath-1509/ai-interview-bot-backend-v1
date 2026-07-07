@@ -97,6 +97,16 @@ spring:
             - Path=/questionbank/**
           filters:
             - RewritePath=/questionbank/(?<segment>.*), /${segment}
+        - id: screening-service
+          uri: lb://screening-service
+          predicates:
+            - Path=/api/screening/**
+          filters:
+            - RewritePath=/api/(?<segment>.*), /$\{segment}
+        - id: screening-service-direct
+          uri: lb://screening-service
+          predicates:
+            - Path=/screening/**
 
 eureka:
   client:
