@@ -131,6 +131,13 @@ public class ScreeningAdminController {
         return handle(() -> candidateSummary(pipelineService.markRound1(candidateId, Boolean.TRUE.equals(body.get("passed")))));
     }
 
+    /** Lets staff accept a submission (or reopen the test) even after the batch deadline has passed. */
+    @PostMapping("/candidates/{candidateId}/allow-late-submission")
+    @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
+    public ResponseEntity<?> allowLateSubmission(@PathVariable String candidateId, @RequestBody Map<String, Boolean> body) {
+        return handle(() -> candidateSummary(pipelineService.setAllowLateSubmission(candidateId, !Boolean.FALSE.equals(body.get("allow")))));
+    }
+
     @GetMapping("/round2/queue")
     @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
     public ResponseEntity<?> round2Queue() {
@@ -215,6 +222,7 @@ public class ScreeningAdminController {
         m.put("yop", c.getYop());
         m.put("experience", c.getExperience());
         m.put("round1Score", c.getRound1Score());
+        m.put("allowLateSubmission", c.isAllowLateSubmission());
         m.put("round2Result", c.getRound2Result() != null ? c.getRound2Result().name() : null);
         m.put("round3Result", c.getRound3Result() != null ? c.getRound3Result().name() : null);
         m.put("convertedUserId", c.getConvertedUserId());

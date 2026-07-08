@@ -43,7 +43,7 @@ spring:
     connect-retries: 5
     connect-retries-interval: 10s
   mail:
-    host: ${MAIL_HOST:smtp.gmail.com}
+    host: ${MAIL_HOST:smtp-relay.brevo.com}
     port: ${MAIL_PORT:587}
     username: ${MAIL_USERNAME:}
     password: ${MAIL_PASSWORD:}
@@ -75,7 +75,7 @@ app:
     base-url: ${APP_SCREENING_OLLAMA_BASE_URL:http://127.0.0.1:11434}
     model: ${APP_SCREENING_OLLAMA_MODEL:qwen2.5:14b}
   mail:
-    from: ${MAIL_USERNAME:learningdevelopment.tyss@gmail.com}
+    from: ${MAIL_FROM:noreply@voiceaibot.in}
   screening:
     frontend-base-url: ${APP_FRONTEND_URL:https://prod.voiceaibot.in}
     candidate-link-path: ${APP_SCREENING_LINK_PATH:/screening}

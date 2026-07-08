@@ -50,6 +50,16 @@ public class PipelineService {
         return candidateRepository.save(candidate);
     }
 
+    @Transactional
+    public ScreeningCandidate setAllowLateSubmission(String candidateId, boolean allow) {
+        ScreeningCandidate candidate = getOrThrow(candidateId);
+        if (candidate.getStage() != CandidateStage.ROUND1_PENDING && candidate.getStage() != CandidateStage.ROUND1_IN_PROGRESS) {
+            throw new IllegalStateException("Candidate has already submitted Round 1 — nothing to accept");
+        }
+        candidate.setAllowLateSubmission(allow);
+        return candidateRepository.save(candidate);
+    }
+
     public List<ScreeningCandidate> round2Queue() {
         List<ScreeningCandidate> queue = new java.util.ArrayList<>(candidateRepository.findByStage(CandidateStage.ROUND1_PASSED));
         queue.addAll(candidateRepository.findByStage(CandidateStage.ROUND2_IN_PROGRESS));

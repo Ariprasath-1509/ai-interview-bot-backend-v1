@@ -62,6 +62,10 @@ public class ScreeningCandidate {
     @Column(name = "round1_submitted_at")
     private Instant round1SubmittedAt;
 
+    /** Staff override — lets this candidate reopen/submit Round 1 even after the batch deadline has passed. */
+    @Column(name = "allow_late_submission", nullable = false)
+    private boolean allowLateSubmission = false;
+
     @Column(name = "round2_started_at")
     private Instant round2StartedAt;
 
@@ -148,6 +152,8 @@ public class ScreeningCandidate {
     public void setRound1StartedAt(Instant round1StartedAt) { this.round1StartedAt = round1StartedAt; }
     public Instant getRound1SubmittedAt() { return round1SubmittedAt; }
     public void setRound1SubmittedAt(Instant round1SubmittedAt) { this.round1SubmittedAt = round1SubmittedAt; }
+    public boolean isAllowLateSubmission() { return allowLateSubmission; }
+    public void setAllowLateSubmission(boolean allowLateSubmission) { this.allowLateSubmission = allowLateSubmission; }
     public Instant getRound2StartedAt() { return round2StartedAt; }
     public void setRound2StartedAt(Instant round2StartedAt) { this.round2StartedAt = round2StartedAt; }
     public String getRound2Strengths() { return round2Strengths; }

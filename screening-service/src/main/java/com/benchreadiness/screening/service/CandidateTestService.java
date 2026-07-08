@@ -50,7 +50,7 @@ public class CandidateTestService {
         if (candidate.getStage() != CandidateStage.ROUND1_PENDING && candidate.getStage() != CandidateStage.ROUND1_IN_PROGRESS) {
             throw new IllegalStateException("This test has already been submitted and the link is no longer active");
         }
-        if (Instant.now().isAfter(batch.getDeadline())) {
+        if (!candidate.isAllowLateSubmission() && Instant.now().isAfter(batch.getDeadline())) {
             throw new IllegalStateException("This test window has expired");
         }
         if (candidate.getStage() == CandidateStage.ROUND1_PENDING) {
@@ -94,7 +94,7 @@ public class CandidateTestService {
         if (candidate.getStage() != CandidateStage.ROUND1_PENDING && candidate.getStage() != CandidateStage.ROUND1_IN_PROGRESS) {
             throw new IllegalStateException("This test has already been submitted");
         }
-        if (Instant.now().isAfter(batch.getDeadline())) {
+        if (!candidate.isAllowLateSubmission() && Instant.now().isAfter(batch.getDeadline())) {
             throw new IllegalStateException("This test window has expired");
         }
         if (!candidate.getEmail().equalsIgnoreCase(req.getCandidateEmailConfirmation().trim())) {
