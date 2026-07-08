@@ -138,7 +138,9 @@ public class PipelineService {
         if (req.getResult() == RoundDecision.SELECTED) {
             Round3FeedbackRequest.ConversionDetails details = req.getConversionDetails();
             boolean hasContactNumber = candidate.getContactNumber() != null || (details != null && isNotBlank(details.getContactNumber()));
-            boolean hasSource = candidate.getInstitute() != null || (details != null && isNotBlank(details.getSource()));
+            // Source must be a valid CANDIDATE_SOURCE master-data value (B2B/BENCH/MARKET) — the
+            // candidate's JSpiders/QSpiders institute is a different concept and is never a valid value here.
+            boolean hasSource = details != null && isNotBlank(details.getSource());
             boolean hasBatchAndSkill = details != null && isNotBlank(details.getBatchLabel()) && isNotBlank(details.getSkillSet());
             if (!hasContactNumber || !hasSource || !hasBatchAndSkill) {
                 throw new IllegalArgumentException("Contact number, training batch, source, and skill set are required to onboard a passed candidate");
@@ -163,7 +165,7 @@ public class PipelineService {
         // Prefer what was already collected at CSV intake; the Round 3 form only fills gaps.
         request.put("contactNumber", firstNonBlank(candidate.getContactNumber(), details.getContactNumber()));
         request.put("batch", details.getBatchLabel());
-        request.put("source", firstNonBlank(candidate.getInstitute(), details.getSource()));
+        request.put("source", details.getSource());
         request.put("skillSet", details.getSkillSet());
         if (candidate.getYop() != null) {
             request.put("yop", candidate.getYop());
