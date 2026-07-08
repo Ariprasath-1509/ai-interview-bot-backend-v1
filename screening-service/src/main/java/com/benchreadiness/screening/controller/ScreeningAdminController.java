@@ -1,7 +1,8 @@
 package com.benchreadiness.screening.controller;
 
 import com.benchreadiness.screening.dto.CreateBatchRequest;
-import com.benchreadiness.screening.dto.RoundFeedbackRequest;
+import com.benchreadiness.screening.dto.Round2FeedbackRequest;
+import com.benchreadiness.screening.dto.Round3FeedbackRequest;
 import com.benchreadiness.screening.dto.UpdateDeadlineRequest;
 import com.benchreadiness.screening.entity.ScreeningAnswer;
 import com.benchreadiness.screening.entity.ScreeningBatch;
@@ -117,6 +118,56 @@ public class ScreeningAdminController {
         return ResponseEntity.ok(Map.of("candidates", candidates));
     }
 
+    /** Final consolidated view of a batch after Round 3: every candidate's totals across all 3 rounds, plus outcome counts. */
+    @GetMapping("/batches/{batchId}/summary")
+    @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
+    public ResponseEntity<?> batchFinalSummary(@PathVariable String batchId) {
+        List<ScreeningCandidate> candidates = pipelineService.round1Results(batchId);
+
+        List<Map<String, Object>> rows = candidates.stream().map(c -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", c.getId());
+            m.put("name", c.getName());
+            m.put("email", c.getEmail());
+            m.put("stage", c.getStage().name());
+            m.put("finalStatus", finalStatus(c));
+            m.put("round1Score", c.getRound1Score());
+            m.put("round2Marks", c.getRound2Marks());
+            m.put("round3Total", c.getRound3Total());
+            m.put("totalMarks", totalMarks(c));
+            return m;
+        }).collect(Collectors.toList());
+
+        Map<String, Long> counts = new LinkedHashMap<>();
+        counts.put("total", (long) candidates.size());
+        counts.put("selected", candidates.stream().filter(c -> "Selected".equals(finalStatus(c))).count());
+        counts.put("rejected", candidates.stream().filter(c -> "Rejected".equals(finalStatus(c))).count());
+        counts.put("hold", candidates.stream().filter(c -> "Hold".equals(finalStatus(c))).count());
+        counts.put("inProgress", candidates.stream().filter(c -> "In Progress".equals(finalStatus(c))).count());
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("counts", counts);
+        response.put("candidates", rows);
+        return ResponseEntity.ok(response);
+    }
+
+    private String finalStatus(ScreeningCandidate c) {
+        return switch (c.getStage()) {
+            case CONVERTED -> "Selected";
+            case ROUND1_FAILED, ROUND2_REJECTED, ROUND3_REJECTED -> "Rejected";
+            case ROUND2_HOLD, ROUND3_HOLD -> "Hold";
+            default -> "In Progress";
+        };
+    }
+
+    private Double totalMarks(ScreeningCandidate c) {
+        if (c.getRound1Score() == null) return null;
+        double total = c.getRound1Score();
+        if (c.getRound2Marks() != null) total += c.getRound2Marks();
+        if (c.getRound3Total() != null) total += c.getRound3Total();
+        return total;
+    }
+
     @GetMapping("/candidates/{candidateId}/answers")
     @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
     public ResponseEntity<?> candidateAnswers(@PathVariable String candidateId) {
@@ -153,7 +204,7 @@ public class ScreeningAdminController {
 
     @PostMapping("/candidates/{candidateId}/round2/feedback")
     @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
-    public ResponseEntity<?> round2Feedback(@PathVariable String candidateId, @Valid @RequestBody RoundFeedbackRequest req,
+    public ResponseEntity<?> round2Feedback(@PathVariable String candidateId, @Valid @RequestBody Round2FeedbackRequest req,
                                             @RequestHeader("X-User-Id") String userId) {
         return handle(() -> candidateSummary(pipelineService.submitRound2Feedback(candidateId, req, userId)));
     }
@@ -173,7 +224,7 @@ public class ScreeningAdminController {
 
     @PostMapping("/candidates/{candidateId}/round3/feedback")
     @PreAuthorize("hasAnyRole('" + MANAGER_ROLES + "')")
-    public ResponseEntity<?> round3Feedback(@PathVariable String candidateId, @Valid @RequestBody RoundFeedbackRequest req,
+    public ResponseEntity<?> round3Feedback(@PathVariable String candidateId, @Valid @RequestBody Round3FeedbackRequest req,
                                             @RequestHeader("X-User-Id") String userId,
                                             @RequestHeader("X-User-Role") String userRole) {
         try {
@@ -223,7 +274,16 @@ public class ScreeningAdminController {
         m.put("experience", c.getExperience());
         m.put("round1Score", c.getRound1Score());
         m.put("allowLateSubmission", c.isAllowLateSubmission());
+        m.put("round2Marks", c.getRound2Marks());
         m.put("round2Result", c.getRound2Result() != null ? c.getRound2Result().name() : null);
+        m.put("round3Communication", c.getRound3Communication());
+        m.put("round3ProblemSolving", c.getRound3ProblemSolving());
+        m.put("round3AttitudeCoachability", c.getRound3AttitudeCoachability());
+        m.put("round3LearningAgility", c.getRound3LearningAgility());
+        m.put("round3Teamwork", c.getRound3Teamwork());
+        m.put("round3BodyLanguage", c.getRound3BodyLanguage());
+        m.put("round3ConcludingComments", c.getRound3ConcludingComments());
+        m.put("round3Total", c.getRound3Total());
         m.put("round3Result", c.getRound3Result() != null ? c.getRound3Result().name() : null);
         m.put("convertedUserId", c.getConvertedUserId());
         return m;

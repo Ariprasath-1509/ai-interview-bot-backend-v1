@@ -1,7 +1,8 @@
 package com.benchreadiness.screening.service;
 
 import com.benchreadiness.screening.client.AuthServiceClient;
-import com.benchreadiness.screening.dto.RoundFeedbackRequest;
+import com.benchreadiness.screening.dto.Round2FeedbackRequest;
+import com.benchreadiness.screening.dto.Round3FeedbackRequest;
 import com.benchreadiness.screening.entity.ScreeningAnswer;
 import com.benchreadiness.screening.entity.ScreeningCandidate;
 import com.benchreadiness.screening.entity.enums.CandidateStage;
@@ -78,7 +79,7 @@ public class PipelineService {
     }
 
     @Transactional
-    public ScreeningCandidate submitRound2Feedback(String candidateId, RoundFeedbackRequest req, String recordedByUserId) {
+    public ScreeningCandidate submitRound2Feedback(String candidateId, Round2FeedbackRequest req, String recordedByUserId) {
         ScreeningCandidate candidate = getOrThrow(candidateId);
         if (candidate.getStage() != CandidateStage.ROUND2_IN_PROGRESS) {
             throw new IllegalStateException("Round 2 has not been started for this candidate");
@@ -87,6 +88,7 @@ public class PipelineService {
         candidate.setRound2Weaknesses(req.getWeaknesses());
         candidate.setRound2Practical(req.getPractical());
         candidate.setRound2Improvements(req.getImprovements());
+        candidate.setRound2Marks(req.getMarks());
         candidate.setRound2Result(req.getResult());
         candidate.setRound2RecordedBy(recordedByUserId);
         candidate.setRound2RecordedAt(Instant.now());
@@ -116,22 +118,25 @@ public class PipelineService {
     }
 
     @Transactional
-    public ScreeningCandidate submitRound3Feedback(String candidateId, RoundFeedbackRequest req,
+    public ScreeningCandidate submitRound3Feedback(String candidateId, Round3FeedbackRequest req,
                                                    String recordedByUserId, String recordedByRole) throws Exception {
         ScreeningCandidate candidate = getOrThrow(candidateId);
         if (candidate.getStage() != CandidateStage.ROUND3_IN_PROGRESS) {
             throw new IllegalStateException("Round 3 has not been started for this candidate");
         }
-        candidate.setRound3Strengths(req.getStrengths());
-        candidate.setRound3Weaknesses(req.getWeaknesses());
-        candidate.setRound3Practical(req.getPractical());
-        candidate.setRound3Improvements(req.getImprovements());
+        candidate.setRound3Communication(req.getCommunication());
+        candidate.setRound3ProblemSolving(req.getProblemSolving());
+        candidate.setRound3AttitudeCoachability(req.getAttitudeCoachability());
+        candidate.setRound3LearningAgility(req.getLearningAgility());
+        candidate.setRound3Teamwork(req.getTeamwork());
+        candidate.setRound3BodyLanguage(req.getBodyLanguage());
+        candidate.setRound3ConcludingComments(req.getConcludingComments());
         candidate.setRound3Result(req.getResult());
         candidate.setRound3RecordedBy(recordedByUserId);
         candidate.setRound3RecordedAt(Instant.now());
 
         if (req.getResult() == RoundDecision.SELECTED) {
-            RoundFeedbackRequest.ConversionDetails details = req.getConversionDetails();
+            Round3FeedbackRequest.ConversionDetails details = req.getConversionDetails();
             boolean hasContactNumber = candidate.getContactNumber() != null || (details != null && isNotBlank(details.getContactNumber()));
             boolean hasSource = candidate.getInstitute() != null || (details != null && isNotBlank(details.getSource()));
             boolean hasBatchAndSkill = details != null && isNotBlank(details.getBatchLabel()) && isNotBlank(details.getSkillSet());
@@ -150,7 +155,7 @@ public class PipelineService {
     }
 
     @SuppressWarnings("unchecked")
-    private String convertToPermanentCandidate(ScreeningCandidate candidate, RoundFeedbackRequest.ConversionDetails details,
+    private String convertToPermanentCandidate(ScreeningCandidate candidate, Round3FeedbackRequest.ConversionDetails details,
                                                String callerId, String callerRole) {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("name", candidate.getName());

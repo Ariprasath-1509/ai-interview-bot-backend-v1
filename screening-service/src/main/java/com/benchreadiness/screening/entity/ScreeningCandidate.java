@@ -81,6 +81,10 @@ public class ScreeningCandidate {
     @Column(name = "round2_improvements", columnDefinition = "text")
     private String round2Improvements;
 
+    /** Recruiter-entered total for the live technical round, out of 35. */
+    @Column(name = "round2_marks")
+    private Double round2Marks;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "round2_result", length = 32)
     private RoundDecision round2Result;
@@ -94,17 +98,27 @@ public class ScreeningCandidate {
     @Column(name = "round3_started_at")
     private Instant round3StartedAt;
 
-    @Column(name = "round3_strengths", columnDefinition = "text")
-    private String round3Strengths;
+    // Managerial rubric — 6 categories, 5 marks each, /30 total (computed, not stored).
+    @Column(name = "round3_communication")
+    private Integer round3Communication;
 
-    @Column(name = "round3_weaknesses", columnDefinition = "text")
-    private String round3Weaknesses;
+    @Column(name = "round3_problem_solving")
+    private Integer round3ProblemSolving;
 
-    @Column(name = "round3_practical", columnDefinition = "text")
-    private String round3Practical;
+    @Column(name = "round3_attitude_coachability")
+    private Integer round3AttitudeCoachability;
 
-    @Column(name = "round3_improvements", columnDefinition = "text")
-    private String round3Improvements;
+    @Column(name = "round3_learning_agility")
+    private Integer round3LearningAgility;
+
+    @Column(name = "round3_teamwork")
+    private Integer round3Teamwork;
+
+    @Column(name = "round3_body_language")
+    private Integer round3BodyLanguage;
+
+    @Column(name = "round3_concluding_comments", columnDefinition = "text")
+    private String round3ConcludingComments;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "round3_result", length = 32)
@@ -164,6 +178,8 @@ public class ScreeningCandidate {
     public void setRound2Practical(String round2Practical) { this.round2Practical = round2Practical; }
     public String getRound2Improvements() { return round2Improvements; }
     public void setRound2Improvements(String round2Improvements) { this.round2Improvements = round2Improvements; }
+    public Double getRound2Marks() { return round2Marks; }
+    public void setRound2Marks(Double round2Marks) { this.round2Marks = round2Marks; }
     public RoundDecision getRound2Result() { return round2Result; }
     public void setRound2Result(RoundDecision round2Result) { this.round2Result = round2Result; }
     public String getRound2RecordedBy() { return round2RecordedBy; }
@@ -172,14 +188,33 @@ public class ScreeningCandidate {
     public void setRound2RecordedAt(Instant round2RecordedAt) { this.round2RecordedAt = round2RecordedAt; }
     public Instant getRound3StartedAt() { return round3StartedAt; }
     public void setRound3StartedAt(Instant round3StartedAt) { this.round3StartedAt = round3StartedAt; }
-    public String getRound3Strengths() { return round3Strengths; }
-    public void setRound3Strengths(String round3Strengths) { this.round3Strengths = round3Strengths; }
-    public String getRound3Weaknesses() { return round3Weaknesses; }
-    public void setRound3Weaknesses(String round3Weaknesses) { this.round3Weaknesses = round3Weaknesses; }
-    public String getRound3Practical() { return round3Practical; }
-    public void setRound3Practical(String round3Practical) { this.round3Practical = round3Practical; }
-    public String getRound3Improvements() { return round3Improvements; }
-    public void setRound3Improvements(String round3Improvements) { this.round3Improvements = round3Improvements; }
+    public Integer getRound3Communication() { return round3Communication; }
+    public void setRound3Communication(Integer round3Communication) { this.round3Communication = round3Communication; }
+    public Integer getRound3ProblemSolving() { return round3ProblemSolving; }
+    public void setRound3ProblemSolving(Integer round3ProblemSolving) { this.round3ProblemSolving = round3ProblemSolving; }
+    public Integer getRound3AttitudeCoachability() { return round3AttitudeCoachability; }
+    public void setRound3AttitudeCoachability(Integer round3AttitudeCoachability) { this.round3AttitudeCoachability = round3AttitudeCoachability; }
+    public Integer getRound3LearningAgility() { return round3LearningAgility; }
+    public void setRound3LearningAgility(Integer round3LearningAgility) { this.round3LearningAgility = round3LearningAgility; }
+    public Integer getRound3Teamwork() { return round3Teamwork; }
+    public void setRound3Teamwork(Integer round3Teamwork) { this.round3Teamwork = round3Teamwork; }
+    public Integer getRound3BodyLanguage() { return round3BodyLanguage; }
+    public void setRound3BodyLanguage(Integer round3BodyLanguage) { this.round3BodyLanguage = round3BodyLanguage; }
+    public String getRound3ConcludingComments() { return round3ConcludingComments; }
+    public void setRound3ConcludingComments(String round3ConcludingComments) { this.round3ConcludingComments = round3ConcludingComments; }
+
+    /** Sum of the 6 managerial-rubric categories, out of 30 — null until all 6 are recorded. */
+    public Double getRound3Total() {
+        Integer[] scores = { round3Communication, round3ProblemSolving, round3AttitudeCoachability,
+                round3LearningAgility, round3Teamwork, round3BodyLanguage };
+        int sum = 0;
+        for (Integer s : scores) {
+            if (s == null) return null;
+            sum += s;
+        }
+        return (double) sum;
+    }
+
     public RoundDecision getRound3Result() { return round3Result; }
     public void setRound3Result(RoundDecision round3Result) { this.round3Result = round3Result; }
     public String getRound3RecordedBy() { return round3RecordedBy; }
