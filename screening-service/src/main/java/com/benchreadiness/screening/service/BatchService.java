@@ -129,13 +129,22 @@ public class BatchService {
         candidateRepository.delete(candidate);
     }
 
+    // Stages representing real downstream work (Round 2/3 evaluation, or a completed hire) — worth
+    // protecting from accidental deletion. Round-1-only progress (pending/in-progress/submitted/
+    // passed/failed) is exactly the transient written-test data this feature already treats as
+    // disposable, so a batch stuck there (e.g. reported and done) is always safe to delete.
+    private static final List<CandidateStage> PROTECTED_STAGES = List.of(
+            CandidateStage.ROUND2_IN_PROGRESS, CandidateStage.ROUND2_SELECTED,
+            CandidateStage.ROUND2_HOLD, CandidateStage.ROUND2_REJECTED,
+            CandidateStage.ROUND3_IN_PROGRESS, CandidateStage.ROUND3_HOLD,
+            CandidateStage.ROUND3_REJECTED, CandidateStage.CONVERTED);
+
     @Transactional
     public void deleteBatch(String batchId) {
         ScreeningBatch batch = getBatchOrThrow(batchId);
-        long total = candidateRepository.countByBatchId(batchId);
-        long notStarted = candidateRepository.countByBatchIdAndStageIn(batchId, List.of(CandidateStage.ROUND1_PENDING));
-        if (total != notStarted) {
-            throw new IllegalStateException("Cannot delete a batch once a candidate has started Round 1");
+        long protectedCount = candidateRepository.countByBatchIdAndStageIn(batchId, PROTECTED_STAGES);
+        if (protectedCount > 0) {
+            throw new IllegalStateException("Cannot delete a batch with candidates who have progressed to Round 2/3 or been onboarded");
         }
         // screening_questions/screening_candidates/screening_answers cascade at the DB level (ON DELETE CASCADE).
         batchRepository.delete(batch);
