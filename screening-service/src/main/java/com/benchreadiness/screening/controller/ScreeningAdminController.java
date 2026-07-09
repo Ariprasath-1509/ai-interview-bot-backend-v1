@@ -176,6 +176,18 @@ public class ScreeningAdminController {
         return ResponseEntity.ok(Map.of("answers", answers));
     }
 
+    /** Lets a recruiter correct a score when the AI grading was wrong. */
+    @PatchMapping("/answers/{answerId}")
+    @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
+    public ResponseEntity<?> correctAnswerScore(@PathVariable String answerId, @RequestBody Map<String, Object> body) {
+        return handle(() -> {
+            if (!(body.get("score") instanceof Number scoreNum)) {
+                throw new IllegalArgumentException("A numeric score is required");
+            }
+            return answerDetail(pipelineService.correctAnswerScore(answerId, scoreNum.doubleValue()));
+        });
+    }
+
     @PostMapping("/candidates/{candidateId}/round1-decision")
     @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
     public ResponseEntity<?> round1Decision(@PathVariable String candidateId, @RequestBody Map<String, Boolean> body) {
@@ -291,6 +303,7 @@ public class ScreeningAdminController {
 
     private Map<String, Object> answerDetail(ScreeningAnswer a) {
         Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", a.getId());
         m.put("questionId", a.getQuestion().getId());
         m.put("questionType", a.getQuestion().getQuestionType().name());
         m.put("prompt", a.getQuestion().getPrompt());

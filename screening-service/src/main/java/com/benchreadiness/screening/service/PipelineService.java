@@ -41,6 +41,27 @@ public class PipelineService {
         return answerRepository.findByCandidateIdOrderByQuestionDisplayIndexAsc(candidateId);
     }
 
+    /** Lets a recruiter override an AI-graded score when the grading was wrong; keeps round1Score in sync. */
+    @Transactional
+    public ScreeningAnswer correctAnswerScore(String answerId, double newScore) {
+        ScreeningAnswer answer = answerRepository.findById(answerId)
+                .orElseThrow(() -> new NoSuchElementException("Answer not found"));
+        int maxMarks = answer.getQuestion().getMarks();
+        if (newScore < 0 || newScore > maxMarks) {
+            throw new IllegalArgumentException("Score must be between 0 and " + maxMarks);
+        }
+        double delta = newScore - (answer.getScore() != null ? answer.getScore() : 0);
+        answer.setScore(newScore);
+        answerRepository.save(answer);
+
+        ScreeningCandidate candidate = answer.getCandidate();
+        if (candidate.getRound1Score() != null) {
+            candidate.setRound1Score(candidate.getRound1Score() + delta);
+            candidateRepository.save(candidate);
+        }
+        return answer;
+    }
+
     @Transactional
     public ScreeningCandidate markRound1(String candidateId, boolean passed) {
         ScreeningCandidate candidate = getOrThrow(candidateId);
