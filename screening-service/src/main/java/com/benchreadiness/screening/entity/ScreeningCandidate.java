@@ -70,9 +70,13 @@ public class ScreeningCandidate {
     @Column(name = "tab_switch_count", nullable = false)
     private int tabSwitchCount = 0;
 
-    /** True once tabSwitchCount hit the 2-strike threshold and the test was auto-submitted. */
+    /** True once tabSwitchCount hit the 2-strike threshold and the test paused for a proctoring violation. */
     @Column(name = "proctoring_violation", nullable = false)
     private boolean proctoringViolation = false;
+
+    /** Set alongside proctoringViolation — blocks the candidate's link until staff explicitly permits them to continue. */
+    @Column(name = "violation_locked", nullable = false)
+    private boolean violationLocked = false;
 
     @Column(name = "round2_started_at")
     private Instant round2StartedAt;
@@ -180,6 +184,8 @@ public class ScreeningCandidate {
     public void setTabSwitchCount(int tabSwitchCount) { this.tabSwitchCount = tabSwitchCount; }
     public boolean isProctoringViolation() { return proctoringViolation; }
     public void setProctoringViolation(boolean proctoringViolation) { this.proctoringViolation = proctoringViolation; }
+    public boolean isViolationLocked() { return violationLocked; }
+    public void setViolationLocked(boolean violationLocked) { this.violationLocked = violationLocked; }
     public Instant getRound2StartedAt() { return round2StartedAt; }
     public void setRound2StartedAt(Instant round2StartedAt) { this.round2StartedAt = round2StartedAt; }
     public String getRound2Strengths() { return round2Strengths; }

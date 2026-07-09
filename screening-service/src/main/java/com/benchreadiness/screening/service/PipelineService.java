@@ -82,6 +82,17 @@ public class PipelineService {
         return candidateRepository.save(candidate);
     }
 
+    /** Staff-only override — lets a candidate whose test paused on a proctoring violation resume on the same link. */
+    @Transactional
+    public ScreeningCandidate setViolationLocked(String candidateId, boolean locked) {
+        ScreeningCandidate candidate = getOrThrow(candidateId);
+        if (candidate.getStage() != CandidateStage.ROUND1_PENDING && candidate.getStage() != CandidateStage.ROUND1_IN_PROGRESS) {
+            throw new IllegalStateException("Candidate has already submitted Round 1");
+        }
+        candidate.setViolationLocked(locked);
+        return candidateRepository.save(candidate);
+    }
+
     public List<ScreeningCandidate> round2Queue() {
         List<ScreeningCandidate> queue = new java.util.ArrayList<>(candidateRepository.findByStage(CandidateStage.ROUND1_PASSED));
         queue.addAll(candidateRepository.findByStage(CandidateStage.ROUND2_IN_PROGRESS));

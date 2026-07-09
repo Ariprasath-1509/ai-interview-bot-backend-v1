@@ -1,5 +1,6 @@
 package com.benchreadiness.screening.controller;
 
+import com.benchreadiness.screening.dto.CreateBatchFromDocumentRequest;
 import com.benchreadiness.screening.dto.CreateBatchRequest;
 import com.benchreadiness.screening.dto.Round2FeedbackRequest;
 import com.benchreadiness.screening.dto.Round3FeedbackRequest;
@@ -10,6 +11,7 @@ import com.benchreadiness.screening.entity.ScreeningCandidate;
 import com.benchreadiness.screening.mail.ScreeningMailService;
 import com.benchreadiness.screening.repository.ScreeningBatchRepository;
 import com.benchreadiness.screening.service.BatchService;
+import com.benchreadiness.screening.service.DocumentTextExtractionService;
 import com.benchreadiness.screening.service.PipelineService;
 import com.benchreadiness.screening.service.QuestionGenerationService;
 import jakarta.validation.Valid;
@@ -18,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,13 +42,16 @@ public class ScreeningAdminController {
     private final PipelineService pipelineService;
     private final ScreeningBatchRepository batchRepository;
     private final ScreeningMailService mailService;
+    private final DocumentTextExtractionService documentTextExtractionService;
 
     public ScreeningAdminController(BatchService batchService, PipelineService pipelineService,
-                                    ScreeningBatchRepository batchRepository, ScreeningMailService mailService) {
+                                    ScreeningBatchRepository batchRepository, ScreeningMailService mailService,
+                                    DocumentTextExtractionService documentTextExtractionService) {
         this.batchService = batchService;
         this.pipelineService = pipelineService;
         this.batchRepository = batchRepository;
         this.mailService = mailService;
+        this.documentTextExtractionService = documentTextExtractionService;
     }
 
     @GetMapping("/languages")
@@ -66,6 +72,37 @@ public class ScreeningAdminController {
             return ResponseEntity.ok(Map.of("ok", true, "batchId", batch.getId()));
         } catch (Exception e) {
             log.error("Failed to create screening batch", e);
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Failed to create batch: " + e.getMessage()));
+        }
+    }
+
+    /** Extracts plain text from an uploaded .docx (JD or question paper) for the recruiter to review before generating questions. */
+    @PostMapping(value = "/extract-document-text", consumes = "multipart/form-data")
+    @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
+    public ResponseEntity<?> extractDocumentText(@RequestParam("file") MultipartFile file) {
+        try {
+            String text = documentTextExtractionService.extractText(file);
+            return ResponseEntity.ok(Map.of("ok", true, "text", text));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Failed to extract text from uploaded document", e);
+            return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Failed to read this document"));
+        }
+    }
+
+    @PostMapping("/batches/from-document")
+    @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
+    public ResponseEntity<?> createBatchFromDocument(@Valid @RequestBody CreateBatchFromDocumentRequest req,
+                                                     @RequestHeader("X-User-Id") String userId,
+                                                     @RequestHeader(value = "X-User-Email", required = false) String userEmail,
+                                                     @RequestHeader(value = "X-User-Name", required = false) String userName) {
+        try {
+            ScreeningBatch batch = batchService.createBatchFromDocument(req, userId,
+                    userEmail != null ? userEmail : "", userName);
+            return ResponseEntity.ok(Map.of("ok", true, "batchId", batch.getId()));
+        } catch (Exception e) {
+            log.error("Failed to create screening batch from document", e);
             return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Failed to create batch: " + e.getMessage()));
         }
     }
@@ -91,6 +128,17 @@ public class ScreeningAdminController {
         return handle(() -> candidateSummary(batchService.addCandidate(batchId, req)));
     }
 
+    /** For a candidate who missed Round 1 (e.g. showed up late) — skips straight to the Round 2 queue. */
+    @PostMapping("/candidates/direct-to-round2")
+    @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
+    public ResponseEntity<?> addDirectToRound2(@Valid @RequestBody CreateBatchRequest.CandidateEntry req,
+                                               @RequestHeader("X-User-Id") String userId,
+                                               @RequestHeader(value = "X-User-Email", required = false) String userEmail,
+                                               @RequestHeader(value = "X-User-Name", required = false) String userName) {
+        return handle(() -> candidateSummary(
+                batchService.addDirectToRound2(req, userId, userEmail != null ? userEmail : "", userName)));
+    }
+
     @DeleteMapping("/candidates/{candidateId}")
     @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
     public ResponseEntity<?> removeCandidate(@PathVariable String candidateId) {
@@ -104,6 +152,7 @@ public class ScreeningAdminController {
     @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
     public ResponseEntity<?> listBatches() {
         List<Map<String, Object>> batches = batchRepository.findAll().stream()
+                .filter(b -> !BatchService.DIRECT_ENTRY_LANGUAGE.equals(b.getLanguage()))
                 .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
                 .map(this::batchSummary)
                 .collect(Collectors.toList());
@@ -201,6 +250,15 @@ public class ScreeningAdminController {
         return handle(() -> candidateSummary(pipelineService.setAllowLateSubmission(candidateId, !Boolean.FALSE.equals(body.get("allow")))));
     }
 
+    /** Lets staff permit a candidate whose test paused on a proctoring violation to resume on the same link.
+     *  body.allow=true (default) grants permission (unlocks); allow=false re-locks it. */
+    @PostMapping("/candidates/{candidateId}/allow-continue-after-violation")
+    @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
+    public ResponseEntity<?> allowContinueAfterViolation(@PathVariable String candidateId, @RequestBody Map<String, Boolean> body) {
+        boolean allow = !Boolean.FALSE.equals(body.get("allow"));
+        return handle(() -> candidateSummary(pipelineService.setViolationLocked(candidateId, !allow)));
+    }
+
     @GetMapping("/round2/queue")
     @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
     public ResponseEntity<?> round2Queue() {
@@ -288,6 +346,7 @@ public class ScreeningAdminController {
         m.put("allowLateSubmission", c.isAllowLateSubmission());
         m.put("tabSwitchCount", c.getTabSwitchCount());
         m.put("proctoringViolation", c.isProctoringViolation());
+        m.put("violationLocked", c.isViolationLocked());
         m.put("round2Strengths", c.getRound2Strengths());
         m.put("round2Weaknesses", c.getRound2Weaknesses());
         m.put("round2Practical", c.getRound2Practical());

@@ -1,5 +1,6 @@
 package com.benchreadiness.screening.service;
 
+import com.benchreadiness.screening.dto.CreateBatchFromDocumentRequest;
 import com.benchreadiness.screening.dto.CreateBatchRequest;
 import com.benchreadiness.screening.entity.ScreeningBatch;
 import com.benchreadiness.screening.entity.ScreeningCandidate;
@@ -57,8 +58,40 @@ public class BatchService {
         List<ScreeningQuestion> questions = questionGenerationService.generate(batch);
         questionRepository.saveAll(questions);
 
+        createCandidatesAndInvite(batch, req.getCandidates());
+        return batch;
+    }
+
+    /**
+     * Generates the question set from a JD or an existing question paper instead of the fixed language
+     * preset — same batch/candidate creation as {@link #createBatch}, different question-generation call.
+     */
+    @Transactional
+    public ScreeningBatch createBatchFromDocument(CreateBatchFromDocumentRequest req,
+                                                  String assignerUserId, String assignerEmail, String assignerName) throws Exception {
+        ScreeningBatch batch = new ScreeningBatch();
+        batch.setLanguage(req.getLanguage());
+        batch.setConceptScope(req.getMode() == CreateBatchFromDocumentRequest.Mode.JD
+                ? "Generated from an uploaded job description"
+                : "Imported from an existing question paper");
+        batch.setDeadline(req.getDeadline());
+        batch.setAssignerUserId(assignerUserId);
+        batch.setAssignerEmail(assignerEmail);
+        batch.setAssignerName(assignerName);
+        batch = batchRepository.save(batch);
+
+        List<ScreeningQuestion> questions = req.getMode() == CreateBatchFromDocumentRequest.Mode.JD
+                ? questionGenerationService.generateFromJd(batch, req.getDocumentText())
+                : questionGenerationService.generateFromQuestionPaper(batch, req.getDocumentText());
+        questionRepository.saveAll(questions);
+
+        createCandidatesAndInvite(batch, req.getCandidates());
+        return batch;
+    }
+
+    private List<ScreeningCandidate> createCandidatesAndInvite(ScreeningBatch batch, List<CreateBatchRequest.CandidateEntry> entries) {
         List<ScreeningCandidate> candidates = new ArrayList<>();
-        for (CreateBatchRequest.CandidateEntry entry : req.getCandidates()) {
+        for (CreateBatchRequest.CandidateEntry entry : entries) {
             ScreeningCandidate candidate = new ScreeningCandidate();
             candidate.setBatch(batch);
             candidate.setName(entry.getName());
@@ -73,11 +106,45 @@ public class BatchService {
             candidate.setStage(CandidateStage.ROUND1_PENDING);
             candidates.add(candidateRepository.save(candidate));
         }
+        candidates.forEach(c -> mailService.sendCandidateInvite(c, batch));
+        return candidates;
+    }
 
-        ScreeningBatch savedBatch = batch;
-        candidates.forEach(c -> mailService.sendCandidateInvite(c, savedBatch));
+    /** Marks a placeholder batch created only to hang a direct-to-Round-2 candidate off of — excluded from the main batches list. */
+    public static final String DIRECT_ENTRY_LANGUAGE = "Direct Entry (Round 2)";
 
-        return batch;
+    /**
+     * A candidate who missed/skipped Round 1 (e.g. showed up late) — added straight into the Round 2
+     * queue with no written test. Needs a batch row to hang off of (batch_id is required), so this
+     * creates a minimal placeholder batch pre-marked REPORTED so the Round 1 scheduled jobs
+     * (ReportingService/PurgeService) never touch it or email the assigner about a "written round"
+     * that never happened.
+     */
+    @Transactional
+    public ScreeningCandidate addDirectToRound2(CreateBatchRequest.CandidateEntry entry,
+                                                String assignerUserId, String assignerEmail, String assignerName) {
+        ScreeningBatch batch = new ScreeningBatch();
+        batch.setLanguage(DIRECT_ENTRY_LANGUAGE);
+        batch.setDeadline(Instant.now());
+        batch.setAssignerUserId(assignerUserId);
+        batch.setAssignerEmail(assignerEmail);
+        batch.setAssignerName(assignerName);
+        batch.setStatus(BatchStatus.REPORTED);
+        batch = batchRepository.save(batch);
+
+        ScreeningCandidate candidate = new ScreeningCandidate();
+        candidate.setBatch(batch);
+        candidate.setName(entry.getName());
+        candidate.setEmail(entry.getEmail());
+        candidate.setContactNumber(entry.getContactNumber());
+        candidate.setInstitute(entry.getInstitute());
+        candidate.setBranch(entry.getBranch());
+        candidate.setYop(entry.getYop());
+        candidate.setExperience(entry.getExperience());
+        candidate.setToken(generateToken());
+        candidate.setShuffleSeed(ThreadLocalRandom.current().nextLong());
+        candidate.setStage(CandidateStage.ROUND1_PASSED);
+        return candidateRepository.save(candidate);
     }
 
     private String generateToken() {
@@ -119,12 +186,18 @@ public class BatchService {
         return candidate;
     }
 
+    // Safe to hard-delete from here: not yet started (Round 1), or sitting in the Round 2 queue with
+    // no recorded decision yet. Once a Round 2 decision (Selected/Hold/Rejected) or anything in Round 3
+    // is recorded, that's real historical data — removal from there isn't offered here.
+    private static final List<CandidateStage> REMOVABLE_STAGES = List.of(
+            CandidateStage.ROUND1_PENDING, CandidateStage.ROUND1_PASSED, CandidateStage.ROUND2_IN_PROGRESS);
+
     @Transactional
     public void removeCandidate(String candidateId) {
         ScreeningCandidate candidate = candidateRepository.findById(candidateId)
                 .orElseThrow(() -> new NoSuchElementException("Candidate not found"));
-        if (candidate.getStage() != CandidateStage.ROUND1_PENDING) {
-            throw new IllegalStateException("Cannot remove a candidate who has already started Round 1");
+        if (!REMOVABLE_STAGES.contains(candidate.getStage())) {
+            throw new IllegalStateException("Cannot remove a candidate who already has a recorded Round 2/3 decision");
         }
         candidateRepository.delete(candidate);
     }

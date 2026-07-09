@@ -7,6 +7,10 @@ logstash:
 spring:
   application:
     name: screening-service
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
   # Optional .env at repo root (see .env.example). Override with ENV_FILE=/path/to/.env
   config:
     import:

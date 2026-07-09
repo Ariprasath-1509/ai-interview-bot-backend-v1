@@ -120,25 +120,68 @@ public class QuestionGenerationService {
                 " screening test. Output strictly valid JSON only, no markdown, no commentary, matching exactly the " +
                 "schema described by the user. Keep every question strictly within the given concept scope — do not " +
                 "test anything outside it.";
-        String userPrompt = """
-                Concept scope: %s
-
-                Generate a JSON object with exactly this shape:
-                {
-                  "mcq": [ { "prompt": string, "options": [string,string,string,string], "correctAnswer": string } ] (exactly 10 items),
-                  "snippets": [ { "prompt": string, "referenceAnswer": string } ] (exactly 10 items),
-                  "logical": [ { "prompt": string, "referenceAnswer": string } ] (exactly 4 items)
-                }
-
-                Rules:
-                - "mcq": each prompt is a short conceptual question with exactly 4 options; correctAnswer must be the exact text of one of the options.
-                - "snippets": each prompt must embed a short code snippet (3-15 lines) plus a question about it (e.g. "what does this print", "what is wrong with this code and why"). referenceAnswer is the correct explanation/output, used only for grading — never shown to the candidate.
-                - "logical": each prompt is an easy logical/algorithmic problem statement (e.g. reverse a string, check palindrome, find max in array) asking the candidate to write pseudocode or code (no code editor is provided — plain text). referenceAnswer is a brief correct approach/solution outline used only for grading.
-                - All content must fit the stated concept scope exactly, at an easy/entry-level difficulty.
-                - Return ONLY the JSON object, nothing else.
-                """.formatted(scope);
+        String userPrompt = "Concept scope: " + scope +
+                "\n\nAll content must fit the stated concept scope exactly, at an easy/entry-level difficulty.\n\n" +
+                SCHEMA_INSTRUCTIONS;
 
         String raw = llmClient.generateQuestions(systemPrompt, userPrompt);
+        return parseQuestionsJson(batch, raw);
+    }
+
+    private static final String SCHEMA_INSTRUCTIONS = """
+            Generate a JSON object with exactly this shape:
+            {
+              "mcq": [ { "prompt": string, "options": [string,string,string,string], "correctAnswer": string } ] (exactly 10 items),
+              "snippets": [ { "prompt": string, "referenceAnswer": string } ] (exactly 10 items),
+              "logical": [ { "prompt": string, "referenceAnswer": string } ] (exactly 4 items)
+            }
+
+            Rules:
+            - "mcq": each prompt is a short conceptual question with exactly 4 options; correctAnswer must be the exact text of one of the options.
+            - "snippets": each prompt must embed a short code snippet (3-15 lines) plus a question about it (e.g. "what does this print", "what is wrong with this code and why"). referenceAnswer is the correct explanation/output, used only for grading — never shown to the candidate.
+            - "logical": each prompt is an easy logical/algorithmic problem statement asking the candidate to write pseudocode or code (no code editor is provided — plain text). referenceAnswer is a brief correct approach/solution outline used only for grading.
+            - Return ONLY the JSON object, nothing else.
+            """;
+
+    /** Generates a fresh question set scoped to a job description instead of the fixed language preset. */
+    public List<ScreeningQuestion> generateFromJd(ScreeningBatch batch, String jdText) throws Exception {
+        String systemPrompt = "You are a technical assessment author. Given a job description, first identify the " +
+                "CORE/FOUNDATIONAL skills it calls for — suitable for an entry-level written screening test, not " +
+                "senior-level or 'good-to-have' extras — then author a question set testing only those foundations. " +
+                "Output strictly valid JSON only, no markdown, no commentary.";
+        String userPrompt = "Job description:\n" + jdText + "\n\n" +
+                "Scope every question to the core/must-have technical skills in this JD, at a basics/fundamentals " +
+                "level only — skip advanced, senior, or 'good-to-have' items. " + SCHEMA_INSTRUCTIONS;
+
+        String raw = llmClient.generateQuestions(systemPrompt, userPrompt);
+        return parseQuestionsJson(batch, raw);
+    }
+
+    /**
+     * Extracts an already-authored question paper verbatim instead of inventing new questions — the source
+     * document typically has no answer key, so the model also has to work out the correct/reference answer
+     * for each question it extracts. Needs a larger token budget than fresh generation since the source
+     * document's own wording (including code snippets) has to be echoed back in full.
+     */
+    public List<ScreeningQuestion> generateFromQuestionPaper(ScreeningBatch batch, String paperText) throws Exception {
+        String systemPrompt = "You transcribe an existing question paper into a structured format — you do NOT " +
+                "invent new questions. Preserve each question's original wording (and any code snippets/options) " +
+                "verbatim. The source document has no answer key, so for each question you also work out the " +
+                "correct answer (MCQs) or a reference/expected answer (everything else) yourself, for grading " +
+                "purposes only — never shown to the candidate. Output strictly valid JSON only, no markdown, no commentary.";
+        String userPrompt = "Question paper:\n" + paperText + "\n\n" +
+                "Map the paper's multiple-choice questions to \"mcq\", its output-based/short-answer questions to " +
+                "\"snippets\", and its logical/programming questions (where the candidate writes code, typically " +
+                "\"answer any N of M\") to \"logical\". Ignore any instructions section, marks/duration notes, and " +
+                "any \"why should we hire you\" style question — those are handled separately. If the paper has " +
+                "more or fewer than 10 MCQs / 10 output-based / 4 logical questions, include exactly what's there " +
+                "(don't pad or invent extras to hit a count). " + SCHEMA_INSTRUCTIONS;
+
+        String raw = llmClient.generateQuestions(systemPrompt, userPrompt, 8000);
+        return parseQuestionsJson(batch, raw);
+    }
+
+    private List<ScreeningQuestion> parseQuestionsJson(ScreeningBatch batch, String raw) throws Exception {
         JsonNode root = objectMapper.readTree(raw);
 
         List<ScreeningQuestion> questions = new ArrayList<>();

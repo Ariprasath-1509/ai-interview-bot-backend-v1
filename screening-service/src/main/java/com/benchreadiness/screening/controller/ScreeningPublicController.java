@@ -1,5 +1,6 @@
 package com.benchreadiness.screening.controller;
 
+import com.benchreadiness.screening.dto.LockTestRequest;
 import com.benchreadiness.screening.dto.SubmitAnswersRequest;
 import com.benchreadiness.screening.service.CandidateTestService;
 import jakarta.validation.Valid;
@@ -48,6 +49,17 @@ public class ScreeningPublicController {
         } catch (Exception e) {
             log.error("Failed to grade submission for token {}", token, e);
             return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Failed to submit — please try again"));
+        }
+    }
+
+    /** Pauses the test on a 2nd proctoring violation instead of submitting — staff must permit the candidate to resume. */
+    @PostMapping("/{token}/lock")
+    public ResponseEntity<?> lock(@PathVariable String token, @RequestBody(required = false) LockTestRequest req) {
+        try {
+            candidateTestService.lockForViolation(token, req != null ? req.getTabSwitchCount() : null);
+            return ResponseEntity.ok(Map.of("ok", true));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.status(404).body(Map.of("ok", false, "error", e.getMessage()));
         }
     }
 }

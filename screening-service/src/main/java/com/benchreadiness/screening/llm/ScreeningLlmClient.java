@@ -69,6 +69,12 @@ public class ScreeningLlmClient {
         return chat(systemPrompt, userPrompt, questionTemperature, 4000);
     }
 
+    /** For calls whose response is larger than usual (e.g. transcribing an existing question paper verbatim). */
+    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
+    public String generateQuestions(String systemPrompt, String userPrompt, int maxTokens) throws Exception {
+        return chat(systemPrompt, userPrompt, questionTemperature, maxTokens);
+    }
+
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     public String gradeAnswer(String systemPrompt, String userPrompt) throws Exception {
         return chat(systemPrompt, userPrompt, gradingTemperature, 800);

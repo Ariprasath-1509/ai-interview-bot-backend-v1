@@ -50,6 +50,9 @@ public class CandidateTestService {
         if (candidate.getStage() != CandidateStage.ROUND1_PENDING && candidate.getStage() != CandidateStage.ROUND1_IN_PROGRESS) {
             throw new IllegalStateException("This test has already been submitted and the link is no longer active");
         }
+        if (candidate.isViolationLocked()) {
+            throw new IllegalStateException("Your test was paused after a proctoring violation. Please contact your recruiter or admin to continue.");
+        }
         if (!candidate.isAllowLateSubmission() && Instant.now().isAfter(batch.getDeadline())) {
             throw new IllegalStateException("This test window has expired");
         }
@@ -93,6 +96,9 @@ public class CandidateTestService {
 
         if (candidate.getStage() != CandidateStage.ROUND1_PENDING && candidate.getStage() != CandidateStage.ROUND1_IN_PROGRESS) {
             throw new IllegalStateException("This test has already been submitted");
+        }
+        if (candidate.isViolationLocked()) {
+            throw new IllegalStateException("Your test was paused after a proctoring violation. Please contact your recruiter or admin to continue.");
         }
         if (!candidate.isAllowLateSubmission() && Instant.now().isAfter(batch.getDeadline())) {
             throw new IllegalStateException("This test window has expired");
@@ -148,7 +154,11 @@ public class CandidateTestService {
 
         if (req.getTabSwitchCount() != null) {
             candidate.setTabSwitchCount(req.getTabSwitchCount());
-            candidate.setProctoringViolation(req.getTabSwitchCount() >= 2);
+            // Only ever turns this on — a clean final count (e.g. after staff let them resume) shouldn't erase
+            // the historical record that a violation happened at some point during this attempt.
+            if (req.getTabSwitchCount() >= 2) {
+                candidate.setProctoringViolation(true);
+            }
         }
         candidate.setRound1Score(total);
         candidate.setStage(CandidateStage.ROUND1_SUBMITTED);
@@ -159,6 +169,26 @@ public class CandidateTestService {
         response.put("score", total);
         response.put("maxScore", 35);
         return response;
+    }
+
+    /**
+     * Called by the candidate's browser on the 2nd proctoring violation — pauses the test in place
+     * (no grading, no stage change) instead of submitting, so staff can decide whether to let them
+     * resume on the same link. A no-op if the candidate already moved past Round 1 by other means.
+     */
+    @Transactional
+    public void lockForViolation(String token, Integer tabSwitchCount) {
+        ScreeningCandidate candidate = candidateRepository.findByToken(token)
+                .orElseThrow(() -> new NoSuchElementException("Invalid or expired link"));
+        if (candidate.getStage() != CandidateStage.ROUND1_PENDING && candidate.getStage() != CandidateStage.ROUND1_IN_PROGRESS) {
+            return;
+        }
+        if (tabSwitchCount != null) {
+            candidate.setTabSwitchCount(tabSwitchCount);
+        }
+        candidate.setProctoringViolation(true);
+        candidate.setViolationLocked(true);
+        candidateRepository.save(candidate);
     }
 
     private String maskEmail(String email) {
