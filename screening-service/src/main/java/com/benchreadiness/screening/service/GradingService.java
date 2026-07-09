@@ -70,7 +70,19 @@ public class GradingService {
     }
 
     private GradeResult parseGradeJson(String raw, int maxMarks) throws Exception {
-        JsonNode node = objectMapper.readTree(raw);
+        JsonNode node;
+        try {
+            node = objectMapper.readTree(raw);
+        } catch (com.fasterxml.jackson.core.JsonParseException e) {
+            // LLM returned unescaped quotes inside string values — extract score/feedback via regex
+            java.util.regex.Matcher scoreMatcher = java.util.regex.Pattern
+                    .compile("\"score\"\\s*:\\s*([0-9.]+)").matcher(raw);
+            java.util.regex.Matcher feedbackMatcher = java.util.regex.Pattern
+                    .compile("\"feedback\"\\s*:\\s*\"(.*)\"", java.util.regex.Pattern.DOTALL).matcher(raw);
+            double score = scoreMatcher.find() ? Double.parseDouble(scoreMatcher.group(1)) : 0;
+            String feedback = feedbackMatcher.find() ? feedbackMatcher.group(1).replaceAll("\"\\s*\\}\\s*$", "").trim() : raw;
+            return new GradeResult(Math.max(0, Math.min(maxMarks, score)), feedback);
+        }
         double score = node.path("score").asDouble(0);
         score = Math.max(0, Math.min(maxMarks, score));
         String feedback = node.path("feedback").asText("");
