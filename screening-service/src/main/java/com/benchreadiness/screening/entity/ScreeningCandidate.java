@@ -66,6 +66,14 @@ public class ScreeningCandidate {
     @Column(name = "allow_late_submission", nullable = false)
     private boolean allowLateSubmission = false;
 
+    /** Fullscreen exits + tab switches during Round 1, reported by the candidate's browser at submit time. */
+    @Column(name = "tab_switch_count", nullable = false)
+    private int tabSwitchCount = 0;
+
+    /** True once tabSwitchCount hit the 2-strike threshold and the test was auto-submitted. */
+    @Column(name = "proctoring_violation", nullable = false)
+    private boolean proctoringViolation = false;
+
     @Column(name = "round2_started_at")
     private Instant round2StartedAt;
 
@@ -168,6 +176,10 @@ public class ScreeningCandidate {
     public void setRound1SubmittedAt(Instant round1SubmittedAt) { this.round1SubmittedAt = round1SubmittedAt; }
     public boolean isAllowLateSubmission() { return allowLateSubmission; }
     public void setAllowLateSubmission(boolean allowLateSubmission) { this.allowLateSubmission = allowLateSubmission; }
+    public int getTabSwitchCount() { return tabSwitchCount; }
+    public void setTabSwitchCount(int tabSwitchCount) { this.tabSwitchCount = tabSwitchCount; }
+    public boolean isProctoringViolation() { return proctoringViolation; }
+    public void setProctoringViolation(boolean proctoringViolation) { this.proctoringViolation = proctoringViolation; }
     public Instant getRound2StartedAt() { return round2StartedAt; }
     public void setRound2StartedAt(Instant round2StartedAt) { this.round2StartedAt = round2StartedAt; }
     public String getRound2Strengths() { return round2Strengths; }

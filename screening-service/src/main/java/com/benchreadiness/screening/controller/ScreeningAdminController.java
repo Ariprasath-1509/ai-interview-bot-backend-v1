@@ -286,6 +286,12 @@ public class ScreeningAdminController {
         m.put("experience", c.getExperience());
         m.put("round1Score", c.getRound1Score());
         m.put("allowLateSubmission", c.isAllowLateSubmission());
+        m.put("tabSwitchCount", c.getTabSwitchCount());
+        m.put("proctoringViolation", c.isProctoringViolation());
+        m.put("round2Strengths", c.getRound2Strengths());
+        m.put("round2Weaknesses", c.getRound2Weaknesses());
+        m.put("round2Practical", c.getRound2Practical());
+        m.put("round2Improvements", c.getRound2Improvements());
         m.put("round2Marks", c.getRound2Marks());
         m.put("round2Result", c.getRound2Result() != null ? c.getRound2Result().name() : null);
         m.put("round3Communication", c.getRound3Communication());

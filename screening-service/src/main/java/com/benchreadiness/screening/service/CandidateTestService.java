@@ -110,12 +110,14 @@ public class CandidateTestService {
             submitted.put(a.getQuestionId(), a.getRawAnswer());
         }
 
+        // At most 2 are graded (matching the 2-of-4 design) — fewer is allowed so a proctoring-triggered
+        // auto-submit (fullscreen exit / tab switch violation) always goes through, scored on what's there.
         long logicalAnswered = questions.stream()
                 .filter(q -> q.getQuestionType() == QuestionType.LOGICAL)
                 .filter(q -> submitted.get(q.getId()) != null && !submitted.get(q.getId()).isBlank())
                 .count();
-        if (logicalAnswered != 2) {
-            throw new IllegalArgumentException("Choose exactly 2 of the 4 logical questions to answer (got " + logicalAnswered + ")");
+        if (logicalAnswered > 2) {
+            throw new IllegalArgumentException("Choose at most 2 of the 4 logical questions to answer (got " + logicalAnswered + ")");
         }
 
         double total = 0;
@@ -144,6 +146,10 @@ public class CandidateTestService {
             total += result.score;
         }
 
+        if (req.getTabSwitchCount() != null) {
+            candidate.setTabSwitchCount(req.getTabSwitchCount());
+            candidate.setProctoringViolation(req.getTabSwitchCount() >= 2);
+        }
         candidate.setRound1Score(total);
         candidate.setStage(CandidateStage.ROUND1_SUBMITTED);
         candidate.setRound1SubmittedAt(Instant.now());
