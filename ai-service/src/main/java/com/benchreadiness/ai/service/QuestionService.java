@@ -112,6 +112,19 @@ public class QuestionService {
     );
 
     /**
+     * Slot themes for ONBOARDING assessments — testing foundational understanding of one stated
+     * concept, not role-fit or production experience. Flat (not mode-keyed): onboarding always
+     * runs a short, fixed progression regardless of interviewMode's slot-count/duration setting.
+     */
+    private static final Map<Integer, String> ONBOARDING_SLOT_THEMES = Map.of(
+        1, "Core definition — what the concept is, in the candidate's own words, and why it matters in practice.",
+        2, "Practical usage — a concrete scenario where they would apply this concept, and how.",
+        3, "Common pitfalls — mistakes people commonly make with this concept, and how to avoid them.",
+        4, "Compare & contrast — how this concept relates to or differs from a closely adjacent one.",
+        5, "Applied problem — a small scenario question that requires using the concept to reach an answer."
+    );
+
+    /**
      * Curated real interview questions per mode and slot.
      * Used by progressQuestionAvoidingRecent so skip/advance responses are proper questions,
      * not raw theme directive text.
@@ -275,6 +288,18 @@ public class QuestionService {
             9, "How do you identify high-potential engineers and grow them toward staff-level impact — what does your actual approach look like in practice?",
             10, "A critical business initiative depends on a technical decision you believe is wrong — how do you handle it?"
         )
+    );
+
+    /**
+     * Generic fallback questions for ONBOARDING assessments — used only when the LLM path fails
+     * (thin-answer/dedup progression tries the LLM first). "%s" is the stated concept/topic name.
+     */
+    private static final List<String> ONBOARDING_FALLBACK_QUESTIONS = List.of(
+        "In your own words, what is %s and why does it matter in day-to-day work?",
+        "Walk me through a simple example of using %s — what does it look like in practice?",
+        "What's a common mistake beginners make with %s, and how would you avoid it?",
+        "How does %s compare to a related concept you know — what's the key difference?",
+        "Here's a small scenario: [describe a situation relevant to %s]. How would you approach it?"
     );
 
     /** Designated slot for the single coding exercise per interview mode. */
@@ -614,6 +639,9 @@ public class QuestionService {
     }
 
     private String llmQuestion(NextQuestionRequest req, String userId, boolean thinAnswerMode) throws Exception {
+        if (req.isOnboarding()) {
+            return llmOnboardingQuestion(req, userId, thinAnswerMode);
+        }
         String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";
         String slotTheme = resolveSlotTheme(mode, req.getSlot());
         String coveredTopics = extractCoveredTopics(req.getUtterances());
@@ -708,6 +736,65 @@ public class QuestionService {
         } else {
             user.append(lastAnswer.isEmpty()
                 ? "Ask your opening technical question now. One or two sentences, no career narrative."
+                : "Ask your next question now. Must follow from their last answer.");
+        }
+
+        String result = llmClient.chatQuestionWithSlotAndTracking(system, user.toString(), req.getSlot(), req.getInterviewId(), userId);
+        return result.replaceAll("^[\"'\\s]+|[\"'\\s]+$", "");
+    }
+
+    /**
+     * ONBOARDING question generation — tests foundational understanding of one stated concept,
+     * not JD/role fit. Deliberately simpler than llmQuestion: no rubric categories, no seniority
+     * calibration from resume, no "role" framing (the concept is not a job).
+     */
+    private String llmOnboardingQuestion(NextQuestionRequest req, String userId, boolean thinAnswerMode) throws Exception {
+        String slotTheme = ONBOARDING_SLOT_THEMES.getOrDefault(
+            ((req.getSlot() - 1) % ONBOARDING_SLOT_THEMES.size()) + 1,
+            "Applied understanding of the concept.");
+
+        List<String> allPastBotQuestions = extractRecentBotQuestions(req.getUtterances(), ALL_BOT_QUESTIONS_DEDUP);
+        String neverRepeatBlock = allPastBotQuestions.isEmpty()
+            ? "None yet."
+            : allPastBotQuestions.stream()
+                .map(q -> "- " + truncateText(q, 120))
+                .collect(Collectors.joining("\n"));
+
+        String system =
+            "You are a friendly onboarding assessor checking whether a new hire has basic, correct understanding " +
+            "of ONE specific concept — this is NOT a job interview and there is no role to assess fit for. " +
+            "Your output must be exactly ONE question (1-2 sentences max).\n" +
+            "\n" +
+            "ASSESSMENT CONTEXT:\n" +
+            "- Current focus: " + slotTheme + "\n" +
+            "- Allowed difficulty: entry-level / foundational only — do not ask advanced, framework-internal, " +
+            "or production-scale questions.\n" +
+            "\n" +
+            "QUESTIONS ALREADY ASKED — DO NOT REPEAT OR PARAPHRASE ANY OF THESE:\n" +
+            neverRepeatBlock + "\n" +
+            "\n" +
+            "CRITICAL EXECUTION RULES:\n" +
+            "1. Stay strictly within the stated concept's scope — do not drift into unrelated or advanced topics.\n" +
+            "2. Maintain a warm, encouraging tone — this is a learning check, not a high-pressure interview.\n" +
+            "3. NEVER ask a question that is the same as or closely paraphrases any question in the list above.\n" +
+            "4. Output ONLY the raw question string. No markdown wrappers, no explanations.";
+
+        String lastAnswer = req.getLastAnswer() != null ? req.getLastAnswer().trim() : "";
+        String recent = buildTranscriptContext(req.getUtterances(), req.getSlot());
+
+        StringBuilder user = new StringBuilder();
+        appendDialogueContext(user, req, lastAnswer, recent);
+        user.append("Concept/Topic: ").append(req.getJdTitle()).append("\n");
+        if (req.getJdText() != null && !req.getJdText().isBlank()) {
+            user.append("Concept description:\n").append(truncateText(req.getJdText(), JD_DIGEST_CHARS)).append("\n\n");
+        }
+        if (thinAnswerMode) {
+            user.append("The candidate's last answer was thin — do NOT probe it again. "
+                + "Move to a NEW angle on the concept that fits the current focus area. "
+                + "Ask your next question now.");
+        } else {
+            user.append(lastAnswer.isEmpty()
+                ? "Ask your opening question now, checking basic understanding of the concept. One or two sentences."
                 : "Ask your next question now. Must follow from their last answer.");
         }
 
@@ -1239,6 +1326,9 @@ public class QuestionService {
 
     /** Core question-picking logic shared by both progression methods. */
     private String pickFreshQuestion(NextQuestionRequest req, int startSlot, List<String> usedQuestions) {
+        if (req.isOnboarding()) {
+            return pickFreshOnboardingQuestion(req, usedQuestions);
+        }
         String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";
         Map<String, Map<Integer, String>> familyPool = curatedPoolForRole(req.getJdTitle(), req.getJdText());
         Map<Integer, String> curatedQuestions = familyPool.getOrDefault(mode, familyPool.get("L3"));
@@ -1277,6 +1367,19 @@ public class QuestionService {
             if (!isQuestionSimilarToRecent(alt, usedQuestions)) return alt;
         }
         return alternates.get(startSlot % alternates.size());
+    }
+
+    /** Fallback question picker for ONBOARDING assessments — concept-scoped, not role/mode-scoped. */
+    String pickFreshOnboardingQuestion(NextQuestionRequest req, List<String> usedQuestions) { // package-private for tests
+        String concept = req.getJdTitle() != null && !req.getJdTitle().isBlank() ? req.getJdTitle() : "this topic";
+        for (String template : ONBOARDING_FALLBACK_QUESTIONS) {
+            String candidate = String.format(template, concept);
+            if (!isQuestionSimilarToRecent(candidate, usedQuestions)) return candidate;
+        }
+        // All templates exhausted (long extended-timer interview) — cycle with a depth marker.
+        String template = ONBOARDING_FALLBACK_QUESTIONS.get(usedQuestions.size() % ONBOARDING_FALLBACK_QUESTIONS.size());
+        return "Going deeper — " + String.format(template, concept).substring(0, 1).toLowerCase()
+            + String.format(template, concept).substring(1);
     }
 
     /**
@@ -1679,6 +1782,12 @@ public class QuestionService {
                 log.info("Theory-only interview — converting coding question to verbal at slot {}", req.getSlot());
                 return copyResult(result, result.question(), false);
             }
+            return result;
+        }
+        // Onboarding never forces a fixed coding-editor slot (defaultCodingPrompt is JD-role-flavored,
+        // and a short concept check has no natural "coding slot" position). A naturally-arising
+        // coding-flavored question is left as-is if the model proposes one.
+        if (req.isOnboarding()) {
             return result;
         }
         String mode = req.getInterviewMode() != null ? req.getInterviewMode() : "L3";

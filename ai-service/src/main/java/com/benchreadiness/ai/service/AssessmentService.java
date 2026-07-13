@@ -114,8 +114,14 @@ public class AssessmentService {
             return result;
         }
         try {
-            log.info("Starting two-pass LLM assessment for interview: {}", req.getInterviewId());
-            Map<String, Object> result = twoPassAssessment(req, utterances, userId);
+            Map<String, Object> result;
+            if (req.isOnboarding()) {
+                log.info("Starting single-pass onboarding assessment for interview: {}", req.getInterviewId());
+                result = onboardingAssessment(req, utterances, userId);
+            } else {
+                log.info("Starting two-pass LLM assessment for interview: {}", req.getInterviewId());
+                result = twoPassAssessment(req, utterances, userId);
+            }
             // Inject speech analytics computed from transcript
             result.put("speechAnalytics", computeSpeechAnalytics(utterances));
             cacheAssessment(cacheKey, result);
@@ -126,6 +132,82 @@ public class AssessmentService {
             cacheAssessment(cacheKey, result);
             return result;
         }
+    }
+
+    /**
+     * ONBOARDING assessment — a single LLM call checking basic understanding of one stated
+     * concept. Deliberately skips the 4-stage pipeline (evidence extraction, category rubric
+     * scoring, behavioral signals, resume consistency, multi-day roadmap) since there is no JD
+     * or rubric to score against, just one concept.
+     */
+    private Map<String, Object> onboardingAssessment(AssessmentRequest req, List<Map<String, String>> utterances, String userId) throws Exception {
+        int injectionCount = InjectionGuard.countTranscriptInjections(utterances);
+        if (injectionCount >= InjectionGuard.TERMINATE_THRESHOLD) {
+            log.warn("Transcript injection pre-filter triggered for interview {} ({} injections detected)",
+                    req.getInterviewId(), injectionCount);
+            Map<String, Object> result = withdrawnResult(
+                "Interview terminated: " + injectionCount + " prompt injection attempts detected in transcript.");
+            storeAssessmentResponse(req.getInterviewId(),
+                    objectMapper.writeValueAsString(result), 0, "injection-terminated", userId);
+            return result;
+        }
+
+        String concept = req.getJdTitle() != null && !req.getJdTitle().isBlank() ? req.getJdTitle() : "the stated concept";
+        String conceptDescription = req.getJdText() != null
+            ? truncateForPrompt(req.getJdText(), 800) : "";
+
+        String transcript = buildEfficientTranscript(utterances);
+        String codeContext = buildCodeSubmissionContext(req.getCodeSubmissionJson());
+
+        String system =
+            "You are an onboarding assessor checking whether a candidate has BASIC, correct understanding of ONE " +
+            "specific concept, based on an interview transcript. This is NOT a job/role-fit assessment — there is " +
+            "no job description to match against, only the stated concept.\n" +
+            "\n" +
+            "Score foundational understanding only. Do not penalize for lack of advanced/production-scale " +
+            "knowledge — that is out of scope for this check.\n" +
+            "\n" +
+            "Output ONLY raw JSON. No markdown. No prose.\n" +
+            "{\n" +
+            "  \"score\": 1-10 (1 = no understanding, 5 = partial/shaky, 8-10 = solid foundational grasp),\n" +
+            "  \"proposedVerdict\": \"READY\" (solid grasp) | \"NEEDS_1_WEEK_PREP\" (partial gaps) | \"NEEDS_RESKILLING\" (little to no understanding),\n" +
+            "  \"summary\": \"2-3 sentence overview for the person deciding whether this candidate is ready\",\n" +
+            "  \"strengths\": [\"specific things they got right\"],\n" +
+            "  \"gaps\": [\"specific things they missed or got wrong\"]\n" +
+            "}";
+
+        String user = "Concept: " + concept + "\n" +
+            (conceptDescription.isBlank() ? "" : "Concept description: " + conceptDescription + "\n") +
+            "\nTranscript:\n" + transcript +
+            (codeContext.isBlank() ? "" : "\n\nCode submissions:\n" + codeContext);
+
+        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
+        JsonNode json = objectMapper.readTree(JsonRepairUtil.repair(raw));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("score", json.path("score").asInt(5));
+        result.put("scoreMax", 10);
+        result.put("proposedVerdict", json.path("proposedVerdict").asText("NEEDS_1_WEEK_PREP"));
+        result.put("summary", json.path("summary").asText(""));
+        result.put("strengths", toStringList(json.path("strengths")));
+        result.put("gaps", toStringList(json.path("gaps")));
+        result.put("source", "claude-onboarding-single-pass");
+
+        try {
+            String assessmentJson = objectMapper.writeValueAsString(result);
+            storeAssessmentResponse(req.getInterviewId(), assessmentJson, 0, "claude-onboarding-single-pass", userId);
+            finalizeInterviewTokens(req.getInterviewId(), userId);
+        } catch (Exception e) {
+            log.warn("Failed to store onboarding assessment response for interview {}: {}", req.getInterviewId(), e.getMessage());
+        }
+
+        return result;
+    }
+
+    private String truncateForPrompt(String text, int maxChars) {
+        if (text == null) return "";
+        String trimmed = text.trim();
+        return trimmed.length() <= maxChars ? trimmed : trimmed.substring(0, maxChars) + "...";
     }
 
     private Map<String, Object> computeSpeechAnalytics(List<Map<String, String>> utterances) {

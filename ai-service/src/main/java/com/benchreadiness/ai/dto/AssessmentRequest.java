@@ -13,6 +13,8 @@ public class AssessmentRequest {
     private String codeSubmissionJson;
     /** When true, skip in-memory assessment cache (re-assessment). */
     private boolean forceRefresh;
+    /** CLIENT_INTERVIEW (default, 4-stage assessment) | ONBOARDING (single-pass concept check). */
+    private String assessmentType;
 
     public String getJdTitle() { return jdTitle; }
     public void setJdTitle(String jdTitle) { this.jdTitle = jdTitle; }
@@ -36,4 +38,7 @@ public class AssessmentRequest {
     public void setCodeSubmissionJson(String codeSubmissionJson) { this.codeSubmissionJson = codeSubmissionJson; }
     public boolean isForceRefresh() { return forceRefresh; }
     public void setForceRefresh(boolean forceRefresh) { this.forceRefresh = forceRefresh; }
+    public String getAssessmentType() { return assessmentType; }
+    public void setAssessmentType(String assessmentType) { this.assessmentType = assessmentType; }
+    public boolean isOnboarding() { return "ONBOARDING".equals(assessmentType); }
 }

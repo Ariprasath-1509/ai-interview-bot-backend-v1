@@ -82,29 +82,35 @@ public class InterviewService {
             throw new IllegalStateException("Daily token limit reached. No more interviews can be created today.");
         }
 
-        // Generate rubric from ai-service (slow — can take 30-60s, must be outside transaction)
+        boolean isClientInterview = !"ONBOARDING".equals(normalizeAssessmentType(req.getAssessmentType()));
+
+        // Generate rubric from ai-service (slow — can take 30-60s, must be outside transaction).
+        // Onboarding interviews test one stated concept, not a JD's multi-category skill spread — no rubric needed.
         String rubricJson = null;
         String candidateProfileJson = null;
-        try {
-            Map<String, String> rubricRequest = Map.of(
-                "jdTitle", req.getJdTitle(),
-                "jdText", req.getJdText() != null ? req.getJdText() : "",
-                "resumeSummary", req.getResumeSummary() != null ? req.getResumeSummary() : "",
-                "focusAreas", req.getFocusAreas() != null ? req.getFocusAreas() : ""
-            );
-            String rubricResponse = aiServiceClient.generateRubric(rubricRequest);
-            if (rubricResponse != null) {
-                com.fasterxml.jackson.databind.JsonNode rubricNode = objectMapper.readTree(rubricResponse);
-                rubricJson = objectMapper.writeValueAsString(rubricNode.path("rubric"));
-                candidateProfileJson = objectMapper.writeValueAsString(rubricNode.path("candidateProfile"));
+        if (isClientInterview) {
+            try {
+                Map<String, String> rubricRequest = Map.of(
+                    "jdTitle", req.getJdTitle(),
+                    "jdText", req.getJdText() != null ? req.getJdText() : "",
+                    "resumeSummary", req.getResumeSummary() != null ? req.getResumeSummary() : "",
+                    "focusAreas", req.getFocusAreas() != null ? req.getFocusAreas() : ""
+                );
+                String rubricResponse = aiServiceClient.generateRubric(rubricRequest);
+                if (rubricResponse != null) {
+                    com.fasterxml.jackson.databind.JsonNode rubricNode = objectMapper.readTree(rubricResponse);
+                    rubricJson = objectMapper.writeValueAsString(rubricNode.path("rubric"));
+                    candidateProfileJson = objectMapper.writeValueAsString(rubricNode.path("candidateProfile"));
+                }
+            } catch (Exception e) {
+                log.warn("Failed to generate rubric (will proceed without it): {}", e.getMessage());
             }
-        } catch (Exception e) {
-            log.warn("Failed to generate rubric (will proceed without it): {}", e.getMessage());
         }
 
-        // Fetch question bank questions (slow — can time out, must be outside transaction)
+        // Fetch question bank questions (slow — can time out, must be outside transaction).
+        // Question bank entries are JD-role/client scoped — not applicable to a concept-based onboarding interview.
         String questionBankQuestionsJson = null;
-        if (req.getSelectedQuestionIds() != null && !req.getSelectedQuestionIds().isBlank()) {
+        if (isClientInterview && req.getSelectedQuestionIds() != null && !req.getSelectedQuestionIds().isBlank()) {
             log.info("selectedQuestionIds provided, resolving questions from question bank");
             try {
                 Set<String> selectedIdSet = java.util.Arrays.stream(
@@ -126,7 +132,7 @@ public class InterviewService {
             } catch (Exception e) {
                 log.warn("Failed to resolve selectedQuestionIds: {}", e.getMessage());
             }
-        } else if (req.getClientId() != null && !req.getClientId().isBlank()) {
+        } else if (isClientInterview && req.getClientId() != null && !req.getClientId().isBlank()) {
             try {
                 UUID clientUuid = UUID.fromString(req.getClientId());
                 Optional<Client> clientOpt = clientRepository.findById(clientUuid);
@@ -158,6 +164,13 @@ public class InterviewService {
     }
 
     @Transactional
+    /** Normalize to CLIENT_INTERVIEW/ONBOARDING; anything else (including blank) defaults to CLIENT_INTERVIEW. */
+    private static String normalizeAssessmentType(String raw) {
+        if (raw == null || raw.isBlank()) return "CLIENT_INTERVIEW";
+        String upper = raw.trim().toUpperCase();
+        return "ONBOARDING".equals(upper) ? "ONBOARDING" : "CLIENT_INTERVIEW";
+    }
+
     /** Normalize to EASY/MEDIUM/HARD; anything else (including blank) becomes null = mode-derived. */
     private static String normalizeQuestionDifficulty(String raw) {
         if (raw == null || raw.isBlank()) return null;
@@ -226,6 +239,7 @@ public class InterviewService {
         interview.setInterviewMode(req.getInterviewMode());
         interview.setRoundName(req.getRoundName());
         interview.setQuestionDifficulty(normalizeQuestionDifficulty(req.getQuestionDifficulty()));
+        interview.setAssessmentType(normalizeAssessmentType(req.getAssessmentType()));
         interview.setCustomDurationMinutes(req.getCustomDurationMinutes());
         interview.setCreatedByUserId(createdByUserId);
         interview.setBranch(branch != null ? branch : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
@@ -1075,6 +1089,7 @@ public class InterviewService {
                         single.setExpiresAt(req.getExpiresAt());
                         single.setRoundName(req.getRoundName());
                         single.setQuestionDifficulty(req.getQuestionDifficulty());
+                        single.setAssessmentType(req.getAssessmentType());
                         single.setEngineerEmail(candidate.getEngineerEmail());
                         single.setEngineerName(candidate.getEngineerName());
                         single.setResumeSummary(candidate.getResumeSummary());

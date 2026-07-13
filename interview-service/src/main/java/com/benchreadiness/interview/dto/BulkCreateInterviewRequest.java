@@ -45,6 +45,10 @@ public class BulkCreateInterviewRequest {
     @Size(max = 16)
     private String questionDifficulty;
 
+    /** CLIENT_INTERVIEW (default) or ONBOARDING — applies to the whole batch. */
+    @Size(max = 24)
+    private String assessmentType;
+
     /** Per-candidate entries. Max 20 per request. */
     @NotEmpty(message = "At least one candidate is required")
     @Valid
@@ -99,6 +103,8 @@ public class BulkCreateInterviewRequest {
     public void setRoundName(String roundName) { this.roundName = roundName; }
     public String getQuestionDifficulty() { return questionDifficulty; }
     public void setQuestionDifficulty(String questionDifficulty) { this.questionDifficulty = questionDifficulty; }
+    public String getAssessmentType() { return assessmentType; }
+    public void setAssessmentType(String assessmentType) { this.assessmentType = assessmentType; }
     public List<CandidateEntry> getCandidates() { return candidates; }
     public void setCandidates(List<CandidateEntry> candidates) { this.candidates = candidates; }
 }

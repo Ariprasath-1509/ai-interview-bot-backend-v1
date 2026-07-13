@@ -50,6 +50,9 @@ public class CreateInterviewRequest {
     /** Per-round question difficulty override (EASY | MEDIUM | HARD); null derives from interviewMode. */
     private String questionDifficulty;
 
+    /** CLIENT_INTERVIEW (default) or ONBOARDING. Onboarding reuses jdTitle/jdText as the concept/topic fields. */
+    private String assessmentType;
+
     /** When false, interview is theory/verbal only (no coding slot or code editor). Defaults to true. */
     private Boolean includeProgrammingQuestions;
 
@@ -122,6 +125,10 @@ public class CreateInterviewRequest {
 
     public String getQuestionDifficulty() {
         return questionDifficulty;
+    }
+
+    public String getAssessmentType() {
+        return assessmentType;
     }
 
 
@@ -204,6 +211,10 @@ public class CreateInterviewRequest {
 
     public void setQuestionDifficulty(String questionDifficulty) {
         this.questionDifficulty = questionDifficulty;
+    }
+
+    public void setAssessmentType(String assessmentType) {
+        this.assessmentType = assessmentType;
     }
 
 

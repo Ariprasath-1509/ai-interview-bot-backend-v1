@@ -118,6 +118,10 @@ public class Interview {
     @Column(name = "question_difficulty", length = 16)
     private String questionDifficulty;
 
+    /** CLIENT_INTERVIEW (default, JD-based, 4-stage assessment) or ONBOARDING (concept-based, single-pass assessment). */
+    @Column(name = "assessment_type", nullable = false, length = 24)
+    private String assessmentType = "CLIENT_INTERVIEW";
+
     @Column(name = "recording_bytes")
     private Long recordingBytes;
 
@@ -222,6 +226,8 @@ public class Interview {
     public void setRoundName(String roundName) { this.roundName = roundName; }
     public String getQuestionDifficulty() { return questionDifficulty; }
     public void setQuestionDifficulty(String questionDifficulty) { this.questionDifficulty = questionDifficulty; }
+    public String getAssessmentType() { return assessmentType; }
+    public void setAssessmentType(String assessmentType) { this.assessmentType = assessmentType; }
     public Long getRecordingBytes() { return recordingBytes; }
     public void setRecordingBytes(Long recordingBytes) { this.recordingBytes = recordingBytes; }
     public String getProctoringEventsJson() { return proctoringEventsJson; }

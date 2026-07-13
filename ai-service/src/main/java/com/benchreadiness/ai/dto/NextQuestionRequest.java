@@ -24,6 +24,8 @@ public class NextQuestionRequest {
     private String usedQuestionIds;
     /** When false, theory/verbal only — no coding slot or code editor. Null defaults to true. */
     private Boolean includeProgrammingQuestions;
+    /** CLIENT_INTERVIEW (default) | ONBOARDING — onboarding uses concept-scoped themes instead of JD-role themes. */
+    private String assessmentType;
 
     public record Utterance(String speaker, String text) {}
 
@@ -65,4 +67,7 @@ public class NextQuestionRequest {
     public void setIncludeProgrammingQuestions(Boolean includeProgrammingQuestions) {
         this.includeProgrammingQuestions = includeProgrammingQuestions;
     }
+    public String getAssessmentType() { return assessmentType; }
+    public void setAssessmentType(String assessmentType) { this.assessmentType = assessmentType; }
+    public boolean isOnboarding() { return "ONBOARDING".equals(assessmentType); }
 }
