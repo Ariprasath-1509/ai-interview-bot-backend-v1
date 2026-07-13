@@ -282,22 +282,6 @@ public class InterviewService {
             log.warn("Could not activate market candidate for interview {}: {}", saved.getId(), e.getMessage());
         }
 
-        // Notify candidate: interview scheduled email
-        try {
-            java.time.format.DateTimeFormatter emailFmt =
-                java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy 'at' hh:mm a 'UTC'")
-                    .withZone(java.time.ZoneOffset.UTC);
-            Map<String, String> notifyBody = new java.util.LinkedHashMap<>();
-            notifyBody.put("email", engineer.getEmail());
-            notifyBody.put("name", engineer.getName() != null ? engineer.getName() : "");
-            notifyBody.put("scheduledAt", emailFmt.format(saved.getScheduledAt()));
-            notifyBody.put("expiresAt", saved.getExpiresAt() != null ? emailFmt.format(saved.getExpiresAt()) : null);
-            authServiceClient.notifyInterviewScheduled(notifyBody);
-            log.info("Interview scheduled notification sent to {}", engineer.getEmail());
-        } catch (Exception e) {
-            log.warn("Failed to send interview scheduled email for {}: {}", saved.getId(), e.getMessage());
-        }
-
         // Fire-and-forget: invite email
         try {
             observerServiceClient.notifyInterviewCreated(Map.of(
@@ -1040,17 +1024,11 @@ public class InterviewService {
             // Send rescheduled notification to candidate
             try {
                 if (engineer != null && engineer.getEmail() != null) {
-                    java.time.format.DateTimeFormatter emailFmt =
-                        java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy 'at' hh:mm a 'UTC'")
-                            .withZone(java.time.ZoneOffset.UTC);
-                    Instant effectiveScheduledAt = req.getScheduledAt() != null ? req.getScheduledAt() : interview.getScheduledAt();
-                    Instant effectiveExpiresAt   = req.getExpiresAt()   != null ? req.getExpiresAt()   : interview.getExpiresAt();
-                    Map<String, String> notifyBody = new java.util.LinkedHashMap<>();
-                    notifyBody.put("email", engineer.getEmail());
-                    notifyBody.put("name", engineer.getName() != null ? engineer.getName() : "");
-                    notifyBody.put("scheduledAt", effectiveScheduledAt != null ? emailFmt.format(effectiveScheduledAt) : "—");
-                    notifyBody.put("expiresAt", effectiveExpiresAt != null ? emailFmt.format(effectiveExpiresAt) : null);
-                    authServiceClient.notifyInterviewScheduled(notifyBody);
+                    observerServiceClient.notifyInterviewCreated(Map.of(
+                        "interviewId", id,
+                        "engineerEmail", engineer.getEmail(),
+                        "engineerName", engineer.getName() != null ? engineer.getName() : ""
+                    ));
                     log.info("Rescheduled notification sent to {} for interview {}", engineer.getEmail(), id);
                 }
             } catch (Exception e) {
