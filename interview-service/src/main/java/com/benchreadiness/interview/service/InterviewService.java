@@ -647,6 +647,8 @@ public class InterviewService {
         Interview interview = interviewRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Interview not found: " + id));
 
+        InterviewStatus previousStatus = interview.getStatus();
+
         // Prevent backward status transitions from terminal SIGNED_OFF state
         if (interview.getStatus() == InterviewStatus.SIGNED_OFF
                 && updates.containsKey("status")
@@ -683,9 +685,23 @@ public class InterviewService {
         }
         
         Interview saved = interviewRepository.save(interview);
-        log.info("Interview {} updated successfully. New status: {}, finalVerdict: {}", 
+        log.info("Interview {} updated successfully. New status: {}, finalVerdict: {}",
             id, saved.getStatus(), saved.getFinalVerdict());
-        
+
+        // Increment system interview count once, the moment an interview is signed off —
+        // completeInterview()'s COMPLETED-gated increment never fires because the frontend's
+        // completion flow always PATCHes status=REVIEW_PENDING, not COMPLETED.
+        if (previousStatus != InterviewStatus.SIGNED_OFF && saved.getStatus() == InterviewStatus.SIGNED_OFF) {
+            try {
+                Engineer engineer = engineerRepository.findById(saved.getEngineerId()).orElse(null);
+                if (engineer != null && engineer.getEmail() != null) {
+                    authServiceClient.incrementSystemInterviewCountByEmail(engineer.getEmail());
+                }
+            } catch (Exception e) {
+                log.warn("Failed to increment system interview count for interview {}: {}", id, e.getMessage());
+            }
+        }
+
         // Log audit trail for status changes
         if (updates.containsKey("status") || updates.containsKey("finalVerdict")) {
             String detail = "";

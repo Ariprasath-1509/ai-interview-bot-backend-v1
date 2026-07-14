@@ -59,6 +59,7 @@ public class CandidateReviewSummary {
         private String jdTitle;
         private String interviewMode;
         private String verdict;
+        private String summary;
         private List<CategoryScore> categoryScores;
         private List<ProCon> prosAndCons;
         private ResumeConsistency resumeConsistency;
@@ -75,6 +76,8 @@ public class CandidateReviewSummary {
         public void setInterviewMode(String interviewMode) { this.interviewMode = interviewMode; }
         public String getVerdict() { return verdict; }
         public void setVerdict(String verdict) { this.verdict = verdict; }
+        public String getSummary() { return summary; }
+        public void setSummary(String summary) { this.summary = summary; }
         public List<CategoryScore> getCategoryScores() { return categoryScores; }
         public void setCategoryScores(List<CategoryScore> categoryScores) { this.categoryScores = categoryScores; }
         public List<ProCon> getProsAndCons() { return prosAndCons; }

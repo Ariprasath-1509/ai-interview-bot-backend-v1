@@ -116,6 +116,15 @@ public class CandidateReviewService {
                 detail.setResumeConsistency(extractResumeConsistency(assessment));
                 detail.setBehavioralSignals(extractBehavioralSignals(assessment));
                 detail.setRoadmap(extractRoadmap(assessment));
+
+                // Onboarding assessments are a flat {score, summary, strengths[], gaps[]} shape
+                // (see AssessmentService.onboardingAssessment) — none of the extractors above find
+                // anything in it, so fall back to a synthetic single-row rendering.
+                if (detail.getCategoryScores().isEmpty() && assessment.get("score") instanceof Number) {
+                    detail.setCategoryScores(buildOnboardingCategoryScore(assessment));
+                    detail.setProsAndCons(buildOnboardingProsAndCons(assessment));
+                    detail.setSummary((String) assessment.get("summary"));
+                }
             }
         } catch (Exception e) {
             log.warn("Failed to fetch assessment for interview {}: {}", interview.getId(), e.getMessage());
@@ -151,6 +160,27 @@ public class CandidateReviewService {
             }
         }
         return scores;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<CandidateReviewSummary.CategoryScore> buildOnboardingCategoryScore(Map<String, Object> assessment) {
+        CandidateReviewSummary.CategoryScore score = new CandidateReviewSummary.CategoryScore();
+        score.setDimension("ConceptUnderstanding");
+        score.setValue(getIntValue(assessment.get("score")));
+        List<String> gaps = (List<String>) assessment.get("gaps");
+        score.setGap(gaps != null && !gaps.isEmpty() ? String.join("; ", gaps) : null);
+        List<String> strengths = (List<String>) assessment.get("strengths");
+        score.setStrengths(strengths != null && !strengths.isEmpty() ? String.join("; ", strengths) : null);
+        return List.of(score);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<CandidateReviewSummary.ProCon> buildOnboardingProsAndCons(Map<String, Object> assessment) {
+        CandidateReviewSummary.ProCon pc = new CandidateReviewSummary.ProCon();
+        pc.setCategory("Concept Understanding");
+        pc.setPros((List<String>) assessment.get("strengths"));
+        pc.setCons((List<String>) assessment.get("gaps"));
+        return List.of(pc);
     }
 
     private List<CandidateReviewSummary.ProCon> extractProsAndCons(Map<String, Object> assessment) {

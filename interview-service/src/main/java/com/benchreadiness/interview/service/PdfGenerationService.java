@@ -112,6 +112,13 @@ public class PdfGenerationService {
 
         document.add(infoTable);
 
+        if (interview.getSummary() != null && !interview.getSummary().isBlank()) {
+            Paragraph summary = new Paragraph(interview.getSummary(), SMALL_FONT);
+            summary.setSpacingBefore(5);
+            summary.setSpacingAfter(10);
+            document.add(summary);
+        }
+
         if (interview.getCategoryScores() != null && !interview.getCategoryScores().isEmpty()) {
             addCategoryScores(document, interview.getCategoryScores());
         }
