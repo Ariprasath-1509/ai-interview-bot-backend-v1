@@ -211,6 +211,7 @@ public class ClientBriefService {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("number", question.getSlotNumber());
             item.put("text", question.getQuestionText());
+            item.put("answer", question.getCandidateAnswer());
             item.put("difficulty", question.getDifficultyLevel() != null ? question.getDifficultyLevel() : "MEDIUM");
             item.put("type", question.getQuestionType() != null ? question.getQuestionType() : "TECHNICAL");
             payload.add(item);

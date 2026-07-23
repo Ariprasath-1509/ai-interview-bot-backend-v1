@@ -113,6 +113,7 @@ public class ClientBriefDto {
         private int number;
         private String difficulty;
         private String text;
+        private String answer;
         private String type;
         private List<SkillMapping> skillMappings = new ArrayList<>();
 
@@ -122,6 +123,8 @@ public class ClientBriefDto {
         public void setDifficulty(String difficulty) { this.difficulty = difficulty; }
         public String getText() { return text; }
         public void setText(String text) { this.text = text; }
+        public String getAnswer() { return answer; }
+        public void setAnswer(String answer) { this.answer = answer; }
         public String getType() { return type; }
         public void setType(String type) { this.type = type; }
         public List<SkillMapping> getSkillMappings() { return skillMappings; }
@@ -283,6 +286,7 @@ public class ClientBriefDto {
             try { q.setNumber(Integer.parseInt(String.valueOf(map.get("number")))); } catch (Exception ignored) {}
             q.setDifficulty(stringVal(map.get("difficulty")));
             q.setText(stringVal(map.get("text")));
+            q.setAnswer(stringVal(map.get("answer")));
             q.setType(stringVal(map.get("type")));
             q.setSkillMappings(parseSkillMappings(map.get("skillMappings")));
             out.add(q);
@@ -376,6 +380,7 @@ public class ClientBriefDto {
             map.put("number", q.getNumber());
             map.put("difficulty", q.getDifficulty());
             map.put("text", q.getText());
+            map.put("answer", q.getAnswer());
             map.put("type", q.getType());
             List<Map<String, Object>> mappings = new ArrayList<>();
             for (SkillMapping m : q.getSkillMappings()) {

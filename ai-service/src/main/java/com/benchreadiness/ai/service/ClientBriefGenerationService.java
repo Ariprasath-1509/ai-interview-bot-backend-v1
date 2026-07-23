@@ -453,6 +453,7 @@ public class ClientBriefGenerationService {
             Map<String, Object> q = new LinkedHashMap<>();
             q.put("number", map.get("number"));
             q.put("text", stringVal(map.get("text")));
+            q.put("answer", stringVal(map.get("answer")));
             q.put("difficulty", stringVal(map.get("difficulty")));
             q.put("type", stringVal(map.get("type")));
             out.add(q);
@@ -523,6 +524,7 @@ public class ClientBriefGenerationService {
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("number", number);
             out.put("text", q.get("text"));
+            out.put("answer", q.get("answer"));
             out.put("difficulty", formatDifficulty(stringVal(q.get("difficulty"))));
             out.put("type", stringVal(q.get("type")));
             out.put("skillMappings", dedupeMappings(mappings));
@@ -608,6 +610,7 @@ public class ClientBriefGenerationService {
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("number", number);
             out.put("text", q.get("text"));
+            out.put("answer", q.get("answer"));
             out.put("difficulty", formatDifficulty(stringVal(q.get("difficulty"))));
             out.put("type", stringVal(q.get("type")));
             out.put("skillMappings", List.of());

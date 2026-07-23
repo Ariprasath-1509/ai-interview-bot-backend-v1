@@ -336,8 +336,19 @@ public class ClientBriefPdfGenerationService {
 
         PdfPCell textCell = textCell(new Paragraph(safe(q.getText()), BODY_FONT));
         textCell.setPaddingTop(8);
-        textCell.setPaddingBottom(6);
+        textCell.setPaddingBottom(q.getAnswer() != null && !q.getAnswer().isBlank() ? 2 : 6);
         body.addCell(textCell);
+
+        if (q.getAnswer() != null && !q.getAnswer().isBlank()) {
+            PdfPCell answerLabel = textCell(new Paragraph("Candidate's answer", SMALL_FONT));
+            answerLabel.setPaddingTop(6);
+            answerLabel.setPaddingBottom(2);
+            body.addCell(answerLabel);
+
+            PdfPCell answerCell = textCell(new Paragraph(safe(q.getAnswer()), BODY_FONT));
+            answerCell.setPaddingBottom(6);
+            body.addCell(answerCell);
+        }
 
         if (q.getSkillMappings() != null && !q.getSkillMappings().isEmpty()) {
             body.addCell(nestedCell(skillTags(q)));
