@@ -5,6 +5,7 @@ import com.benchreadiness.screening.dto.Round2FeedbackRequest;
 import com.benchreadiness.screening.dto.Round3FeedbackRequest;
 import com.benchreadiness.screening.entity.ScreeningAnswer;
 import com.benchreadiness.screening.entity.ScreeningCandidate;
+import com.benchreadiness.screening.entity.enums.CandidatePriority;
 import com.benchreadiness.screening.entity.enums.CandidateStage;
 import com.benchreadiness.screening.entity.enums.RoundDecision;
 import com.benchreadiness.screening.repository.ScreeningAnswerRepository;
@@ -69,6 +70,17 @@ public class PipelineService {
             throw new IllegalStateException("Candidate has not submitted Round 1 yet");
         }
         candidate.setStage(passed ? CandidateStage.ROUND1_PASSED : CandidateStage.ROUND1_FAILED);
+        return candidateRepository.save(candidate);
+    }
+
+    /** Recruiter-set priority (P0–P3) after reviewing Round 1 results — visible to interviewer and manager downstream. */
+    @Transactional
+    public ScreeningCandidate setRound1Priority(String candidateId, CandidatePriority priority) {
+        ScreeningCandidate candidate = getOrThrow(candidateId);
+        if (candidate.getRound1SubmittedAt() == null) {
+            throw new IllegalStateException("Candidate has not submitted Round 1 yet");
+        }
+        candidate.setRound1Priority(priority);
         return candidateRepository.save(candidate);
     }
 

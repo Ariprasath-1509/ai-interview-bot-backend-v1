@@ -33,6 +33,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         "/auth/forgot-password",
         "/auth/reset-password",
         "/auth/internal/introspect",
+        "/auth/master-data",
         "/api/qb",
         "/api/questionbank",
         "/questionbank",

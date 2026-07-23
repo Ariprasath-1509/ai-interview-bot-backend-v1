@@ -167,23 +167,22 @@ public class ScreeningAdminController {
         return ResponseEntity.ok(Map.of("candidates", candidates));
     }
 
-    /** Final consolidated view of a batch after Round 3: every candidate's totals across all 3 rounds, plus outcome counts. */
+    /**
+     * Final consolidated view of a batch after Round 3: every candidate's full record across all 3 rounds —
+     * Round 1 answers with per-question scores/AI feedback, Round 2 interviewer feedback, Round 3 managerial
+     * rubric + concluding comments — plus totals and outcome counts.
+     */
     @GetMapping("/batches/{batchId}/summary")
     @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
     public ResponseEntity<?> batchFinalSummary(@PathVariable String batchId) {
         List<ScreeningCandidate> candidates = pipelineService.round1Results(batchId);
 
         List<Map<String, Object>> rows = candidates.stream().map(c -> {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("id", c.getId());
-            m.put("name", c.getName());
-            m.put("email", c.getEmail());
-            m.put("stage", c.getStage().name());
+            Map<String, Object> m = candidateSummary(c);
             m.put("finalStatus", finalStatus(c));
-            m.put("round1Score", c.getRound1Score());
-            m.put("round2Marks", c.getRound2Marks());
-            m.put("round3Total", c.getRound3Total());
             m.put("totalMarks", totalMarks(c));
+            m.put("round1Answers", pipelineService.candidateAnswers(c.getId()).stream()
+                    .map(this::answerDetail).collect(Collectors.toList()));
             return m;
         }).collect(Collectors.toList());
 
@@ -241,6 +240,24 @@ public class ScreeningAdminController {
     @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
     public ResponseEntity<?> round1Decision(@PathVariable String candidateId, @RequestBody Map<String, Boolean> body) {
         return handle(() -> candidateSummary(pipelineService.markRound1(candidateId, Boolean.TRUE.equals(body.get("passed")))));
+    }
+
+    /** Recruiter rates the candidate P0–P3 after reviewing Round 1; carried through to Round 2/3 queues. body.priority may be null to clear it. */
+    @PostMapping("/candidates/{candidateId}/round1-priority")
+    @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
+    public ResponseEntity<?> round1Priority(@PathVariable String candidateId, @RequestBody Map<String, String> body) {
+        return handle(() -> {
+            String raw = body.get("priority");
+            com.benchreadiness.screening.entity.enums.CandidatePriority priority = null;
+            if (raw != null && !raw.isBlank()) {
+                try {
+                    priority = com.benchreadiness.screening.entity.enums.CandidatePriority.valueOf(raw);
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Invalid priority: " + raw);
+                }
+            }
+            return candidateSummary(pipelineService.setRound1Priority(candidateId, priority));
+        });
     }
 
     /** Lets staff accept a submission (or reopen the test) even after the batch deadline has passed. */
@@ -343,6 +360,7 @@ public class ScreeningAdminController {
         m.put("yop", c.getYop());
         m.put("experience", c.getExperience());
         m.put("round1Score", c.getRound1Score());
+        m.put("round1Priority", c.getRound1Priority() != null ? c.getRound1Priority().name() : null);
         m.put("allowLateSubmission", c.isAllowLateSubmission());
         m.put("tabSwitchCount", c.getTabSwitchCount());
         m.put("proctoringViolation", c.isProctoringViolation());

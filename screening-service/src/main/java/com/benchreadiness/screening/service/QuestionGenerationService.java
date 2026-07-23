@@ -121,7 +121,9 @@ public class QuestionGenerationService {
                 "schema described by the user. Keep every question strictly within the given concept scope — do not " +
                 "test anything outside it.";
         String userPrompt = "Concept scope: " + scope +
-                "\n\nAll content must fit the stated concept scope exactly, at an easy/entry-level difficulty.\n\n" +
+                "\n\nAll content must fit the stated concept scope exactly, at an easy-to-medium difficulty — mix " +
+                "straightforward recall with questions that need a little reasoning; avoid pure rote memorization " +
+                "and avoid advanced/tricky edge cases.\n\n" +
                 SCHEMA_INSTRUCTIONS;
 
         String raw = llmClient.generateQuestions(systemPrompt, userPrompt);
@@ -139,7 +141,7 @@ public class QuestionGenerationService {
             Rules:
             - "mcq": each prompt is a short conceptual question with exactly 4 options; correctAnswer must be the exact text of one of the options.
             - "snippets": each prompt must embed a short code snippet (3-15 lines) plus a question about it (e.g. "what does this print", "what is wrong with this code and why"). referenceAnswer is the correct explanation/output, used only for grading — never shown to the candidate.
-            - "logical": each prompt is an easy logical/algorithmic problem statement asking the candidate to write pseudocode or code (no code editor is provided — plain text). referenceAnswer is a brief correct approach/solution outline used only for grading.
+            - "logical": each prompt is an easy-to-medium logical/algorithmic problem statement asking the candidate to write pseudocode or code (no code editor is provided — plain text). referenceAnswer is a brief correct approach/solution outline used only for grading.
             - Return ONLY the JSON object, nothing else.
             """;
 
@@ -150,8 +152,9 @@ public class QuestionGenerationService {
                 "senior-level or 'good-to-have' extras — then author a question set testing only those foundations. " +
                 "Output strictly valid JSON only, no markdown, no commentary.";
         String userPrompt = "Job description:\n" + jdText + "\n\n" +
-                "Scope every question to the core/must-have technical skills in this JD, at a basics/fundamentals " +
-                "level only — skip advanced, senior, or 'good-to-have' items. " + SCHEMA_INSTRUCTIONS;
+                "Scope every question to the core/must-have technical skills in this JD, at an easy-to-medium " +
+                "fundamentals level — skip advanced, senior, or 'good-to-have' items, but don't limit everything to " +
+                "pure rote recall; some questions should need a little reasoning. " + SCHEMA_INSTRUCTIONS;
 
         String raw = llmClient.generateQuestions(systemPrompt, userPrompt);
         return parseQuestionsJson(batch, raw);

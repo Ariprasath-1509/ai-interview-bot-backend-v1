@@ -104,12 +104,13 @@ public class AuthController {
         user.setOfficialEmail(req.getOfficialEmail());
         user.setPersonalEmail(req.getPersonalEmail());
         user.setBatch(req.getBatch());
-        user.setSource(masterDataService.normalizeAndValidate(MasterDataCategory.CANDIDATE_SOURCE, req.getSource()));
+        String source = req.getSource() != null ? req.getSource() : "BENCH";
+        user.setSource(masterDataService.normalizeAndValidate(MasterDataCategory.CANDIDATE_SOURCE, source));
         user.setSkillSet(masterDataService.normalizeAndValidate(MasterDataCategory.SKILL_SET, req.getSkillSet()));
         user.setYoeActual(req.getYoeActual());
         user.setYoePortrayed(req.getYoePortrayed());
         user.setYop(req.getYop());
-        user.setBranch(BranchAccess.defaultBranch());
+        user.setBranch(Branch.isValid(req.getBranch()) ? Branch.normalize(req.getBranch()) : BranchAccess.defaultBranch());
         userRepository.save(user);
         
         try {

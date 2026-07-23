@@ -1,5 +1,6 @@
 package com.benchreadiness.screening.entity;
 
+import com.benchreadiness.screening.entity.enums.CandidatePriority;
 import com.benchreadiness.screening.entity.enums.CandidateStage;
 import com.benchreadiness.screening.entity.enums.RoundDecision;
 import jakarta.persistence.*;
@@ -61,6 +62,11 @@ public class ScreeningCandidate {
 
     @Column(name = "round1_submitted_at")
     private Instant round1SubmittedAt;
+
+    /** Recruiter-assigned priority after reviewing Round 1 results — carried through to Round 2/3 queues. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "round1_priority", length = 8)
+    private CandidatePriority round1Priority;
 
     /** Staff override — lets this candidate reopen/submit Round 1 even after the batch deadline has passed. */
     @Column(name = "allow_late_submission", nullable = false)
@@ -178,6 +184,8 @@ public class ScreeningCandidate {
     public void setRound1StartedAt(Instant round1StartedAt) { this.round1StartedAt = round1StartedAt; }
     public Instant getRound1SubmittedAt() { return round1SubmittedAt; }
     public void setRound1SubmittedAt(Instant round1SubmittedAt) { this.round1SubmittedAt = round1SubmittedAt; }
+    public CandidatePriority getRound1Priority() { return round1Priority; }
+    public void setRound1Priority(CandidatePriority round1Priority) { this.round1Priority = round1Priority; }
     public boolean isAllowLateSubmission() { return allowLateSubmission; }
     public void setAllowLateSubmission(boolean allowLateSubmission) { this.allowLateSubmission = allowLateSubmission; }
     public int getTabSwitchCount() { return tabSwitchCount; }

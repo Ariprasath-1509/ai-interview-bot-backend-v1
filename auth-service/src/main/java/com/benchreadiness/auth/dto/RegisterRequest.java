@@ -24,22 +24,20 @@ public class RegisterRequest {
 
     private String personalEmail;
 
-    @NotBlank
     private String batch;
 
-    @NotNull
     private String source;
 
     @NotNull
     private String skillSet;
 
-    @NotNull
+    /** DEVELOPMENT or TESTING — defaults server-side when absent/invalid. */
+    private String branch;
+
     private BigDecimal yoeActual;
 
-    @NotNull
     private BigDecimal yoePortrayed;
 
-    @NotNull
     private Integer yop;
 
     public String getName() { return name; }
@@ -60,6 +58,8 @@ public class RegisterRequest {
     public void setSource(String source) { this.source = source; }
     public String getSkillSet() { return skillSet; }
     public void setSkillSet(String skillSet) { this.skillSet = skillSet; }
+    public String getBranch() { return branch; }
+    public void setBranch(String branch) { this.branch = branch; }
     public BigDecimal getYoeActual() { return yoeActual; }
     public void setYoeActual(BigDecimal yoeActual) { this.yoeActual = yoeActual; }
     public BigDecimal getYoePortrayed() { return yoePortrayed; }
