@@ -42,14 +42,14 @@ public class QuestionService {
     private static final int ALL_BOT_QUESTIONS_DEDUP = Integer.MAX_VALUE;
     private static final double QUESTION_SIMILARITY_THRESHOLD = 0.62;
     /** Token-saving limits for question-generation prompts (P0/P1). */
-    private static final int TRANSCRIPT_TAIL_UTTERANCES = 3;
-    private static final int TRANSCRIPT_UTTERANCE_MAX_CHARS = 300;
-    private static final int LAST_ANSWER_MAX_CHARS = 400;
+    private static final int TRANSCRIPT_TAIL_UTTERANCES = 6;
+    private static final int TRANSCRIPT_UTTERANCE_MAX_CHARS = 600;
+    private static final int LAST_ANSWER_MAX_CHARS = 800;
     private static final int ROLLING_SUMMARY_SLOT_THRESHOLD = 8;
-    private static final int ROLLING_SUMMARY_MAX_CHARS = 1200;
-    private static final int QUESTION_BANK_SNIPPET_CHARS = 80;
-    private static final int JD_DIGEST_CHARS = 600;
-    private static final int RESUME_DIGEST_CHARS = 600;
+    private static final int ROLLING_SUMMARY_MAX_CHARS = 2500;
+    private static final int QUESTION_BANK_SNIPPET_CHARS = 120;
+    private static final int JD_DIGEST_CHARS = 2000;
+    private static final int RESUME_DIGEST_CHARS = 1500;
 
     /**
      * Marks BOT utterances that explain/simplify the current question rather than ask a new one.
@@ -805,7 +805,7 @@ public class QuestionService {
     private String extractCoveredTopics(List<NextQuestionRequest.Utterance> utterances) {
         if (utterances == null || utterances.isEmpty()) return "";
         return utterances.stream()
-            .filter(u -> "BOT".equals(u.speaker()))
+            .filter(u -> "CANDIDATE".equals(u.speaker()))
             .map(NextQuestionRequest.Utterance::text)
             .collect(Collectors.joining(" | "));
     }

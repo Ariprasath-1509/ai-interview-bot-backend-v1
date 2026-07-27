@@ -154,7 +154,7 @@ public class AssessmentService {
 
         String concept = req.getJdTitle() != null && !req.getJdTitle().isBlank() ? req.getJdTitle() : "the stated concept";
         String conceptDescription = req.getJdText() != null
-            ? truncateForPrompt(req.getJdText(), 800) : "";
+            ? truncateForPrompt(req.getJdText(), 6000) : "";
 
         String transcript = buildEfficientTranscript(utterances);
         String codeContext = buildCodeSubmissionContext(req.getCodeSubmissionJson());
@@ -437,21 +437,21 @@ public class AssessmentService {
         String yoe = String.valueOf(candidateProfile.getOrDefault("yearsOfExperience", "unknown"));
         Object claimedRaw = candidateProfile.get("claimedExpertise");
         String claimed = claimedRaw != null ? claimedRaw.toString() : "[]";
-        String jdSnippet = req.getJdText().substring(0, Math.min(400, req.getJdText().length()));
+        String jdSnippet = req.getJdText().substring(0, Math.min(6000, req.getJdText().length()));
         String resumeSnippet = req.getResumeSummary() != null
-            ? req.getResumeSummary().substring(0, Math.min(400, req.getResumeSummary().length())) : "";
+            ? req.getResumeSummary().substring(0, Math.min(4000, req.getResumeSummary().length())) : "";
 
         // ── Stage 1: Category scoring (small, deterministic JSON) ─────────────
         log.info("Stage 1: category scoring for interview {}", req.getInterviewId());
-        JsonNode scoresJson = runStage1Scoring(categories, evidenceSummary, level, yoe, req);
+        JsonNode scoresJson = runStage1Scoring(categories, evidenceSummary, level, yoe, req, userId);
 
         // ── Stage 2: Behavioral signals + resume consistency ──────────────────
         log.info("Stage 2: behavioral + resume consistency for interview {}", req.getInterviewId());
-        JsonNode behavioralJson = runStage2Behavioral(evidenceSummary, resumeSnippet, claimed, jdSnippet, req);
+        JsonNode behavioralJson = runStage2Behavioral(evidenceSummary, resumeSnippet, claimed, jdSnippet, req, userId);
 
         // ── Stage 3: Candidate feedback (pros/cons + roadmap) ─────────────────
         log.info("Stage 3: candidate feedback for interview {}", req.getInterviewId());
-        JsonNode feedbackJson = runStage3Feedback(scoresJson, categories, jdSnippet, req);
+        JsonNode feedbackJson = runStage3Feedback(scoresJson, categories, jdSnippet, req, userId);
 
         // Client brief (Stage 3b) is generated on demand when staff prepares client feedback — not during assess.
 
@@ -474,7 +474,7 @@ public class AssessmentService {
 
     // ── Stage 1: category scores + verdict + summary ──────────────────────────
     private JsonNode runStage1Scoring(List<Map<String, Object>> categories, String evidenceSummary,
-                                      String level, String yoe, AssessmentRequest req) throws Exception {
+                                      String level, String yoe, AssessmentRequest req, String userId) throws Exception {
         String categoryScoreSchema = categories.stream()
             .map(c -> "  \"" + c.get("key") + "\": {\"score\": 1-10 or null, \"strengths\": [\"...\"], \"weaknesses\": [\"...\"], \"evidence\": \"direct quote\", \"gap\": \"missing topics\", \"confidence\": \"low|medium|high\"}")
             .collect(java.util.stream.Collectors.joining(",\n"));
@@ -504,14 +504,14 @@ public class AssessmentService {
             "}";
 
         String user = "Role: " + req.getJdTitle() + "\nEvidence per category:\n" + evidenceSummary;
-        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), "stage1");
+        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
         log.info("Stage 1 response length: {}", raw.length());
         return objectMapper.readTree(JsonRepairUtil.repair(raw));
     }
 
     // ── Stage 2: behavioral signals + resume consistency ──────────────────────
     private JsonNode runStage2Behavioral(String evidenceSummary, String resumeSnippet,
-                                         String claimed, String jdSnippet, AssessmentRequest req) throws Exception {
+                                         String claimed, String jdSnippet, AssessmentRequest req, String userId) throws Exception {
         String system =
             "You are a behavioral interview analyst. Analyze the evidence and return ONLY raw JSON. No markdown.\n" +
             "{\n" +
@@ -542,14 +542,14 @@ public class AssessmentService {
             "Resume claimed: " + claimed + "\n" +
             "Resume summary: " + resumeSnippet + "\n" +
             "Evidence: " + evidenceSummary;
-        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), "stage2");
+        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
         log.info("Stage 2 response length: {}", raw.length());
         return objectMapper.readTree(JsonRepairUtil.repair(raw));
     }
 
     // ── Stage 3: pros/cons + roadmap + resume consistency for candidate ────────
     private JsonNode runStage3Feedback(JsonNode scoresJson, List<Map<String, Object>> categories,
-                                       String jdSnippet, AssessmentRequest req) throws Exception {
+                                       String jdSnippet, AssessmentRequest req, String userId) throws Exception {
         StringBuilder scoresInfo = new StringBuilder();
         JsonNode catScores = scoresJson.path("categoryScores");
         for (Map<String, Object> cat : categories) {
@@ -577,7 +577,7 @@ public class AssessmentService {
             "- resumeConsistencyForCandidate: list 3-5 key JD skills and whether demonstrated.";
 
         String user = "Role: " + req.getJdTitle() + "\nJD: " + jdSnippet + "\nScores:\n" + scoresInfo;
-        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), "stage3");
+        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
         log.info("Stage 3 response length: {}", raw.length());
         return objectMapper.readTree(JsonRepairUtil.repair(raw));
     }
@@ -755,7 +755,7 @@ public class AssessmentService {
         // Deduplicate consecutive similar answers (skip markers are kept as-is)
         List<Map<String, String>> deduplicated = deduplicateUtterances(candidates);
 
-        int start = Math.max(0, deduplicated.size() - 8);
+        int start = 0;
         StringBuilder sb = new StringBuilder();
         for (Map<String, String> ans : deduplicated.subList(start, deduplicated.size())) {
             int idx = utterances.indexOf(ans);
@@ -765,7 +765,7 @@ public class AssessmentService {
             if ("[SKIPPED]".equals(text)) {
                 sb.append("A: [Skipped by candidate — no answer provided]\n\n");
             } else {
-                sb.append("A: ").append(text, 0, Math.min(600, text.length())).append("\n\n");
+                sb.append("A: ").append(text, 0, Math.min(2500, text.length())).append("\n\n");
             }
         }
         return sb.toString().trim();
@@ -883,7 +883,7 @@ public class AssessmentService {
             String user = "Role: " + req.getJdTitle() + "\n" +
                 "Summary: " + summary + "\n" +
                 "Scores:\n" + scoresInfo + "\n" +
-                "JD (first 300 chars): " + (req.getJdText() != null ? req.getJdText().substring(0, Math.min(300, req.getJdText().length())) : "") + "\n";
+                "JD: " + (req.getJdText() != null ? req.getJdText().substring(0, Math.min(6000, req.getJdText().length())) : "") + "\n";
 
             String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
             JsonNode feedbackJson = objectMapper.readTree(JsonRepairUtil.repair(raw));
@@ -1396,11 +1396,6 @@ public class AssessmentService {
                 }
             }
 
-            // Very short responses only matter when most turns are short
-            if (!hasIssue && text.split("\\s+").length < 5) {
-                hasIssue = true;
-            }
-
             if (hasIssue) {
                 qualityIssues++;
             }
@@ -1453,8 +1448,14 @@ public class AssessmentService {
             JsonNode arr = doc.path("utterances");
             List<Map<String, String>> list = new ArrayList<>();
             if (arr.isArray())
-                for (JsonNode u : arr)
-                    list.add(Map.of("speaker", u.path("speaker").asText("CANDIDATE"), "text", u.path("text").asText("")));
+                for (JsonNode u : arr) {
+                    Map<String, String> entry = new java.util.LinkedHashMap<>();
+                    entry.put("speaker", u.path("speaker").asText("CANDIDATE"));
+                    entry.put("text", u.path("text").asText(""));
+                    String at = u.path("at").asText("");
+                    if (!at.isBlank()) entry.put("at", at);
+                    list.add(entry);
+                }
             return list;
         } catch (Exception e) { return List.of(); }
     }
@@ -1485,11 +1486,11 @@ public class AssessmentService {
         String code = sub.path("code").asText("");
         sb.append("Submission ").append(index);
         if (!question.isBlank()) {
-            sb.append(" (Q: ").append(question, 0, Math.min(120, question.length())).append(")");
+            sb.append(" (Q: ").append(question, 0, Math.min(300, question.length())).append(")");
         }
         sb.append(" [").append(language).append("]:\n");
         if (!code.isBlank()) {
-            sb.append(code, 0, Math.min(2000, code.length())).append("\n");
+            sb.append(code, 0, Math.min(6000, code.length())).append("\n");
         }
         JsonNode results = sub.path("results");
         if (results.isArray() && results.size() > 0) {

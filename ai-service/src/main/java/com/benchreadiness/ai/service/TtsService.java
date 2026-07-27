@@ -49,8 +49,8 @@ public class TtsService {
         if (trimmed.isEmpty()) {
             throw new IllegalArgumentException("text is required");
         }
-        if (trimmed.length() > 2000) {
-            trimmed = trimmed.substring(0, 2000);
+        if (trimmed.length() > 4000) {
+            trimmed = trimmed.substring(0, 4000);
         }
 
         String jsonBody = String.format(

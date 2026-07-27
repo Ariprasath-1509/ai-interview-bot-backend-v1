@@ -686,7 +686,7 @@ public class ClientBriefGenerationService {
             "- Every category in the schema MUST appear in skillAssessments with non-empty bullets.";
 
         String jdSnippet = jdText != null && !jdText.isBlank()
-            ? jdText.substring(0, Math.min(400, jdText.length())) : "";
+            ? jdText.substring(0, Math.min(5000, jdText.length())) : "";
         StringBuilder user = new StringBuilder();
         user.append("Role: ").append(jdTitle).append("\n");
         if (!clientName.isBlank()) {

@@ -84,8 +84,8 @@ public class RubricService {
             "Valid values — level: junior | mid | senior | staff. questionDifficulty: easy (<2 yrs) | medium (2-5 yrs) | hard (>5 yrs).";
 
         String user = "JD Title: " + req.getJdTitle() + "\n" +
-            "JD:\n" + req.getJdText().substring(0, Math.min(3000, req.getJdText().length())) + "\n" +
-            "Resume:\n" + req.getResumeSummary().substring(0, Math.min(2000, req.getResumeSummary().length())) +
+            "JD:\n" + req.getJdText().substring(0, Math.min(6000, req.getJdText().length())) + "\n" +
+            "Resume:\n" + req.getResumeSummary().substring(0, Math.min(4000, req.getResumeSummary().length())) +
             (req.getFocusAreas() != null && !req.getFocusAreas().isBlank()
                 ? "\nFocus areas: " + req.getFocusAreas() : "");
 
