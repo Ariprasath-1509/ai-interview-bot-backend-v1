@@ -27,7 +27,10 @@ app:
     base-url: ${APP_OLLAMA_BASE_URL:http://103.182.211.219:11434}
     model: ${APP_OLLAMA_MODEL:qwen2.5:14b}
   media:
-    stt-provider: ${APP_MEDIA_STT_PROVIDER:faster-whisper}
+    stt-provider: ${APP_MEDIA_STT_PROVIDER:sarvam}
+    sarvam-api-key: ${SARVAM_API_KEY:}
+    sarvam-url: ${SARVAM_API_URL:https://api.sarvam.ai}
+    sarvam-model: ${SARVAM_MODEL:saarika:v2}
     whisper-url: ${APP_MEDIA_WHISPER_URL:http://whisper-stt:8000}
     # whisper-1 tells TranscribeService not to send a model field — server uses its preloaded WHISPER__MODEL
     whisper-model: ${APP_MEDIA_WHISPER_MODEL:whisper-1}

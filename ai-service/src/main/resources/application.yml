@@ -62,7 +62,10 @@ app:
     thread-pool-size: 10
     queue-capacity: 50
   media:
-    stt-provider: ${APP_MEDIA_STT_PROVIDER:faster-whisper}
+    stt-provider: ${APP_MEDIA_STT_PROVIDER:sarvam}
+    sarvam-api-key: ${SARVAM_API_KEY:}
+    sarvam-url: ${SARVAM_API_URL:https://api.sarvam.ai}
+    sarvam-model: ${SARVAM_MODEL:saarika:v2}
     whisper-url: ${APP_MEDIA_WHISPER_URL:http://localhost:6013}
     whisper-model: ${APP_MEDIA_WHISPER_MODEL:whisper-1}
     kokoro-url: ${APP_MEDIA_KOKORO_URL:http://localhost:6014}
