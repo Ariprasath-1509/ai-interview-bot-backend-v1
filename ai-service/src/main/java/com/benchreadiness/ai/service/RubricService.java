@@ -72,18 +72,20 @@ public class RubricService {
             "    \"focusAreas\": [\"area1\", \"area2\"]\n" +
             "  },\n" +
             "  \"candidateProfile\": {\n" +
-            "    \"yearsOfExperience\": 0,\n" +
-            "    \"level\": \"junior\", \"mid\", \"senior\", or \"staff\",\n" +
+            "    \"yearsOfExperience\": 5,\n" +
+            "    \"level\": \"mid\",\n" +
             "    \"primarySkills\": [\"skill1\"],\n" +
             "    \"claimedExpertise\": [\"area1\"],\n" +
-            "    \"questionDifficulty\": \"easy\", \"medium\", or \"hard\",\n" +
+            "    \"questionDifficulty\": \"medium\",\n" +
             "    \"resumeSummary\": \"A concise one-sentence description\"\n" +
             "  }\n" +
-            "}";
+            "}\n" +
+            "\n" +
+            "Valid values — level: junior | mid | senior | staff. questionDifficulty: easy (<2 yrs) | medium (2-5 yrs) | hard (>5 yrs).";
 
         String user = "JD Title: " + req.getJdTitle() + "\n" +
-            "JD:\n" + req.getJdText().substring(0, Math.min(600, req.getJdText().length())) + "\n" +
-            "Resume:\n" + req.getResumeSummary().substring(0, Math.min(500, req.getResumeSummary().length())) +
+            "JD:\n" + req.getJdText().substring(0, Math.min(3000, req.getJdText().length())) + "\n" +
+            "Resume:\n" + req.getResumeSummary().substring(0, Math.min(2000, req.getResumeSummary().length())) +
             (req.getFocusAreas() != null && !req.getFocusAreas().isBlank()
                 ? "\nFocus areas: " + req.getFocusAreas() : "");
 

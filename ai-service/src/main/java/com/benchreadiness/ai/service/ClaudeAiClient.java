@@ -72,7 +72,7 @@ public class ClaudeAiClient implements LlmClient {
         if (operationType == null) return 1000;
         return switch (operationType) {
             case "question" -> 300;
-            case "rubric" -> 1000;
+            case "rubric" -> 2500;
             case "assessment" -> 4000;
             case "matching" -> 3200;
             default -> 1000;
@@ -249,7 +249,7 @@ public class ClaudeAiClient implements LlmClient {
 
     @Override
     public String chatRubricWithTracking(String systemPrompt, String userPrompt, String interviewId, String userId) throws Exception {
-        return chat(systemPrompt, userPrompt, questionModel, questionTemperature, getMaxTokensForOperation("rubric"), interviewId, "rubric", userId);
+        return chat(systemPrompt, userPrompt, assessmentModel, assessmentTemperature, getMaxTokensForOperation("rubric"), interviewId, "rubric", userId);
     }
 
     @Override
