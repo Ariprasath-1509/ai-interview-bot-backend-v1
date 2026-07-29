@@ -35,7 +35,7 @@ public class MatchingService {
         this.reviewServiceClient = reviewServiceClient;
     }
     
-    @Cacheable(value = "candidateMatches", key = "#clientId + '-' + #source + '-' + #skillSet + '-' + #minYoeRequired + '-' + #maxCandidates")
+    @Cacheable(value = "candidateMatches", key = "#clientId + '-' + #source + '-' + #skillSet + '-' + #minYoeRequired + '-' + #maxCandidates + '-' + (#userRole != null ? #userRole : 'anonymous')")
     public List<CandidateMatch> findMatchingCandidates(String clientId, String source, Integer maxCandidates, 
                                                         String skillSet, Double minYoeRequired, String userId, String userRole) {
         try {
@@ -407,13 +407,15 @@ public class MatchingService {
         String jdDescription = client.getJdDescription().toLowerCase();
         String jdTitle = client.getJdRole().toLowerCase();
         String combined = jdDescription + " " + jdTitle;
-        Double yoeActual = candidate.get("yoeActual") != null ? 
-            ((Number) candidate.get("yoeActual")).doubleValue() : 0.0;
+        // Use yoePortrayed for scoring (same as the pre-filter uses) — falls back to yoeActual
+        Double yoePortrayed = candidate.get("yoePortrayed") != null
+            ? ((Number) candidate.get("yoePortrayed")).doubleValue()
+            : (candidate.get("yoeActual") != null ? ((Number) candidate.get("yoeActual")).doubleValue() : 0.0);
         String rating = (String) candidate.get("rating");
         String candidateStatus = (String) candidate.get("candidateStatus");
-        Double avgScore = candidate.get("avgScore") != null ? 
+        Double avgScore = candidate.get("avgScore") != null ?
             ((Number) candidate.get("avgScore")).doubleValue() : 0.0;
-        Integer noOfInterviews = candidate.get("noOfInterviews") != null ? 
+        Integer noOfInterviews = candidate.get("noOfInterviews") != null ?
             ((Number) candidate.get("noOfInterviews")).intValue() : 0;
         
         // 1. SKILL ALIGNMENT (25% weight) - More stringent
@@ -445,42 +447,39 @@ public class MatchingService {
         double requiredYoe = extractRequiredExperience(combined);
         
         if (requiredYoe > 0) {
-            double expGap = Math.abs(yoeActual - requiredYoe);
+            double expGap = Math.abs(yoePortrayed - requiredYoe);
             if (expGap <= 0.5) {
-                expScore = 0.30; // Perfect experience match
+                expScore = 0.30;
             } else if (expGap <= 1.0) {
-                expScore = 0.25; // Close match
+                expScore = 0.25;
             } else if (expGap <= 2.0) {
-                expScore = 0.15; // Acceptable gap
+                expScore = 0.15;
             } else if (expGap <= 3.0) {
-                expScore = 0.10; // Significant gap
+                expScore = 0.10;
             } else {
-                expScore = 0.05; // Major experience mismatch
+                expScore = 0.05;
             }
-            
-            // Penalty for under-qualification
-            if (yoeActual < requiredYoe - 1.0) {
-                expScore *= 0.7; // 30% penalty for being under-qualified
+            if (yoePortrayed < requiredYoe - 1.0) {
+                expScore *= 0.7;
             }
         } else {
-            // Fallback for unclear requirements
-            if (yoeActual >= 2 && yoeActual <= 5) expScore = 0.20;
-            else if (yoeActual > 5) expScore = 0.15;
+            if (yoePortrayed >= 2 && yoePortrayed <= 5) expScore = 0.20;
+            else if (yoePortrayed > 5) expScore = 0.15;
             else expScore = 0.10;
         }
         score += expScore;
-        
-        // 3. RATING ASSESSMENT (15% weight) - More conservative
+
+        // 3. RATING ASSESSMENT (15% weight)
         double ratingScore = 0.0;
         if ("ASSET".equals(rating)) {
             ratingScore = 0.15;
         } else if ("MEDIUM".equals(rating)) {
             ratingScore = 0.08;
         } else if ("LIABILITY".equals(rating)) {
-            ratingScore = -0.05; // Penalty for liability rating
+            ratingScore = -0.05;
         }
         score += ratingScore;
-        
+
         // 4. READINESS STATUS (10% weight)
         double readinessScore = 0.0;
         if ("RFD".equals(candidateStatus)) {
@@ -489,8 +488,8 @@ public class MatchingService {
             readinessScore = 0.03;
         }
         score += readinessScore;
-        
-        // 5. INTERVIEW PERFORMANCE (15% weight) - More nuanced
+
+        // 5. INTERVIEW PERFORMANCE (15% weight)
         double perfScore = 0.0;
         if (avgScore >= 4.5) {
             perfScore = 0.15;
@@ -501,37 +500,40 @@ public class MatchingService {
         } else if (avgScore >= 3.0) {
             perfScore = 0.05;
         } else if (avgScore > 0) {
-            perfScore = -0.05; // Penalty for poor performance
+            perfScore = -0.05;
         }
         score += perfScore;
-        
-        // 6. INTERVIEW FREQUENCY PENALTY (5% weight) - Much more aggressive
+
+        // 6. INTERVIEW FREQUENCY PENALTY — only penalise high count combined with poor performance
         double frequencyPenalty = 0.0;
-        if (noOfInterviews >= 20) {
-            frequencyPenalty = -0.25; // Severe penalty for excessive interviews
-        } else if (noOfInterviews >= 15) {
-            frequencyPenalty = -0.20;
-        } else if (noOfInterviews >= 10) {
-            frequencyPenalty = -0.15;
-        } else if (noOfInterviews >= 7) {
-            frequencyPenalty = -0.10;
-        } else if (noOfInterviews >= 5) {
-            frequencyPenalty = -0.05;
+        boolean poorPerformer = avgScore > 0 && avgScore < 3.0;
+        if (poorPerformer) {
+            if (noOfInterviews >= 20) {
+                frequencyPenalty = -0.25;
+            } else if (noOfInterviews >= 15) {
+                frequencyPenalty = -0.20;
+            } else if (noOfInterviews >= 10) {
+                frequencyPenalty = -0.15;
+            } else if (noOfInterviews >= 7) {
+                frequencyPenalty = -0.10;
+            } else if (noOfInterviews >= 5) {
+                frequencyPenalty = -0.05;
+            }
         }
         score += frequencyPenalty;
-        
+
         // 7. ROLE COMPLEXITY ADJUSTMENT
         double complexityAdjustment = 0.0;
         if (combined.contains("senior") || combined.contains("lead") || combined.contains("architect")) {
-            if (yoeActual < 4.0) {
-                complexityAdjustment = -0.15; // Significant penalty for senior roles with low experience
-            } else if (yoeActual < 6.0) {
+            if (yoePortrayed < 4.0) {
+                complexityAdjustment = -0.15;
+            } else if (yoePortrayed < 6.0) {
                 complexityAdjustment = -0.08;
             }
         }
         if (combined.contains("principal") || combined.contains("staff")) {
-            if (yoeActual < 7.0) {
-                complexityAdjustment = -0.20; // Major penalty for principal roles
+            if (yoePortrayed < 7.0) {
+                complexityAdjustment = -0.20;
             }
         }
         score += complexityAdjustment;
@@ -565,16 +567,18 @@ public class MatchingService {
         
         // Extract candidate data
         String skillSet = (String) candidate.get("skillSet");
-        Double yoeActual = candidate.get("yoeActual") != null ? 
-            ((Number) candidate.get("yoeActual")).doubleValue() : 0.0;
+        Double yoePortrayed = candidate.get("yoePortrayed") != null
+            ? ((Number) candidate.get("yoePortrayed")).doubleValue()
+            : (candidate.get("yoeActual") != null ? ((Number) candidate.get("yoeActual")).doubleValue() : 0.0);
         String rating = (String) candidate.get("rating");
         String candidateStatus = (String) candidate.get("candidateStatus");
-        Double avgScore = candidate.get("avgScore") != null ? 
+        Double avgScore = candidate.get("avgScore") != null ?
             ((Number) candidate.get("avgScore")).doubleValue() : 0.0;
         String lastVerdict = (String) candidate.get("lastVerdict");
-        Integer noOfInterviews = candidate.get("noOfInterviews") != null ? 
+        Integer noOfInterviews = candidate.get("noOfInterviews") != null ?
             ((Number) candidate.get("noOfInterviews")).intValue() : 0;
-        
+        boolean poorPerformer = avgScore > 0 && avgScore < 3.0;
+
         String jdLower = client.getJdDescription().toLowerCase();
         String jdTitle = client.getJdRole().toLowerCase();
         String combined = jdLower + " " + jdTitle;
@@ -587,13 +591,13 @@ public class MatchingService {
             switch (skillSet) {
                 case "JAVA_SB":
                     if (combined.contains("java") || combined.contains("spring")) {
-                        if (yoeActual >= 3.0) {
-                            strengths.add("Solid Java & Spring Boot foundation (" + String.format("%.1f", yoeActual) + " years)");
+                        if (yoePortrayed >= 3.0) {
+                            strengths.add("Solid Java & Spring Boot foundation (" + String.format("%.1f", yoePortrayed) + " years)");
                         } else {
-                            strengths.add("Basic Java & Spring Boot knowledge (" + String.format("%.1f", yoeActual) + " years)");
+                            strengths.add("Basic Java & Spring Boot knowledge (" + String.format("%.1f", yoePortrayed) + " years)");
                         }
                         
-                        if (combined.contains("microservice") && yoeActual >= 4.0) {
+                        if (combined.contains("microservice") && yoePortrayed >= 4.0) {
                             strengths.add("Microservices experience with sufficient seniority");
                         }
                     }
@@ -601,7 +605,7 @@ public class MatchingService {
                 case "JFSR":
                     if (combined.contains("full stack")) {
                         strengths.add("Full-stack development capabilities");
-                        if (yoeActual >= 3.0) {
+                        if (yoePortrayed >= 3.0) {
                             strengths.add("Balanced frontend-backend experience");
                         }
                     }
@@ -609,24 +613,24 @@ public class MatchingService {
                 case "REACT_JS":
                     if (combined.contains("react") || combined.contains("frontend")) {
                         strengths.add("Modern React.js expertise");
-                        if (yoeActual >= 2.5) {
+                        if (yoePortrayed >= 2.5) {
                             strengths.add("Mature frontend development skills");
                         }
                     }
                     break;
             }
         }
-        
-        // Experience-based strengths (realistic assessment)
+
+        // Experience-based strengths
         if (requiredYoe > 0) {
-            double expGap = yoeActual - requiredYoe;
+            double expGap = yoePortrayed - requiredYoe;
             if (expGap >= 0 && expGap <= 1.0) {
-                strengths.add("Experience level matches role requirements (" + String.format("%.1f", yoeActual) + " vs " + String.format("%.0f", requiredYoe) + " required)");
+                strengths.add("Experience level matches role requirements (" + String.format("%.1f", yoePortrayed) + " vs " + String.format("%.0f", requiredYoe) + " required)");
             } else if (expGap > 1.0) {
-                strengths.add("Above-required experience level (" + String.format("%.1f", yoeActual) + " vs " + String.format("%.0f", requiredYoe) + " required)");
+                strengths.add("Above-required experience level (" + String.format("%.1f", yoePortrayed) + " vs " + String.format("%.0f", requiredYoe) + " required)");
             }
-        } else if (yoeActual >= 4.0) {
-            strengths.add("Experienced professional (" + String.format("%.1f", yoeActual) + " years)");
+        } else if (yoePortrayed >= 4.0) {
+            strengths.add("Experienced professional (" + String.format("%.1f", yoePortrayed) + " years)");
         }
         
         // Rating-based strengths (more cautious)
@@ -656,31 +660,34 @@ public class MatchingService {
             strengths.add("Recently assessed as deployment-ready");
         }
         
-        // CONCERNS ANALYSIS - Much more comprehensive and realistic
-        
-        // Experience concerns (detailed analysis)
+        // CONCERNS ANALYSIS
+
+        // Experience concerns
         if (requiredYoe > 0) {
-            double expGap = requiredYoe - yoeActual;
+            double expGap = requiredYoe - yoePortrayed;
             if (expGap >= 3.0) {
-                concerns.add("MAJOR experience gap: " + String.format("%.1f", expGap) + " years below requirement (" + String.format("%.1f", yoeActual) + " vs " + String.format("%.0f", requiredYoe) + " required)");
+                concerns.add("MAJOR experience gap: " + String.format("%.1f", expGap) + " years below requirement (" + String.format("%.1f", yoePortrayed) + " vs " + String.format("%.0f", requiredYoe) + " required)");
             } else if (expGap >= 1.5) {
                 concerns.add("Significant experience gap: " + String.format("%.1f", expGap) + " years below requirement");
             } else if (expGap >= 0.5) {
                 concerns.add("Minor experience gap: " + String.format("%.1f", expGap) + " years below requirement");
             }
         }
-        
-        // Interview frequency concerns (much more aggressive)
-        if (noOfInterviews >= 20) {
-            concerns.add("CRITICAL: Excessive interview frequency (" + noOfInterviews + ") - indicates persistent rejection or selectivity issues");
+
+        // Interview frequency concerns — only flag when combined with poor performance
+        if (poorPerformer) {
+            if (noOfInterviews >= 20) {
+                concerns.add("CRITICAL: High interview frequency (" + noOfInterviews + ") with poor performance — persistent readiness gap");
+            } else if (noOfInterviews >= 15) {
+                concerns.add("MAJOR: Very high interview frequency (" + noOfInterviews + ") with below-average scores");
+            } else if (noOfInterviews >= 10) {
+                concerns.add("HIGH: Frequent interviews (" + noOfInterviews + ") with poor performance — targeted coaching needed");
+            } else if (noOfInterviews >= 7) {
+                concerns.add("MODERATE: Multiple interviews (" + noOfInterviews + ") combined with low scores");
+            }
         } else if (noOfInterviews >= 15) {
-            concerns.add("MAJOR: Very high interview frequency (" + noOfInterviews + ") - requires investigation into rejection patterns");
-        } else if (noOfInterviews >= 10) {
-            concerns.add("HIGH: Frequent interviews (" + noOfInterviews + ") - may indicate fit or performance issues");
-        } else if (noOfInterviews >= 7) {
-            concerns.add("MODERATE: Multiple interviews (" + noOfInterviews + ") - verify availability and commitment");
-        } else if (noOfInterviews >= 5) {
-            concerns.add("Several interviews (" + noOfInterviews + ") - check recent feedback and availability");
+            // Very high count even for good performers warrants a note
+            concerns.add("Very high interview frequency (" + noOfInterviews + ") — confirm candidate availability");
         }
         
         // Performance concerns (more detailed)
@@ -699,22 +706,22 @@ public class MatchingService {
             concerns.add("RISK: Rated as liability - previous performance or behavioral concerns noted");
         }
         
-        // Role-specific concerns (much more detailed)
-        if ((combined.contains("senior") || combined.contains("sr.")) && yoeActual < 4.0) {
-            concerns.add("MISMATCH: Senior role requires 4+ years, candidate has " + String.format("%.1f", yoeActual) + " years");
+        // Role-specific concerns
+        if ((combined.contains("senior") || combined.contains("sr.")) && yoePortrayed < 4.0) {
+            concerns.add("MISMATCH: Senior role requires 4+ years, candidate portrays " + String.format("%.1f", yoePortrayed) + " years");
         }
-        if ((combined.contains("lead") || combined.contains("principal")) && yoeActual < 6.0) {
-            concerns.add("MISMATCH: Leadership role requires 6+ years, candidate has " + String.format("%.1f", yoeActual) + " years");
+        if ((combined.contains("lead") || combined.contains("principal")) && yoePortrayed < 6.0) {
+            concerns.add("MISMATCH: Leadership role requires 6+ years, candidate portrays " + String.format("%.1f", yoePortrayed) + " years");
         }
-        if (combined.contains("architect") && yoeActual < 7.0) {
-            concerns.add("MISMATCH: Architecture role requires 7+ years, candidate has " + String.format("%.1f", yoeActual) + " years");
+        if (combined.contains("architect") && yoePortrayed < 7.0) {
+            concerns.add("MISMATCH: Architecture role requires 7+ years, candidate portrays " + String.format("%.1f", yoePortrayed) + " years");
         }
-        
+
         // Technology-specific concerns
-        if (combined.contains("microservice") && yoeActual < 3.5) {
+        if (combined.contains("microservice") && yoePortrayed < 3.5) {
             concerns.add("Microservices experience typically requires 3.5+ years, candidate may lack depth");
         }
-        if (combined.contains("cloud") && yoeActual < 3.0) {
+        if (combined.contains("cloud") && yoePortrayed < 3.0) {
             concerns.add("Cloud technologies require substantial experience, candidate may need training");
         }
         
@@ -892,17 +899,15 @@ public class MatchingService {
         return email;
     }
     
-    private List<String> parseJsonArray(String jsonArray) {
+    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
+        new com.fasterxml.jackson.databind.ObjectMapper();
+
+    private List<String> parseJsonArray(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
         try {
-            if (jsonArray.startsWith("[") && jsonArray.endsWith("]")) {
-                jsonArray = jsonArray.substring(1, jsonArray.length() - 1);
-            }
-            return java.util.Arrays.stream(jsonArray.split(","))
-                .map(s -> s.trim().replaceAll("^\"|\"$", ""))
-                .filter(s -> !s.isEmpty())
-                .collect(java.util.stream.Collectors.toList());
+            return MAPPER.readValue(raw, new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
         } catch (Exception e) {
-            return new ArrayList<>();
+            return List.of(raw.trim());
         }
     }
     

@@ -2,12 +2,18 @@ package com.benchreadiness.interview.service;
 
 import com.benchreadiness.interview.client.AiMatchingClient;
 import com.benchreadiness.interview.client.AuthServiceClient;
+import com.benchreadiness.interview.client.ReviewServiceClient;
 import com.benchreadiness.interview.dto.CandidateClientMatch;
 import com.benchreadiness.interview.dto.CandidateMatchingResult;
 import com.benchreadiness.interview.entity.CandidateMatchingCache;
 import com.benchreadiness.interview.entity.Client;
+import com.benchreadiness.interview.entity.Interview;
+import com.benchreadiness.interview.entity.InterviewStatus;
+import com.benchreadiness.interview.entity.PositionRequirement;
+import com.benchreadiness.interview.entity.SkillRequirement;
 import com.benchreadiness.interview.repository.CandidateMatchingCacheRepository;
 import com.benchreadiness.interview.repository.ClientRepository;
+import com.benchreadiness.interview.repository.InterviewRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -27,6 +33,8 @@ public class CandidateMatchingService {
     private final ClientRepository clientRepository;
     private final AuthServiceClient authServiceClient;
     private final AiMatchingClient aiMatchingClient;
+    private final InterviewRepository interviewRepository;
+    private final ReviewServiceClient reviewServiceClient;
     private final ObjectMapper objectMapper;
     private final com.benchreadiness.interview.repository.EngineerRepository engineerRepository;
 
@@ -34,11 +42,15 @@ public class CandidateMatchingService {
                                    ClientRepository clientRepository,
                                    AuthServiceClient authServiceClient,
                                    AiMatchingClient aiMatchingClient,
+                                   InterviewRepository interviewRepository,
+                                   ReviewServiceClient reviewServiceClient,
                                    com.benchreadiness.interview.repository.EngineerRepository engineerRepository) {
         this.cacheRepository = cacheRepository;
         this.clientRepository = clientRepository;
         this.authServiceClient = authServiceClient;
         this.aiMatchingClient = aiMatchingClient;
+        this.interviewRepository = interviewRepository;
+        this.reviewServiceClient = reviewServiceClient;
         this.engineerRepository = engineerRepository;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
@@ -150,6 +162,34 @@ public class CandidateMatchingService {
     
     private CandidateClientMatch performSingleClientMatch(Map<String, Object> candidate, Client client) {
         try {
+            // Pre-filter: if the client has explicit skill requirements, skip candidates who don't match
+            if (!client.getSkillRequirements().isEmpty()) {
+                String candidateSkill = (String) candidate.get("skillSet");
+                String candidateSource = (String) candidate.get("source");
+                double yoePortrayed = candidate.get("yoePortrayed") != null
+                    ? ((Number) candidate.get("yoePortrayed")).doubleValue() : 0.0;
+
+                boolean passesAnyRequirement = false;
+                for (SkillRequirement skillReq : client.getSkillRequirements()) {
+                    if (!skillReq.getSkillSet().equals(candidateSkill)) continue;
+                    for (PositionRequirement posReq : skillReq.getPositions()) {
+                        boolean sourceMatch = "BENCH_B2B".equals(posReq.getSource())
+                            ? ("BENCH".equals(candidateSource) || "B2B".equals(candidateSource))
+                            : posReq.getSource().equals(candidateSource);
+                        if (sourceMatch && yoePortrayed >= posReq.getMinYoeRequired()) {
+                            passesAnyRequirement = true;
+                            break;
+                        }
+                    }
+                    if (passesAnyRequirement) break;
+                }
+                if (!passesAnyRequirement) {
+                    log.debug("Candidate {} skipped for client {} — no matching skill/YOE requirement",
+                        candidate.get("id"), client.getId());
+                    return null;
+                }
+            }
+
             // Enhance candidate data with interview evidence and proper fields
             Map<String, Object> enhancedCandidate = enhanceCandidateForMatching(candidate);
             
@@ -303,115 +343,95 @@ public class CandidateMatchingService {
     }
     
     private Map<String, Object> getInterviewEvidence(Map<String, Object> candidate) {
+        String candidateId = String.valueOf(candidate.getOrDefault("id", "unknown"));
         try {
+            String email = getCandidateEmail(candidate);
+            if (email == null || email.isBlank()) {
+                log.warn("No email found for candidate {}, cannot fetch real interview evidence", candidateId);
+                return minimalEvidence();
+            }
+
+            List<Interview> recentInterviews = interviewRepository
+                .findByCandidateEmailOrderByCreatedAtDesc(email)
+                .stream()
+                .filter(i -> i.getStatus() == InterviewStatus.COMPLETED
+                          || i.getStatus() == InterviewStatus.SIGNED_OFF)
+                .limit(5)
+                .collect(Collectors.toList());
+
+            if (recentInterviews.isEmpty()) {
+                log.debug("No completed interviews found for candidate {}", candidateId);
+                return minimalEvidence();
+            }
+
+            List<String> allStrengths = new ArrayList<>();
+            List<String> allWeaknesses = new ArrayList<>();
+            Map<String, List<Double>> categoryScoresRaw = new HashMap<>();
+
+            for (Interview interview : recentInterviews) {
+                try {
+                    List<Map<String, Object>> scores = reviewServiceClient.getScores(interview.getId());
+                    for (Map<String, Object> score : scores) {
+                        String dimension = (String) score.get("dimension");
+                        Object valueObj = score.get("value");
+                        if (dimension != null && valueObj != null) {
+                            categoryScoresRaw.computeIfAbsent(dimension, k -> new ArrayList<>())
+                                .add(((Number) valueObj).doubleValue());
+                        }
+                        allStrengths.addAll(parseJsonArray((String) score.get("strengths")));
+                        allWeaknesses.addAll(parseJsonArray((String) score.get("weaknesses")));
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to fetch scores for interview {}: {}", interview.getId(), e.getMessage());
+                }
+            }
+
+            Map<String, Double> avgCategoryScores = new HashMap<>();
+            for (Map.Entry<String, List<Double>> entry : categoryScoresRaw.entrySet()) {
+                double avg = entry.getValue().stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+                avgCategoryScores.put(entry.getKey(), Math.round(avg * 10.0) / 10.0);
+            }
+
+            double overallAvg = avgCategoryScores.values().stream()
+                .mapToDouble(Double::doubleValue).average().orElse(0.0);
+
             Map<String, Object> evidence = new HashMap<>();
-
-            String candidateId = String.valueOf(candidate.getOrDefault("id", ""));
-            int interviewCount = candidate.get("systemInterviewCount") instanceof Number n ? Math.max(1, n.intValue()) : 1;
-            String rating = String.valueOf(candidate.getOrDefault("rating", "MEDIUM"));
-            String skillSet = String.valueOf(candidate.getOrDefault("skillSet", "GENERAL"));
-
-            List<String> strengths = generateDeterministicStrengths(skillSet, rating, interviewCount);
-            List<String> weaknesses = generateDeterministicWeaknesses(skillSet, rating, interviewCount);
-            Map<String, Double> categoryScores = generateDeterministicCategoryScores(candidateId, rating, interviewCount);
-            
-            evidence.put("strengths", strengths);
-            evidence.put("weaknesses", weaknesses);
-            evidence.put("categoryScores", categoryScores);
-            evidence.put("recentInterviewCount", interviewCount);
-            
-            // Calculate average score from category scores
-            double averageScore = categoryScores.values().stream()
-                .mapToDouble(Double::doubleValue)
-                .average()
-                .orElse(3.5);
-            evidence.put("averageScore", Math.round(averageScore * 10.0) / 10.0);
-            
+            evidence.put("recentInterviewCount", recentInterviews.size());
+            evidence.put("averageScore", Math.round(overallAvg * 10.0) / 10.0);
+            evidence.put("strengths", deduplicateAndLimit(allStrengths, 5));
+            evidence.put("weaknesses", deduplicateAndLimit(allWeaknesses, 5));
+            evidence.put("categoryScores", avgCategoryScores);
             return evidence;
-            
+
         } catch (Exception e) {
-            String candidateId = String.valueOf(candidate.getOrDefault("id", "unknown"));
             log.warn("Failed to get interview evidence for candidate {}: {}", candidateId, e.getMessage());
-            
-            // Return minimal evidence if lookup fails
-            return Map.of(
-                "strengths", List.of("Candidate available for technical evaluation"),
-                "weaknesses", List.of("Limited interview data available"),
-                "categoryScores", Map.of("overall", 3.5),
-                "recentInterviewCount", 1,
-                "averageScore", 3.5
-            );
+            return minimalEvidence();
         }
     }
-    
-    private List<String> generateDeterministicStrengths(String skillSet, String rating, int interviewCount) {
-        List<String> strengths = new ArrayList<>();
-        strengths.add("Demonstrates " + normalizeSkillLabel(skillSet) + " fundamentals in interview responses");
-        if ("ASSET".equalsIgnoreCase(rating)) {
-            strengths.add("Consistent technical depth with above-average response quality");
-        } else {
-            strengths.add("Explains problem-solving steps with reasonable structure");
+
+    private Map<String, Object> minimalEvidence() {
+        return Map.of(
+            "strengths", List.of(),
+            "weaknesses", List.of(),
+            "categoryScores", Map.of(),
+            "recentInterviewCount", 0,
+            "averageScore", 0.0
+        );
+    }
+
+    private List<String> parseJsonArray(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        try {
+            return objectMapper.readValue(raw, new TypeReference<List<String>>() {});
+        } catch (Exception e) {
+            // Graceful fallback for non-JSON strings
+            return List.of(raw.trim());
         }
-        if (interviewCount >= 3) {
-            strengths.add("Repeated interview exposure indicates improving readiness confidence");
-        } else {
-            strengths.add("Shows baseline readiness for guided client-round preparation");
-        }
-        return strengths;
-    }
-    
-    private List<String> generateDeterministicWeaknesses(String skillSet, String rating, int interviewCount) {
-        List<String> weaknesses = new ArrayList<>();
-        if (!"ASSET".equalsIgnoreCase(rating)) {
-            weaknesses.add("Needs stronger depth in advanced " + normalizeSkillLabel(skillSet) + " scenarios");
-        }
-        weaknesses.add("Should improve trade-off articulation with concrete production examples");
-        if (interviewCount >= 7) {
-            weaknesses.add("High interview volume suggests unresolved readiness gaps need targeted coaching");
-        } else {
-            weaknesses.add("System design depth can be improved for higher complexity client rounds");
-        }
-        return weaknesses;
-    }
-    
-    private Map<String, Double> generateDeterministicCategoryScores(String candidateId, String rating, int interviewCount) {
-        Map<String, Double> scores = new HashMap<>();
-
-        int seed = Math.abs(candidateId.hashCode());
-        double ratingBias = switch (rating != null ? rating.toUpperCase() : "MEDIUM") {
-            case "ASSET" -> 0.5;
-            case "LIABILITY" -> -0.5;
-            default -> 0.0;
-        };
-        double interviewBias = Math.min(0.4, Math.max(-0.2, (interviewCount - 3) * 0.05));
-
-        scores.put("coreJava", boundedScore(3.2 + ratingBias + interviewBias + seededDelta(seed, 1)));
-        scores.put("spring", boundedScore(3.1 + ratingBias + interviewBias + seededDelta(seed, 2)));
-        scores.put("microservices", boundedScore(3.0 + ratingBias + interviewBias + seededDelta(seed, 3)));
-        scores.put("database", boundedScore(3.1 + ratingBias + interviewBias + seededDelta(seed, 4)));
-        scores.put("problemSolving", boundedScore(3.2 + ratingBias + interviewBias + seededDelta(seed, 5)));
-
-        return scores;
     }
 
-    private double seededDelta(int seed, int salt) {
-        int mixed = Math.abs((seed * 31) + (salt * 97));
-        int bucket = mixed % 9; // 0..8
-        return (bucket - 4) * 0.05; // -0.20 .. +0.20
-    }
-
-    private double boundedScore(double raw) {
-        double bounded = Math.max(1.5, Math.min(4.8, raw));
-        return Math.round(bounded * 10.0) / 10.0;
-    }
-
-    private String normalizeSkillLabel(String skillSet) {
-        return switch (skillSet != null ? skillSet.toUpperCase() : "") {
-            case "JAVA_SB" -> "Java + Spring Boot";
-            case "JFSR" -> "Java Full Stack React";
-            case "REACT_JS" -> "React";
-            default -> "core technical";
-        };
+    private List<String> deduplicateAndLimit(List<String> items, int limit) {
+        return items.stream().filter(s -> s != null && !s.isBlank())
+            .distinct().limit(limit).collect(Collectors.toList());
     }
     
     private String getCandidateEmail(Map<String, Object> candidate) {

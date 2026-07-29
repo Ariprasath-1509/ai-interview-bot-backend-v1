@@ -46,11 +46,10 @@ public class AiMatchingService {
             String candidatesJson = objectMapper.writeValueAsString(compactCandidates);
             
             String response = llmClient.chatMatching(prompt, candidatesJson);
-            
-            // Track tokens - skip for matching since we don't have interviewId
-            // Token tracking is optional for matching operations
-            
-            return parseMatchingResponse(response, request);
+
+            String aiSource = (llmClient instanceof HybridLlmClient h && h.isClaudeConfigured())
+                ? "ai-claude" : "ai-ollama";
+            return parseMatchingResponse(response, request, aiSource);
             
         } catch (Exception e) {
             log.error("AI matching failed: {}", e.getMessage());
@@ -59,38 +58,44 @@ public class AiMatchingService {
     }
 
     private String buildMatchingPrompt(MatchingRequest request) {
+        String jdText = request.getJdDescription() != null
+            ? request.getJdDescription().substring(0, Math.min(5000, request.getJdDescription().length()))
+            : "";
         return """
             You are a highly strict technical recruitment filter ranking candidate text packages against a target Client Job Description.
             You must base your deductions exclusively on the candidate JSON properties provided. Do NOT assume, infer, or hallucinate skills.
-            
+
             TARGET SYSTEM SCOPE:
             - Client Target Name: %s
             - Target Profile Designation: %s
             - Client Platform Source: %s
             - Complete JD Profile Text: %s
             - Maximum Allowed Output Count: %d
-            
+
             STRICT ALGORITHM EVALUATION RULESET:
-            1. Skill Weight (30%% Max Value): Prioritize 'interviewEvidence' metrics over raw resume claims. Deduct heavily if modern structural frameworks (e.g., distributed architectures, microservices) are reduced down to simple basic CRUD interactions.
+            1. Skill Weight (30%% Max Value): Prioritize 'interviewEvidence' metrics over raw resume claims. Deduct heavily if modern structural frameworks (e.g., distributed architectures, microservices) are reduced to simple CRUD interactions.
             2. Experience Weight (25%% Max Value): Evaluate the 'yoeForMatching' metric. If it sits 20-30%% below requirements, enforce a strong penalty. If it falls greater than 30%% below, implement a severe score reduction.
             3. Ownership Weight (20%% Max Value): Lower scores if the candidate profile reflects only maintenance or support tasks rather than feature design ownership.
-            4. Stability Weight (15%% Max Value): Apply a strong penalty if 'systemInterviewCount' is greater than or equal to 8, or if 'noOfInterviews' is greater than or equal to 12.
-            5. Performance Weight (10%% Max Value): Extract 'avgInterviewScore'. Strong communication skills must NOT mask technical gaps.
-            
+            4. Stability Weight (15%% Max Value): Apply a penalty ONLY if a candidate has a HIGH interview count (systemInterviewCount >= 8 or noOfInterviews >= 12) AND their 'avgInterviewScore' is consistently low (below 6/10). A high interview count with strong scores is a positive signal — do NOT penalize well-performing, well-tested candidates.
+            5. Performance Weight (10%% Max Value): Use 'avgInterviewScore' from interviewEvidence. Strong communication skills must NOT mask technical gaps.
+
             SCORE ALIGNMENT LIMITATIONS:
             - Score >= 0.85: HIGHLY_RECOMMENDED (Exceptional match with minimal gaps).
             - Score 0.70 - 0.84: RECOMMENDED (Strong fit with manageable gaps).
             - Score 0.55 - 0.69: CONSIDER (Partial fit).
             - Score < 0.55: NOT_SUITABLE (Weak fit or major structural discrepancies).
-            
+
             CRITICAL MATCH SAFETY BARRIERS:
             - If a candidate falls below the required YOE and lacks system architecture depth, their total final score CANNOT cross a maximum of 0.60.
             - Missing 2 or more core JD requirements automatically caps the final score at a maximum of 0.55.
             - Resume claims alone cannot produce a score above 0.70 unless interview evidence validates the claim.
-            
+
+            RECRUITER PRIORITY SIGNAL:
+            - If 'recruiterPriority' is set to "HIGH" or "MEDIUM", give this candidate additional consideration weight — the recruiter has manually flagged them after reviewing interview performance.
+
             OUTPUT SPECIFICATION:
             Generate ONLY the raw JSON format string containing the 'matches' collection array mapped in best-first descending order, alongside the system numerical match summary block. No markdown enclosing frames.
-            
+
             {
               "matches": [
                 {
@@ -138,16 +143,16 @@ public class AiMatchingService {
                 request.getClientName(),
                 request.getJdTitle(),
                 request.getSource(),
-                request.getJdDescription(),
+                jdText,
                 request.getMaxCandidates()
             );
     }
 
-    private Map<String, Object> parseMatchingResponse(String response, MatchingRequest request) {
+    private Map<String, Object> parseMatchingResponse(String response, MatchingRequest request, String aiSource) {
         try {
             response = JsonRepairUtil.repair(response);
             Map<String, Object> result = objectMapper.readValue(response, new TypeReference<Map<String, Object>>() {});
-            result.put("source", "ai-ollama");
+            result.put("source", aiSource);
             result.put("clientId", request.getClientId());
             return result;
         } catch (Exception e) {
@@ -205,16 +210,17 @@ public class AiMatchingService {
             c.put("yoeActual", candidate.get("yoeActual"));
             c.put("systemInterviewCount", candidate.get("systemInterviewCount"));
             c.put("noOfInterviews", candidate.get("noOfInterviews"));
-            c.put("resumeSummary", truncate((String) candidate.get("resumeSummary"), 280));
+            c.put("recruiterPriority", candidate.get("recruiterPriority"));
+            c.put("resumeSummary", truncate((String) candidate.get("resumeSummary"), 1500));
 
             Object evidenceObj = candidate.get("interviewEvidence");
             if (evidenceObj instanceof Map<?, ?> evidenceRaw) {
                 Map<String, Object> evidence = new LinkedHashMap<>();
                 evidence.put("recentInterviewCount", evidenceRaw.get("recentInterviewCount"));
-                evidence.put("averageScore", evidenceRaw.get("averageScore"));
+                evidence.put("avgInterviewScore", evidenceRaw.get("averageScore"));
                 evidence.put("categoryScores", evidenceRaw.get("categoryScores"));
-                evidence.put("strengths", limitStringList((List<Object>) evidenceRaw.get("strengths"), 3, 120));
-                evidence.put("weaknesses", limitStringList((List<Object>) evidenceRaw.get("weaknesses"), 3, 120));
+                evidence.put("strengths", limitStringList((List<Object>) evidenceRaw.get("strengths"), 5, 250));
+                evidence.put("weaknesses", limitStringList((List<Object>) evidenceRaw.get("weaknesses"), 5, 250));
                 c.put("interviewEvidence", evidence);
             }
 
