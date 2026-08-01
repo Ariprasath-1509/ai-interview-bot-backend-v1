@@ -38,13 +38,24 @@ public class ExcelParserService {
         put("Contact Number", 7);
         put("Official Mail ID", 8);
         put("Personal Mail ID", 9);
-        put("YOE - A", 10);
         put("YOE - P", 11);
         put("Skill Set", 12);
         put("YOP", 13);
         put("No of Interviews", 14);
         put("Interview Mentor Name", 15);
         put("Client Name", 16);
+    }};
+
+    // Compact mapping used when CLIENTS feature is disabled (no Batch/Source/Status/Rating/Mentor/Client columns)
+    private static final Map<String, Integer> COMPACT_COLUMN_MAPPING = new HashMap<String, Integer>() {{
+        put("Name", 1);
+        put("Contact Number", 2);
+        put("Official Mail ID", 3);
+        put("Personal Mail ID", 4);
+        put("YOE - P", 5);
+        put("Skill Set", 6);
+        put("YOP", 7);
+        put("No of Interviews", 8);
     }};
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
@@ -61,18 +72,20 @@ public class ExcelParserService {
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheetAt(0);
             
-            // Validate headers
+            // Validate headers and detect compact vs full layout
             Row headerRow = sheet.getRow(0);
             if (!validateHeaders(headerRow, errors)) {
                 return createErrorResponse(sessionId, errors);
             }
+            boolean compact = isCompactLayout(headerRow);
+            Map<String, Integer> colMap = compact ? COMPACT_COLUMN_MAPPING : COLUMN_MAPPING;
 
             // Parse data rows
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
                 if (row == null || isEmptyRow(row)) continue;
 
-                BulkImportRequest.CandidateBulkData candidate = parseRow(row, i + 1, errors);
+                BulkImportRequest.CandidateBulkData candidate = parseRow(row, i + 1, errors, colMap);
                 if (candidate != null) {
                     candidates.add(candidate);
                 }
@@ -157,29 +170,38 @@ public class ExcelParserService {
         return true;
     }
 
-    private BulkImportRequest.CandidateBulkData parseRow(Row row, int rowNumber, 
-                                                        List<BulkImportResponse.ValidationError> errors) {
+    private boolean isCompactLayout(Row headerRow) {
+        // Compact layout has "Name" at column index 1 (second cell)
+        if (headerRow == null) return false;
+        Cell cell = headerRow.getCell(1);
+        if (cell == null) return false;
+        String val = cell.getStringCellValue().trim();
+        return val.startsWith("Name");
+    }
+
+    private BulkImportRequest.CandidateBulkData parseRow(Row row, int rowNumber,
+                                                        List<BulkImportResponse.ValidationError> errors,
+                                                        Map<String, Integer> colMap) {
         BulkImportRequest.CandidateBulkData candidate = new BulkImportRequest.CandidateBulkData();
         candidate.setRowNumber(rowNumber);
 
         try {
             // Parse each field with validation and normalization
-            candidate.setBatch(getCellValueAsString(row, COLUMN_MAPPING.get("Batch (DOH)")));
-            candidate.setBatchMentor(nullIfBlankOrNA(getCellValueAsString(row, COLUMN_MAPPING.get("Batch Mentor"))));
-            candidate.setSource(normalizeSource(getCellValueAsString(row, COLUMN_MAPPING.get("Source"))));
-            candidate.setStatus(normalizeStatus(getCellValueAsString(row, COLUMN_MAPPING.get("Status"))));
-            candidate.setRating(normalizeRating(getCellValueAsString(row, COLUMN_MAPPING.get("Rating"))));
-            candidate.setName(getCellValueAsString(row, COLUMN_MAPPING.get("Name")));
-            candidate.setContactNumber(getCellValueAsString(row, COLUMN_MAPPING.get("Contact Number")));
-            candidate.setOfficialEmail(normalizeEmail(getCellValueAsString(row, COLUMN_MAPPING.get("Official Mail ID"))));
-            candidate.setPersonalEmail(normalizeEmail(getCellValueAsString(row, COLUMN_MAPPING.get("Personal Mail ID"))));
-            candidate.setYoeActual(getCellValueAsDouble(row, COLUMN_MAPPING.get("YOE - A")));
-            candidate.setYoePortrayed(getCellValueAsDouble(row, COLUMN_MAPPING.get("YOE - P")));
-            candidate.setSkillSet(normalizeSkillSet(getCellValueAsString(row, COLUMN_MAPPING.get("Skill Set"))));
-            candidate.setYop(getCellValueAsInteger(row, COLUMN_MAPPING.get("YOP")));
-            candidate.setNoOfInterviews(getCellValueAsInteger(row, COLUMN_MAPPING.get("No of Interviews")));
-            candidate.setInterviewMentorName(nullIfBlankOrNA(getCellValueAsString(row, COLUMN_MAPPING.get("Interview Mentor Name"))));
-            candidate.setClientName(nullIfBlankOrNA(getCellValueAsString(row, COLUMN_MAPPING.get("Client Name"))));
+            candidate.setBatch(getCellValueAsString(row, colMap.get("Batch (DOH)")));
+            candidate.setBatchMentor(nullIfBlankOrNA(getCellValueAsString(row, colMap.get("Batch Mentor"))));
+            candidate.setSource(normalizeSource(getCellValueAsString(row, colMap.get("Source"))));
+            candidate.setStatus(normalizeStatus(getCellValueAsString(row, colMap.get("Status"))));
+            candidate.setRating(normalizeRating(getCellValueAsString(row, colMap.get("Rating"))));
+            candidate.setName(getCellValueAsString(row, colMap.get("Name")));
+            candidate.setContactNumber(getCellValueAsString(row, colMap.get("Contact Number")));
+            candidate.setOfficialEmail(normalizeEmail(getCellValueAsString(row, colMap.get("Official Mail ID"))));
+            candidate.setPersonalEmail(normalizeEmail(getCellValueAsString(row, colMap.get("Personal Mail ID"))));
+            candidate.setYoePortrayed(getCellValueAsDouble(row, colMap.get("YOE - P")));
+            candidate.setSkillSet(normalizeSkillSet(getCellValueAsString(row, colMap.get("Skill Set"))));
+            candidate.setYop(getCellValueAsInteger(row, colMap.get("YOP")));
+            candidate.setNoOfInterviews(getCellValueAsInteger(row, colMap.get("No of Interviews")));
+            candidate.setInterviewMentorName(nullIfBlankOrNA(getCellValueAsString(row, colMap.get("Interview Mentor Name"))));
+            candidate.setClientName(nullIfBlankOrNA(getCellValueAsString(row, colMap.get("Client Name"))));
 
             // Validate individual fields
             validateCandidate(candidate, errors);
@@ -251,11 +273,6 @@ public class ExcelParserService {
         }
 
         // YOE validation
-        if (candidate.getYoeActual() != null && (candidate.getYoeActual() < 0 || candidate.getYoeActual() > 50)) {
-            errors.add(new BulkImportResponse.ValidationError(row, "yoeActual", 
-                "YOE Actual must be between 0 and 50", candidate.getYoeActual().toString(), "WARNING"));
-        }
-
         if (candidate.getYoePortrayed() != null && (candidate.getYoePortrayed() < 0 || candidate.getYoePortrayed() > 50)) {
             errors.add(new BulkImportResponse.ValidationError(row, "yoePortrayed", 
                 "YOE Portrayed must be between 0 and 50", candidate.getYoePortrayed().toString(), "WARNING"));

@@ -65,4 +65,7 @@ public interface AuthServiceClient {
     Map<String, Object> deactivateMasterDataEntry(
             @PathVariable("category") String category,
             @PathVariable("id") UUID id);
+
+    @GetMapping("/my-org/features")
+    Map<String, Object> getMyOrgFeatures();
 }

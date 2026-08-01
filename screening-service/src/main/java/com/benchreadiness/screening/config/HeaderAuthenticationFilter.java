@@ -1,5 +1,6 @@
 package com.benchreadiness.screening.config;
 
+import com.benchreadiness.screening.org.OrgContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,6 +30,11 @@ public class HeaderAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(auth);
         }
 
-        filterChain.doFilter(request, response);
+        try {
+            OrgContext.set(request.getHeader("X-User-Org"));
+            filterChain.doFilter(request, response);
+        } finally {
+            OrgContext.clear();
+        }
     }
 }

@@ -7,6 +7,8 @@ import com.benchreadiness.auth.dto.BulkImportResponse;
 import com.benchreadiness.auth.dto.CreateCandidateRequest;
 import com.benchreadiness.auth.entity.User;
 import com.benchreadiness.auth.entity.UserRole;
+import com.benchreadiness.auth.org.Organization;
+import com.benchreadiness.auth.repository.OrganizationRepository;
 import com.benchreadiness.auth.repository.UserRepository;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -33,6 +35,7 @@ public class BulkImportService {
     private final PasswordService passwordService;
     private final ExcelParserService excelParserService;
     private final EmailService emailService;
+    private final OrganizationRepository organizationRepository;
     
     // Store import results temporarily (in production, use Redis or database)
     private final Map<String, BulkImportResult> importResults = new ConcurrentHashMap<>();
@@ -40,18 +43,32 @@ public class BulkImportService {
     public BulkImportService(UserRepository userRepository,
                            PasswordService passwordService,
                            ExcelParserService excelParserService,
-                           EmailService emailService) {
+                           EmailService emailService,
+                           OrganizationRepository organizationRepository) {
         this.userRepository = userRepository;
         this.passwordService = passwordService;
         this.excelParserService = excelParserService;
         this.emailService = emailService;
+        this.organizationRepository = organizationRepository;
     }
 
     @Transactional
-    public CreatedCandidate createSingleCandidate(CreateCandidateRequest req, String branch) {
+    public CreatedCandidate createSingleCandidate(CreateCandidateRequest req, String branch, String orgCode) {
         if ((req.getOfficialEmail() == null || req.getOfficialEmail().isBlank())
                 && (req.getPersonalEmail() == null || req.getPersonalEmail().isBlank())) {
             throw new IllegalArgumentException("Official email or personal email is required");
+        }
+
+        if (orgCode != null && !orgCode.isBlank()) {
+            organizationRepository.findByCode(orgCode).ifPresent(org -> {
+                if (org.getMaxCandidates() != null) {
+                    long current = userRepository.countByRoleAndOrgCode(UserRole.CANDIDATE, orgCode);
+                    if (current >= org.getMaxCandidates()) {
+                        throw new IllegalArgumentException(
+                            "Candidate limit reached for this organisation (" + org.getMaxCandidates() + " max)");
+                    }
+                }
+            });
         }
 
         BulkImportRequest.CandidateBulkData candidateData = new BulkImportRequest.CandidateBulkData();
@@ -66,18 +83,17 @@ public class BulkImportService {
         candidateData.setStatus(req.getCandidateStatus());
         candidateData.setRating(req.getRating());
         candidateData.setSkillSet(req.getSkillSet());
-        candidateData.setYoeActual(req.getYoeActual());
         candidateData.setYoePortrayed(req.getYoePortrayed());
         candidateData.setYop(req.getYop());
         candidateData.setNoOfInterviews(req.getNoOfInterviews());
         candidateData.setInterviewMentorName(req.getInterviewMentorName());
         candidateData.setClientName(req.getClientName());
 
-        return createCandidate(candidateData, branch);
+        return createCandidate(candidateData, branch, orgCode);
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public BulkImportResult processBulkImport(String sessionId, String branch) {
+    public BulkImportResult processBulkImport(String sessionId, String branch, String orgCode) {
         BulkImportRequest importRequest = excelParserService.getImportSession(sessionId);
         if (importRequest == null) {
             throw new IllegalArgumentException("Invalid or expired session ID");
@@ -103,7 +119,7 @@ public class BulkImportService {
 
         for (BulkImportRequest.CandidateBulkData candidateData : candidates) {
             assertCandidateCanBeCreated(candidateData);
-            PersistedCandidate persisted = persistCandidate(candidateData, branch);
+            PersistedCandidate persisted = persistCandidate(candidateData, branch, orgCode);
             createdCandidates.add(persisted.createdCandidate());
             pendingEmails.add(persisted.pendingWelcomeEmail());
         }
@@ -159,7 +175,7 @@ public class BulkImportService {
         return firstName + ".row" + candidateData.getRowNumber() + "@benchreadiness.com";
     }
 
-    private PersistedCandidate persistCandidate(BulkImportRequest.CandidateBulkData candidateData, String branch) {
+    private PersistedCandidate persistCandidate(BulkImportRequest.CandidateBulkData candidateData, String branch, String orgCode) {
         String username = resolveUsername(candidateData);
         String firstName = candidateData.getName() != null
             ? candidateData.getName().split(" ")[0] : "User";
@@ -171,6 +187,7 @@ public class BulkImportService {
         user.setPassword(passwordService.encode(plainPassword));
         user.setRole(UserRole.CANDIDATE);
         user.setBranch(branch != null ? Branch.normalize(branch) : BranchAccess.defaultBranch());
+        user.setOrgCode(orgCode != null && !orgCode.isBlank() ? orgCode : "TESTYANTRA");
         user.setBatch(candidateData.getBatch());
         user.setBatchMentor(candidateData.getBatchMentor());
         user.setSource(candidateData.getSource() != null
@@ -183,9 +200,6 @@ public class BulkImportService {
         user.setOfficialEmail(candidateData.getOfficialEmail());
         user.setPersonalEmail(candidateData.getPersonalEmail());
 
-        if (candidateData.getYoeActual() != null) {
-            user.setYoeActual(BigDecimal.valueOf(candidateData.getYoeActual()));
-        }
         if (candidateData.getYoePortrayed() != null) {
             user.setYoePortrayed(BigDecimal.valueOf(candidateData.getYoePortrayed()));
         }
@@ -213,9 +227,9 @@ public class BulkImportService {
         return new PersistedCandidate(createdCandidate, pendingWelcomeEmail);
     }
 
-    private CreatedCandidate createCandidate(BulkImportRequest.CandidateBulkData candidateData, String branch) {
+    private CreatedCandidate createCandidate(BulkImportRequest.CandidateBulkData candidateData, String branch, String orgCode) {
         assertCandidateCanBeCreated(candidateData);
-        PersistedCandidate persisted = persistCandidate(candidateData, branch);
+        PersistedCandidate persisted = persistCandidate(candidateData, branch, orgCode);
         sendWelcomeEmail(
             persisted.pendingWelcomeEmail().candidateData(),
             persisted.pendingWelcomeEmail().candidateName(),

@@ -8,6 +8,8 @@ import com.benchreadiness.screening.dto.UpdateDeadlineRequest;
 import com.benchreadiness.screening.entity.ScreeningAnswer;
 import com.benchreadiness.screening.entity.ScreeningBatch;
 import com.benchreadiness.screening.entity.ScreeningCandidate;
+import com.benchreadiness.screening.feature.FeatureKey;
+import com.benchreadiness.screening.feature.RequiresFeature;
 import com.benchreadiness.screening.mail.ScreeningMailService;
 import com.benchreadiness.screening.repository.ScreeningBatchRepository;
 import com.benchreadiness.screening.service.BatchService;
@@ -62,6 +64,7 @@ public class ScreeningAdminController {
 
     @PostMapping("/batches")
     @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
+    @RequiresFeature(FeatureKey.SCREENING)
     public ResponseEntity<?> createBatch(@Valid @RequestBody CreateBatchRequest req,
                                          @RequestHeader("X-User-Id") String userId,
                                          @RequestHeader(value = "X-User-Email", required = false) String userEmail,
@@ -150,6 +153,7 @@ public class ScreeningAdminController {
 
     @GetMapping("/batches")
     @PreAuthorize("hasAnyRole('" + STAFF_ROLES + "')")
+    @RequiresFeature(FeatureKey.SCREENING)
     public ResponseEntity<?> listBatches() {
         List<Map<String, Object>> batches = batchRepository.findAll().stream()
                 .filter(b -> !BatchService.DIRECT_ENTRY_LANGUAGE.equals(b.getLanguage()))

@@ -16,6 +16,7 @@ public interface UserRepository extends JpaRepository<User, String> {
     List<User> findByRoleIn(Collection<UserRole> roles);
     
     boolean existsByEmailIgnoreCase(String email);
+    boolean existsByOrgCodeIgnoreCase(String orgCode);
 
     @Query("SELECT u FROM User u WHERE u.role = 'CANDIDATE' AND (" +
            "LOWER(u.email) = LOWER(:email) OR " +
@@ -81,6 +82,8 @@ public interface UserRepository extends JpaRepository<User, String> {
                                                     @Param("includeNullSource") boolean includeNullSource);
 
     List<User> findByIdIn(Collection<String> ids);
+
+    long countByRoleAndOrgCode(UserRole role, String orgCode);
 
     // Deployment-related queries
     Optional<User> findByOfficialEmailOrPersonalEmail(String officialEmail, String personalEmail);

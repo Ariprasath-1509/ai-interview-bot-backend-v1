@@ -2,6 +2,8 @@ package com.benchreadiness.interview.controller;
 
 import com.benchreadiness.interview.client.DocumentServiceClient;
 import com.benchreadiness.interview.dto.ClientDTO;
+import com.benchreadiness.interview.feature.FeatureKey;
+import com.benchreadiness.interview.feature.RequiresFeature;
 import com.benchreadiness.interview.service.ClientService;
 import com.benchreadiness.interview.service.MatchingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -238,6 +240,7 @@ public class ClientController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('" + STAFF_READ_ROLES + "')")
+    @RequiresFeature(FeatureKey.CLIENTS)
     public ResponseEntity<List<ClientDTO>> getAllClients(
             @RequestHeader("X-User-Role") String userRole) {
         return ResponseEntity.ok(clientService.getClientsForRole(userRole));
@@ -256,6 +259,7 @@ public class ClientController {
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('" + STAFF_WRITE_ROLES + "')")
+    @RequiresFeature(FeatureKey.CLIENTS)
     public ResponseEntity<ClientDTO> createClient(
             @RequestPart("client") String clientJson,
             @RequestPart(value = "jdFile", required = false) MultipartFile jdFile,
@@ -271,6 +275,7 @@ public class ClientController {
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('" + STAFF_WRITE_ROLES + "')")
+    @RequiresFeature(FeatureKey.CLIENTS)
     public ResponseEntity<ClientDTO> createClientJson(@RequestBody ClientDTO clientDTO,
                                                       @RequestHeader("X-User-Role") String userRole) {
         // Ensure backward compatibility - if no skill requirements provided, 

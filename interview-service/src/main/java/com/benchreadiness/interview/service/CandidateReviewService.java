@@ -69,7 +69,6 @@ public class CandidateReviewService {
                 (String) candidateData.get("name"),
                 (String) candidateData.get("email"),
                 (String) candidateData.get("skillSet"),
-                getDoubleValue(candidateData.get("yoeActual")),
                 getDoubleValue(candidateData.get("yoePortrayed")),
                 (String) candidateData.get("batch"),
                 (String) candidateData.get("source")

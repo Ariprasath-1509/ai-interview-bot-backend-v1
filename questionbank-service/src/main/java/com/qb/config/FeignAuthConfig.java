@@ -29,6 +29,7 @@ public class FeignAuthConfig {
             copyHeader(request, template, "X-User-Id");
             copyHeader(request, template, "X-User-Role");
             copyHeader(request, template, "X-User-Email");
+            copyHeader(request, template, "X-User-Org");
             copyHeader(request, template, "X-Gateway-Key");
             copyHeader(request, template, "Authorization");
         };

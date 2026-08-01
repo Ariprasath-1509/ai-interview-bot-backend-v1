@@ -190,7 +190,6 @@ public class DeploymentService {
                             try {
                                 BigDecimal yoe = parseYearsOfExperience(yoeStr.trim());
                                 if (yoe != null) {
-                                    candidate.setYoeActual(yoe);
                                     candidate.setYoePortrayed(yoe);
                                 }
                             } catch (Exception e) {

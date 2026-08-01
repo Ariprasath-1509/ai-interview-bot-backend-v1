@@ -41,6 +41,9 @@ public class Interview {
     @Column(nullable = false, length = 32)
     private String branch = "DEVELOPMENT";
 
+    @Column(name = "org_code", nullable = false, length = 64)
+    private String orgCode = "TESTYANTRA";
+
     @Column(name = "client_id")
     private java.util.UUID clientId;
 
@@ -178,6 +181,8 @@ public class Interview {
     public void setCreatedByUserId(String createdByUserId) { this.createdByUserId = createdByUserId; }
     public String getBranch() { return branch; }
     public void setBranch(String branch) { this.branch = branch; }
+    public String getOrgCode() { return orgCode; }
+    public void setOrgCode(String orgCode) { this.orgCode = orgCode; }
     public java.util.UUID getClientId() { return clientId; }
     public void setClientId(java.util.UUID clientId) { this.clientId = clientId; }
     public Instant getScheduledAt() { return scheduledAt; }

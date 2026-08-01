@@ -1,6 +1,8 @@
 package com.benchreadiness.ops.compliance.controller;
 
 import com.benchreadiness.ops.security.StaffSecurityRoles;
+import com.benchreadiness.ops.feature.FeatureKey;
+import com.benchreadiness.ops.feature.RequiresFeature;
 import com.benchreadiness.ops.compliance.dto.AuditLogRequest;
 import com.benchreadiness.ops.compliance.entity.AuditLog;
 import com.benchreadiness.ops.compliance.entity.RetentionPolicy;
@@ -26,6 +28,7 @@ public class ComplianceController {
 
     @GetMapping("/audit-logs")
     @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
+    @RequiresFeature(FeatureKey.COMPLIANCE)
     public ResponseEntity<?> getAuditLogs(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,

@@ -57,7 +57,7 @@ public class PdfGenerationService {
         addInfoRow(table, "Name:", info.getName());
         addInfoRow(table, "Email:", info.getEmail());
         addInfoRow(table, "Skill Set:", info.getSkillSet());
-        addInfoRow(table, "Experience:", String.format("%.1f years (Portrayed: %.1f)", info.getYoeActual(), info.getYoePortrayed()));
+        addInfoRow(table, "Experience:", String.format("%.1f years", info.getYoePortrayed()));
         addInfoRow(table, "Batch:", info.getBatch());
         addInfoRow(table, "Source:", info.getSource());
 

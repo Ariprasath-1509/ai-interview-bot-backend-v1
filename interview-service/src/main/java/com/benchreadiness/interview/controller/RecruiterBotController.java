@@ -2,6 +2,8 @@ package com.benchreadiness.interview.controller;
 
 import com.benchreadiness.interview.security.StaffSecurityRoles;
 import com.benchreadiness.interview.client.DocumentServiceClient;
+import com.benchreadiness.interview.feature.FeatureKey;
+import com.benchreadiness.interview.feature.RequiresFeature;
 import com.benchreadiness.interview.service.ClientService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,6 +27,7 @@ public class RecruiterBotController {
 
     @PostMapping("/query")
     @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    @RequiresFeature(FeatureKey.RECRUITER_BOT)
     public ResponseEntity<Map<String, String>> queryBot(@RequestBody Map<String, String> request,
                                                         @RequestHeader("X-User-Role") String userRole) {
         String clientId = request.get("clientId");

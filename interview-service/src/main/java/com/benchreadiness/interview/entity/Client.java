@@ -40,7 +40,10 @@ public class Client {
 
     @Column(nullable = false, length = 32)
     private String branch = "DEVELOPMENT";
-    
+
+    @Column(name = "org_code", nullable = false, length = 64)
+    private String orgCode = "TESTYANTRA";
+
     @Column(nullable = false)
     private Boolean benchReviewed = false;
     
@@ -119,7 +122,11 @@ public class Client {
     public String getBranch() {
         return branch;
     }
-    
+
+    public String getOrgCode() {
+        return orgCode;
+    }
+
     public Boolean getBenchReviewed() {
         return benchReviewed;
     }
@@ -184,7 +191,11 @@ public class Client {
     public void setBranch(String branch) {
         this.branch = branch;
     }
-    
+
+    public void setOrgCode(String orgCode) {
+        this.orgCode = orgCode;
+    }
+
     public void setBenchReviewed(Boolean benchReviewed) {
         this.benchReviewed = benchReviewed;
     }

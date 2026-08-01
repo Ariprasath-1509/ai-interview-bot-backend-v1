@@ -4,6 +4,8 @@ import com.qb.core.dto.ApiResponse;
 import com.qb.core.dto.QuestionDTO;
 import com.qb.core.dto.QuestionUpdateRequest;
 import com.qb.core.service.QuestionService;
+import com.qb.feature.FeatureKey;
+import com.qb.feature.RequiresFeature;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -24,6 +26,7 @@ public class QuestionController {
      * GET /api/questions?search=kafka&company=mantra-labs&round=l1&category=Kafka&tag=event-driven&page=0&size=20
      */
     @GetMapping
+    @RequiresFeature(FeatureKey.QUESTION_BANK)
     public ResponseEntity<ApiResponse<Page<QuestionDTO>>> search(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String interviewType,
@@ -53,6 +56,7 @@ public class QuestionController {
      * PUT /api/questions/{id} — Admin only
      */
     @PutMapping("/{id}")
+    @RequiresFeature(FeatureKey.QUESTION_BANK)
     public ResponseEntity<ApiResponse<QuestionDTO>> update(
             @PathVariable UUID id,
             @Valid @RequestBody QuestionUpdateRequest request
@@ -64,6 +68,7 @@ public class QuestionController {
      * DELETE /api/questions/{id} — Admin only
      */
     @DeleteMapping("/{id}")
+    @RequiresFeature(FeatureKey.QUESTION_BANK)
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable UUID id) {
         questionService.deleteQuestion(id);
         return ResponseEntity.ok(ApiResponse.ok(null, "Question deleted"));

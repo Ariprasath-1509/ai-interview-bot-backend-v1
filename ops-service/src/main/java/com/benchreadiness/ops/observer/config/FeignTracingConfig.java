@@ -28,6 +28,7 @@ public class FeignTracingConfig {
                 HttpServletRequest request = attrs.getRequest();
                 copyHeader(request, template, "X-User-Id");
                 copyHeader(request, template, "X-User-Role");
+                copyHeader(request, template, "X-User-Org");
                 copyHeader(request, template, "X-Gateway-Key");
             }
 

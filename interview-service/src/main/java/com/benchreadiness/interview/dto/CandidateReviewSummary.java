@@ -13,16 +13,14 @@ public class CandidateReviewSummary {
         private String name;
         private String email;
         private String skillSet;
-        private Double yoeActual;
         private Double yoePortrayed;
         private String batch;
         private String source;
 
-        public CandidateInfo(String name, String email, String skillSet, Double yoeActual, Double yoePortrayed, String batch, String source) {
+        public CandidateInfo(String name, String email, String skillSet, Double yoePortrayed, String batch, String source) {
             this.name = name;
             this.email = email;
             this.skillSet = skillSet;
-            this.yoeActual = yoeActual;
             this.yoePortrayed = yoePortrayed;
             this.batch = batch;
             this.source = source;
@@ -31,7 +29,6 @@ public class CandidateReviewSummary {
         public String getName() { return name; }
         public String getEmail() { return email; }
         public String getSkillSet() { return skillSet; }
-        public Double getYoeActual() { return yoeActual; }
         public Double getYoePortrayed() { return yoePortrayed; }
         public String getBatch() { return batch; }
         public String getSource() { return source; }

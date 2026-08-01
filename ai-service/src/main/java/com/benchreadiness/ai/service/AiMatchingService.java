@@ -207,7 +207,6 @@ public class AiMatchingService {
             c.put("rating", candidate.get("rating"));
             c.put("candidateStatus", candidate.get("candidateStatus"));
             c.put("yoeForMatching", candidate.get("yoeForMatching"));
-            c.put("yoeActual", candidate.get("yoeActual"));
             c.put("systemInterviewCount", candidate.get("systemInterviewCount"));
             c.put("noOfInterviews", candidate.get("noOfInterviews"));
             c.put("recruiterPriority", candidate.get("recruiterPriority"));

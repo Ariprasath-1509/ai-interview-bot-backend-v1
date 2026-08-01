@@ -282,7 +282,6 @@ public class ClientBriefService {
 
         String clientName = resolveClientName(interview, jd);
         ExperienceInfo experience = resolveCandidateExperience(engineer, interview);
-        Double yoeActual = experience.yoeActual();
         Double yoePortrayed = experience.yoePortrayed();
         String skillSet = experience.skillSet();
 
@@ -293,9 +292,8 @@ public class ClientBriefService {
         }
 
         Integer totalMinutes = resolveTotalMinutes(interview);
-        Double effectiveYoe = yoePortrayed != null ? yoePortrayed : yoeActual;
         String seniorityBand = buildSeniorityBand(
-            effectiveYoe, experience.level(), experience.gradeLevel(), skillSet);
+            yoePortrayed, experience.level(), experience.gradeLevel(), skillSet);
 
         ReviewerInfo reviewer = resolveReviewer(interview);
         String candidateUserId = resolveCandidateUserId(engineer);
@@ -317,7 +315,6 @@ public class ClientBriefService {
             interview.getFinalVerdict() != null ? interview.getFinalVerdict().name()
                 : interview.getProposedVerdict() != null ? interview.getProposedVerdict().name() : null,
             skillSet,
-            yoeActual,
             yoePortrayed,
             reviewer.name(),
             reviewer.yoe(),
@@ -344,8 +341,8 @@ public class ClientBriefService {
             if (name.isBlank()) name = "Reviewer";
 
             String yoe = "";
-            if (user.get("yoeActual") != null) {
-                yoe = user.get("yoeActual").toString();
+            if (user.get("yoePortrayed") != null) {
+                yoe = user.get("yoePortrayed").toString();
             } else if (user.get("yearsOfExperience") != null) {
                 yoe = user.get("yearsOfExperience").toString();
             }
@@ -446,18 +443,16 @@ public class ClientBriefService {
     }
 
     private ExperienceInfo resolveCandidateExperience(Engineer engineer, Interview interview) {
-        Double yoeActual = engineer != null && engineer.getYearsExperience() != null
+        Double yoePortrayed = engineer != null && engineer.getYearsExperience() != null
             ? engineer.getYearsExperience().doubleValue() : null;
-        Double yoePortrayed = null;
         String skillSet = engineer != null ? engineer.getPrimaryTrack() : null;
         String level = null;
         String gradeLevel = engineer != null ? engineer.getGradeLevel() : null;
 
         Map<String, Object> user = fetchCandidateUser(engineer);
         if (user != null) {
-            yoeActual = firstNonNull(parseDouble(user.get("yoeActual")), yoeActual);
-            yoePortrayed = parseDouble(user.get("yoePortrayed"));
-            yoeActual = firstNonNull(parseDouble(user.get("yearsOfExperience")), yoeActual);
+            yoePortrayed = firstNonNull(parseDouble(user.get("yoePortrayed")), yoePortrayed);
+            yoePortrayed = firstNonNull(parseDouble(user.get("yearsOfExperience")), yoePortrayed);
             String profileSkill = stringVal(user.get("skillSet"));
             if (!profileSkill.isBlank()) {
                 skillSet = profileSkill;
@@ -466,12 +461,12 @@ public class ClientBriefService {
 
         if (interview.getPlanId() != null) {
             ProfileEnrichment profile = enrichFromInterviewPlan(interview.getPlanId());
-            yoeActual = firstNonNull(profile.yoe(), yoeActual);
+            yoePortrayed = firstNonNull(profile.yoe(), yoePortrayed);
             level = firstNonBlank(profile.level(), level);
             skillSet = firstNonBlank(profile.primarySkills(), skillSet);
         }
 
-        return new ExperienceInfo(yoeActual, yoePortrayed, skillSet, level, gradeLevel);
+        return new ExperienceInfo(yoePortrayed, skillSet, level, gradeLevel);
     }
 
     private ProfileEnrichment enrichFromInterviewPlan(String planId) {
@@ -640,7 +635,6 @@ public class ClientBriefService {
     }
 
     private record ExperienceInfo(
-        Double yoeActual,
         Double yoePortrayed,
         String skillSet,
         String level,
@@ -669,7 +663,6 @@ public class ClientBriefService {
         Integer totalMinutes,
         String verdict,
         String skillSet,
-        Double yoeActual,
         Double yoePortrayed,
         String reviewerName,
         String reviewerYoe,

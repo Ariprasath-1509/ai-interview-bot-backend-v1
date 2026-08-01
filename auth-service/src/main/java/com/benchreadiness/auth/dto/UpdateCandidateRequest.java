@@ -15,7 +15,6 @@ public class UpdateCandidateRequest {
     private String candidateStatus;
     private String rating;
     private String skillSet;
-    private BigDecimal yoeActual;
     private BigDecimal yoePortrayed;
     private Integer yop;
     private Integer noOfInterviews;
@@ -48,8 +47,6 @@ public class UpdateCandidateRequest {
     public void setRating(String rating) { this.rating = rating; }
     public String getSkillSet() { return skillSet; }
     public void setSkillSet(String skillSet) { this.skillSet = skillSet; }
-    public BigDecimal getYoeActual() { return yoeActual; }
-    public void setYoeActual(BigDecimal yoeActual) { this.yoeActual = yoeActual; }
     public BigDecimal getYoePortrayed() { return yoePortrayed; }
     public void setYoePortrayed(BigDecimal yoePortrayed) { this.yoePortrayed = yoePortrayed; }
     public Integer getYop() { return yop; }

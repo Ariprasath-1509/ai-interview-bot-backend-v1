@@ -30,6 +30,7 @@ public class GatewayTrustFilter extends OncePerRequestFilter {
 
         String userId = request.getHeader("X-User-Id");
         String userRole = request.getHeader("X-User-Role");
+        String userOrg = request.getHeader("X-User-Org");
         String path = request.getRequestURI();
         String gatewayKey = request.getHeader("X-Gateway-Key");
 
@@ -43,7 +44,8 @@ public class GatewayTrustFilter extends OncePerRequestFilter {
             return;
         }
 
-        if ((userId != null && !userId.isBlank()) || (userRole != null && !userRole.isBlank())) {
+        if ((userId != null && !userId.isBlank()) || (userRole != null && !userRole.isBlank())
+                || (userOrg != null && !userOrg.isBlank())) {
             if (!gatewaySharedKey.equals(gatewayKey)) {
                 response.sendError(HttpStatus.FORBIDDEN.value(), "Untrusted identity headers");
                 return;

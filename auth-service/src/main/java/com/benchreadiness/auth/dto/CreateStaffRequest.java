@@ -25,6 +25,9 @@ public class CreateStaffRequest {
     /** Optional: explicit branch code (validated against master data). Defaults from role when absent. */
     private String branch;
 
+    /** Optional: which organization (tenant) this staff account belongs to. Defaults to TESTYANTRA when absent. */
+    private String orgCode;
+
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getEmail() { return email; }
@@ -37,4 +40,6 @@ public class CreateStaffRequest {
     public void setAdminSource(String adminSource) { this.adminSource = adminSource; }
     public String getBranch() { return branch; }
     public void setBranch(String branch) { this.branch = branch; }
+    public String getOrgCode() { return orgCode; }
+    public void setOrgCode(String orgCode) { this.orgCode = orgCode; }
 }

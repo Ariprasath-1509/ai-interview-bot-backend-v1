@@ -8,7 +8,7 @@ public class CandidateMatchingResult {
     private String candidateName;
     private String candidateEmail;
     private String skillSet;
-    private Double yoeActual;
+    private Double yoePortrayed;
     private String rating;
     private String candidateStatus;
     private Integer systemInterviewCount;
@@ -22,7 +22,7 @@ public class CandidateMatchingResult {
     public CandidateMatchingResult() {}
 
     public CandidateMatchingResult(String candidateId, String candidateName, String candidateEmail,
-                                  String skillSet, Double yoeActual, String rating, String candidateStatus,
+                                  String skillSet, Double yoePortrayed, String rating, String candidateStatus,
                                   Integer systemInterviewCount, List<CandidateClientMatch> matches,
                                   Integer totalClientsAnalyzed, Integer matchingClientsCount,
                                   Double averageMatchScore, Instant computedAt, String cacheSource) {
@@ -30,7 +30,7 @@ public class CandidateMatchingResult {
         this.candidateName = candidateName;
         this.candidateEmail = candidateEmail;
         this.skillSet = skillSet;
-        this.yoeActual = yoeActual;
+        this.yoePortrayed = yoePortrayed;
         this.rating = rating;
         this.candidateStatus = candidateStatus;
         this.systemInterviewCount = systemInterviewCount;
@@ -55,8 +55,8 @@ public class CandidateMatchingResult {
     public String getSkillSet() { return skillSet; }
     public void setSkillSet(String skillSet) { this.skillSet = skillSet; }
 
-    public Double getYoeActual() { return yoeActual; }
-    public void setYoeActual(Double yoeActual) { this.yoeActual = yoeActual; }
+    public Double getYoePortrayed() { return yoePortrayed; }
+    public void setYoePortrayed(Double yoePortrayed) { this.yoePortrayed = yoePortrayed; }
 
     public String getRating() { return rating; }
     public void setRating(String rating) { this.rating = rating; }

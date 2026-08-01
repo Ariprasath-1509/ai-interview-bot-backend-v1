@@ -1,5 +1,7 @@
 package com.benchreadiness.interview.controller;
 
+import com.benchreadiness.interview.feature.FeatureKey;
+import com.benchreadiness.interview.feature.RequiresFeature;
 import com.benchreadiness.interview.dto.BulkCreateInterviewRequest;
 import com.benchreadiness.interview.dto.BulkCreateInterviewResult;
 import com.benchreadiness.interview.dto.ClientBriefDto;
@@ -103,6 +105,7 @@ public class InterviewController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    @RequiresFeature(FeatureKey.INTERVIEWS)
     public ResponseEntity<?> create(@Valid @RequestBody CreateInterviewRequest req,
                                      @RequestHeader("X-User-Id") String userId,
                                      @RequestHeader("X-User-Role") String userRole) {
@@ -201,6 +204,7 @@ public class InterviewController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    @RequiresFeature(FeatureKey.INTERVIEWS)
     public ResponseEntity<List<Interview>> getAll(@RequestHeader("X-User-Id") String userId,
                                                    @RequestHeader("X-User-Role") String userRole) {
         return ResponseEntity.ok(interviewService.findAllForRole(userId, userRole));

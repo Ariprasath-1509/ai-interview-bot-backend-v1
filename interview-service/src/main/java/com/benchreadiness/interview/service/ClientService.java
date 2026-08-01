@@ -10,6 +10,7 @@ import com.benchreadiness.interview.dto.SkillRequirementDTO;
 import com.benchreadiness.interview.entity.Client;
 import com.benchreadiness.interview.entity.PositionRequirement;
 import com.benchreadiness.interview.entity.SkillRequirement;
+import com.benchreadiness.interview.org.OrgAccess;
 import com.benchreadiness.interview.repository.ClientRepository;
 import com.benchreadiness.interview.repository.PositionRequirementRepository;
 import org.slf4j.Logger;
@@ -52,9 +53,17 @@ public class ClientService {
 
     public List<ClientDTO> getClientsForRole(String userRole) {
         String allowedBranch = BranchAccess.resolveAllowedBranch(userRole);
-        List<Client> clients = allowedBranch == null
-                ? clientRepository.findAll()
-                : clientRepository.findByBranch(allowedBranch);
+        String allowedOrg = OrgAccess.resolveAllowedOrg(userRole);
+        List<Client> clients;
+        if (allowedBranch != null && allowedOrg != null) {
+            clients = clientRepository.findByBranchAndOrgCode(allowedBranch, allowedOrg);
+        } else if (allowedOrg != null) {
+            clients = clientRepository.findByOrgCode(allowedOrg);
+        } else if (allowedBranch != null) {
+            clients = clientRepository.findByBranch(allowedBranch);
+        } else {
+            clients = clientRepository.findAll();
+        }
         return clients.stream()
                 .map(this::convertToDTO)
                 .collect(Collectors.toList());
@@ -95,6 +104,7 @@ public class ClientService {
         client.setBenchB2bCandidatesNeeded(clientDTO.getBenchB2bCandidatesNeeded());
         client.setStatus(Client.ClientStatus.valueOf(clientDTO.getStatus()));
         client.setBranch(BranchAccess.resolveBranchForCreate(userRole, clientDTO.getBranch()));
+        client.setOrgCode(OrgAccess.resolveOrgForCreate(userRole));
         client.setBenchReviewed(false);
         client.setRecruitmentReviewed(false);
         client.setCreatedAt(LocalDateTime.now());
@@ -259,11 +269,9 @@ public class ClientService {
 
     private List<ClientDTO> filterClientsByRole(String userRole, List<Client> clients) {
         String allowedBranch = BranchAccess.resolveAllowedBranch(userRole);
-        if (allowedBranch == null) {
-            return clients.stream().map(this::convertToDTO).collect(Collectors.toList());
-        }
         return clients.stream()
-                .filter(c -> allowedBranch.equals(Branch.normalize(c.getBranch())))
+                .filter(c -> allowedBranch == null || allowedBranch.equals(Branch.normalize(c.getBranch())))
+                .filter(c -> OrgAccess.canAccessOrg(userRole, c.getOrgCode()))
                 .map(this::convertToDTO)
                 .collect(Collectors.toList());
     }
@@ -285,7 +293,8 @@ public class ClientService {
     private Client requireAccessibleClient(UUID id, String userRole) {
         Client client = clientRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Client not found with id: " + id));
-        if (!BranchAccess.canAccessBranch(userRole, client.getBranch())) {
+        if (!BranchAccess.canAccessBranch(userRole, client.getBranch())
+                || !OrgAccess.canAccessOrg(userRole, client.getOrgCode())) {
             throw new NoSuchElementException("Client not found with id: " + id);
         }
         return client;

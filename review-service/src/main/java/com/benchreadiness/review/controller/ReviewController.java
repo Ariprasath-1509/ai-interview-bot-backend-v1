@@ -1,6 +1,8 @@
 package com.benchreadiness.review.controller;
 
 import com.benchreadiness.review.security.StaffSecurityRoles;
+import com.benchreadiness.review.feature.FeatureKey;
+import com.benchreadiness.review.feature.RequiresFeature;
 import com.benchreadiness.review.dto.SaveScoresRequest;
 import com.benchreadiness.review.dto.SignOffRequest;
 import com.benchreadiness.review.entity.Score;
@@ -43,6 +45,7 @@ public class ReviewController {
 
     /** GET /reviews/{interviewId} — get sign-off for an interview */
     @GetMapping("/reviews/{interviewId}")
+    @RequiresFeature(FeatureKey.REVIEW)
     public ResponseEntity<?> getReview(@PathVariable String interviewId) {
         SignOff signOff = reviewService.getSignOff(interviewId);
         if (signOff == null) return ResponseEntity.ok(Map.of("signedOff", false));
@@ -58,6 +61,7 @@ public class ReviewController {
     /** POST /reviews/{interviewId}/sign-off — any staff role (Recruiter or Admin) can sign off an interview */
     @PostMapping("/reviews/{interviewId}/sign-off")
     @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    @RequiresFeature(FeatureKey.REVIEW)
     public ResponseEntity<?> signOff(@PathVariable String interviewId,
                                       @Valid @RequestBody SignOffRequest req,
                                       @RequestHeader("X-User-Id") String userId,

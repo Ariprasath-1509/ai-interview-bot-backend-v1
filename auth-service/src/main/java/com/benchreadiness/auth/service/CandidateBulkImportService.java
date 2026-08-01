@@ -148,7 +148,6 @@ public class CandidateBulkImportService {
             candidate.setContactNumber(getCellValueAsString(row.getCell(7)));        // H - Contact Number
             candidate.setOfficialEmail(getCellValueAsString(row.getCell(8)));        // I - Official Mail ID
             candidate.setPersonalEmail(getCellValueAsString(row.getCell(9)));        // J - Personal Mail ID
-            candidate.setYoeActual(getCellValueAsString(row.getCell(10)));          // K - YOE - A
             candidate.setYoePortrayed(getCellValueAsString(row.getCell(11)));       // L - YOE - P
             candidate.setSkillSet(getCellValueAsString(row.getCell(12)));           // M - Skill Set
             candidate.setYop(getCellValueAsString(row.getCell(13)));                // N - YOP
@@ -302,6 +301,10 @@ public class CandidateBulkImportService {
         candidate.setName(row.getName());
         candidate.setRole(UserRole.CANDIDATE);
         candidate.setBranch(branch != null ? branch : BranchAccess.defaultBranch());
+        candidate.setOrgCode(userRepository.findById(createdByUserId)
+                .map(User::getOrgCode)
+                .filter(code -> code != null && !code.isBlank())
+                .orElse("TESTYANTRA"));
         
         // Email handling - prefer official, fallback to personal
         String primaryEmail = StringUtils.hasText(row.getOfficialEmail()) ? 
@@ -335,7 +338,6 @@ public class CandidateBulkImportService {
         }
         
         // Experience fields
-        candidate.setYoeActual(parseDecimal(row.getYoeActual()));
         candidate.setYoePortrayed(parseDecimal(row.getYoePortrayed()));
         candidate.setYop(parseInteger(row.getYop()));
         candidate.setNoOfInterviews(parseInteger(row.getNoOfInterviews()));

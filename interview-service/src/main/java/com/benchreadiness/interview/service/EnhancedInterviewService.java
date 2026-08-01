@@ -50,15 +50,15 @@ public class EnhancedInterviewService {
                     preview.setResumeSummary(generateResumeSummary(candidate));
                     
                     // Suggest interview mode based on experience
-                    Double yoeActual = candidate.get("yoeActual") != null ? ((Number) candidate.get("yoeActual")).doubleValue() : null;
-                    if (yoeActual != null) {
-                        if (yoeActual >= 8) {
+                    Double yoePortrayed = candidate.get("yoePortrayed") != null ? ((Number) candidate.get("yoePortrayed")).doubleValue() : null;
+                    if (yoePortrayed != null) {
+                        if (yoePortrayed >= 8) {
                             preview.setSuggestedMode(InterviewMode.L4);
-                        } else if (yoeActual >= 5) {
+                        } else if (yoePortrayed >= 5) {
                             preview.setSuggestedMode(InterviewMode.L3);
-                        } else if (yoeActual >= 3) {
+                        } else if (yoePortrayed >= 3) {
                             preview.setSuggestedMode(InterviewMode.L2);
-                        } else if (yoeActual >= 1) {
+                        } else if (yoePortrayed >= 1) {
                             preview.setSuggestedMode(InterviewMode.L1);
                         } else {
                             preview.setSuggestedMode(InterviewMode.SCREENING);
@@ -195,11 +195,11 @@ public class EnhancedInterviewService {
     private InterviewMode suggestInterviewMode(CreateInterviewRequest request) {
         try {
             // Get candidate experience if candidateId is provided
-            Double yoeActual = null;
+            Double yoePortrayed = null;
             if (request.getCandidateId() != null) {
                 Map<String, Object> candidate = authServiceClient.getUserById(request.getCandidateId());
-                if (candidate != null && candidate.get("yoeActual") != null) {
-                    yoeActual = ((Number) candidate.get("yoeActual")).doubleValue();
+                if (candidate != null && candidate.get("yoePortrayed") != null) {
+                    yoePortrayed = ((Number) candidate.get("yoePortrayed")).doubleValue();
                 }
             }
             
@@ -210,16 +210,16 @@ public class EnhancedInterviewService {
             
             // Determine suggested mode based on JD and experience
             if (combined.contains("lead") || combined.contains("principal") || combined.contains("staff") || 
-                combined.contains("architect") || (yoeActual != null && yoeActual >= 8)) {
+                combined.contains("architect") || (yoePortrayed != null && yoePortrayed >= 8)) {
                 return InterviewMode.L4;
             } else if (combined.contains("senior") || combined.contains("sr.") || 
-                      (yoeActual != null && yoeActual >= 5)) {
+                      (yoePortrayed != null && yoePortrayed >= 5)) {
                 return InterviewMode.L3;
             } else if (combined.contains("mid") || combined.contains("intermediate") || 
-                      (yoeActual != null && yoeActual >= 3)) {
+                      (yoePortrayed != null && yoePortrayed >= 3)) {
                 return InterviewMode.L2;
             } else if (combined.contains("junior") || combined.contains("jr.") || 
-                      (yoeActual != null && yoeActual >= 1)) {
+                      (yoePortrayed != null && yoePortrayed >= 1)) {
                 return InterviewMode.L1;
             } else {
                 return InterviewMode.SCREENING;
@@ -303,7 +303,7 @@ public class EnhancedInterviewService {
         
         String name = (String) candidate.get("name");
         String skillSet = (String) candidate.get("skillSet");
-        Double yoeActual = candidate.get("yoeActual") != null ? ((Number) candidate.get("yoeActual")).doubleValue() : null;
+        Double yoePortrayed = candidate.get("yoePortrayed") != null ? ((Number) candidate.get("yoePortrayed")).doubleValue() : null;
         String batch = (String) candidate.get("batch");
         String rating = (String) candidate.get("rating");
         
@@ -312,17 +312,17 @@ public class EnhancedInterviewService {
         }
         
         // Add experience level description
-        if (yoeActual != null) {
-            if (yoeActual >= 8) {
-                summary.append("Senior professional with ").append(String.format("%.1f years", yoeActual));
-            } else if (yoeActual >= 5) {
-                summary.append("Experienced professional with ").append(String.format("%.1f years", yoeActual));
-            } else if (yoeActual >= 3) {
-                summary.append("Mid-level professional with ").append(String.format("%.1f years", yoeActual));
-            } else if (yoeActual >= 1) {
-                summary.append("Professional with ").append(String.format("%.1f years", yoeActual));
+        if (yoePortrayed != null) {
+            if (yoePortrayed >= 8) {
+                summary.append("Senior professional with ").append(String.format("%.1f years", yoePortrayed));
+            } else if (yoePortrayed >= 5) {
+                summary.append("Experienced professional with ").append(String.format("%.1f years", yoePortrayed));
+            } else if (yoePortrayed >= 3) {
+                summary.append("Mid-level professional with ").append(String.format("%.1f years", yoePortrayed));
+            } else if (yoePortrayed >= 1) {
+                summary.append("Professional with ").append(String.format("%.1f years", yoePortrayed));
             } else {
-                summary.append("Entry-level professional with ").append(String.format("%.1f years", yoeActual));
+                summary.append("Entry-level professional with ").append(String.format("%.1f years", yoePortrayed));
             }
             summary.append(" of experience in ");
         }

@@ -63,7 +63,6 @@ public class BulkImportRequest {
         private String contactNumber;
         private String officialEmail;
         private String personalEmail;
-        private Double yoeActual;
         private Double yoePortrayed;
         private String skillSet;
         private Integer noOfInterviews;
@@ -143,14 +142,6 @@ public class BulkImportRequest {
 
         public void setPersonalEmail(String personalEmail) {
             this.personalEmail = personalEmail;
-        }
-
-        public Double getYoeActual() {
-            return yoeActual;
-        }
-
-        public void setYoeActual(Double yoeActual) {
-            this.yoeActual = yoeActual;
         }
 
         public Double getYoePortrayed() {

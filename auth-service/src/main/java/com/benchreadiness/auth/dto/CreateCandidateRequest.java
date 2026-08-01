@@ -14,12 +14,10 @@ public class CreateCandidateRequest {
     @NotBlank
     private String contactNumber;
 
-    @NotBlank
     private String batch;
 
     private String batchMentor;
 
-    @NotBlank
     private String source;
 
     private String candidateStatus;
@@ -28,8 +26,6 @@ public class CreateCandidateRequest {
 
     @NotBlank
     private String skillSet;
-
-    private Double yoeActual;
 
     private Double yoePortrayed;
 
@@ -64,8 +60,6 @@ public class CreateCandidateRequest {
     public void setRating(String rating) { this.rating = rating; }
     public String getSkillSet() { return skillSet; }
     public void setSkillSet(String skillSet) { this.skillSet = skillSet; }
-    public Double getYoeActual() { return yoeActual; }
-    public void setYoeActual(Double yoeActual) { this.yoeActual = yoeActual; }
     public Double getYoePortrayed() { return yoePortrayed; }
     public void setYoePortrayed(Double yoePortrayed) { this.yoePortrayed = yoePortrayed; }
     public Integer getYop() { return yop; }

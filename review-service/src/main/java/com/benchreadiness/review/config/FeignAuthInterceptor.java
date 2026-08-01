@@ -47,5 +47,9 @@ public class FeignAuthInterceptor implements RequestInterceptor {
         if (userBranch != null) {
             template.header("X-User-Branch", userBranch);
         }
+        String userOrg = request.getHeader("X-User-Org");
+        if (userOrg != null) {
+            template.header("X-User-Org", userOrg);
+        }
     }
 }

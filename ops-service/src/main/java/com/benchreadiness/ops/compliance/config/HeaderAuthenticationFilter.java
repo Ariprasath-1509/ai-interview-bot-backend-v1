@@ -1,6 +1,7 @@
 package com.benchreadiness.ops.compliance.config;
 
 import com.benchreadiness.ops.branch.BranchContext;
+import com.benchreadiness.ops.org.OrgContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,9 +32,11 @@ public class HeaderAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             BranchContext.set(request.getHeader("X-User-Branch"));
+            OrgContext.set(request.getHeader("X-User-Org"));
             filterChain.doFilter(request, response);
         } finally {
             BranchContext.clear();
+            OrgContext.clear();
         }
     }
 }

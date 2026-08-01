@@ -61,4 +61,7 @@ public interface AuthServiceClient {
 
     @PostMapping("/auth/internal/notify/interview-scheduled")
     Map<String, Object> notifyInterviewScheduled(@RequestBody Map<String, String> body);
+
+    @GetMapping("/auth/my-org/features")
+    Map<String, Object> getMyOrgFeatures();
 }

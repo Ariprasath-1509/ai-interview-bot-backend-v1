@@ -320,13 +320,11 @@ public class MatchingService {
                 match.setNoOfInterviews(interviewCountObj != null ? ((Number) interviewCountObj).intValue() : 0);
             }
             
-            // Experience alignment - show both actual and portrayed
+            // Experience alignment, as reported by the AI match
             Map<String, Object> expAlignment = (Map<String, Object>) aiMatch.get("experienceAlignment");
             if (expAlignment != null) {
-                Object yoeActualObj = expAlignment.get("candidateYoe");
-                match.setYoeActual(yoeActualObj != null ? ((Number) yoeActualObj).doubleValue() : 0.0);
-                Object yoePortrayedObj = expAlignment.get("candidateYoePortrayed");
-                match.setYoePortrayed(yoePortrayedObj != null ? ((Number) yoePortrayedObj).doubleValue() : 0.0);
+                Object yoeObj = expAlignment.get("candidateYoe");
+                match.setYoePortrayed(yoeObj != null ? ((Number) yoeObj).doubleValue() : 0.0);
             }
             
             // Skill alignment
@@ -371,9 +369,7 @@ public class MatchingService {
             match.setCandidateEmail(email);
             
             match.setSkillSet((String) candidate.get("skillSet"));
-            match.setYoeActual(candidate.get("yoeActual") != null ? 
-                ((Number) candidate.get("yoeActual")).doubleValue() : 0.0);
-            match.setYoePortrayed(candidate.get("yoePortrayed") != null ? 
+            match.setYoePortrayed(candidate.get("yoePortrayed") != null ?
                 ((Number) candidate.get("yoePortrayed")).doubleValue() : 0.0);
             match.setRating((String) candidate.getOrDefault("rating", "MEDIUM"));
             match.setCandidateStatus((String) candidate.getOrDefault("candidateStatus", "NOT_RFD"));
@@ -407,10 +403,10 @@ public class MatchingService {
         String jdDescription = client.getJdDescription().toLowerCase();
         String jdTitle = client.getJdRole().toLowerCase();
         String combined = jdDescription + " " + jdTitle;
-        // Use yoePortrayed for scoring (same as the pre-filter uses) — falls back to yoeActual
+        // Use yoePortrayed for scoring (same as the pre-filter uses)
         Double yoePortrayed = candidate.get("yoePortrayed") != null
             ? ((Number) candidate.get("yoePortrayed")).doubleValue()
-            : (candidate.get("yoeActual") != null ? ((Number) candidate.get("yoeActual")).doubleValue() : 0.0);
+            : 0.0;
         String rating = (String) candidate.get("rating");
         String candidateStatus = (String) candidate.get("candidateStatus");
         Double avgScore = candidate.get("avgScore") != null ?
@@ -569,7 +565,7 @@ public class MatchingService {
         String skillSet = (String) candidate.get("skillSet");
         Double yoePortrayed = candidate.get("yoePortrayed") != null
             ? ((Number) candidate.get("yoePortrayed")).doubleValue()
-            : (candidate.get("yoeActual") != null ? ((Number) candidate.get("yoeActual")).doubleValue() : 0.0);
+            : 0.0;
         String rating = (String) candidate.get("rating");
         String candidateStatus = (String) candidate.get("candidateStatus");
         Double avgScore = candidate.get("avgScore") != null ?
@@ -929,7 +925,7 @@ public class MatchingService {
             candidate.put("officialEmail", "john.doe" + i + "@company.com");
             candidate.put("personalEmail", "john.doe" + i + "@gmail.com");
             candidate.put("skillSet", "JAVA_SB");
-            candidate.put("yoeActual", 3.0 + i);
+            candidate.put("yoePortrayed", 3.0 + i);
             candidate.put("rating", i == 1 ? "ASSET" : "MEDIUM");
             candidate.put("candidateStatus", "RFD");
             candidate.put("noOfInterviews", i);
@@ -953,7 +949,7 @@ public class MatchingService {
             match.setCandidateName((String) candidate.get("name"));
             match.setCandidateEmail((String) candidate.get("email"));
             match.setSkillSet((String) candidate.get("skillSet"));
-            match.setYoeActual(((Number) candidate.get("yoeActual")).doubleValue());
+            match.setYoePortrayed(((Number) candidate.get("yoePortrayed")).doubleValue());
             match.setRating((String) candidate.get("rating"));
             match.setCandidateStatus((String) candidate.get("candidateStatus"));
             match.setMatchScore(0.7);

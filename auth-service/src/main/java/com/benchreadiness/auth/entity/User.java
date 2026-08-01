@@ -57,9 +57,12 @@ public class User {
     @Column(name = "branch", length = 32, nullable = false)
     private String branch = "DEVELOPMENT";
 
-    @Column(name = "yoe_actual", precision = 4, scale = 1)
-    private BigDecimal yoeActual;
+    /** Tenant boundary — independent of branch. Every user belongs to exactly one organization. */
+    @Column(name = "org_code", length = 64, nullable = false)
+    private String orgCode = "TESTYANTRA";
 
+    /** The single YOE value shown everywhere — column is still named yoe_portrayed in the DB
+     * (yoe_actual is retired but left in place, unused, to avoid a destructive column drop). */
     @Column(name = "yoe_portrayed", precision = 4, scale = 1)
     private BigDecimal yoePortrayed;
 
@@ -161,8 +164,6 @@ public class User {
     public void setRating(String rating) { this.rating = rating; }
     public String getSkillSet() { return skillSet; }
     public void setSkillSet(String skillSet) { this.skillSet = skillSet; }
-    public BigDecimal getYoeActual() { return yoeActual; }
-    public void setYoeActual(BigDecimal yoeActual) { this.yoeActual = yoeActual; }
     public BigDecimal getYoePortrayed() { return yoePortrayed; }
     public void setYoePortrayed(BigDecimal yoePortrayed) { this.yoePortrayed = yoePortrayed; }
     public Integer getNoOfInterviews() { return noOfInterviews; }
@@ -175,6 +176,8 @@ public class User {
     public void setAdminSource(String adminSource) { this.adminSource = adminSource; }
     public String getBranch() { return branch; }
     public void setBranch(String branch) { this.branch = branch; }
+    public String getOrgCode() { return orgCode; }
+    public void setOrgCode(String orgCode) { this.orgCode = orgCode; }
 
     // Resume getters and setters
     public String getResumeFilename() { return resumeFilename; }

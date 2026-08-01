@@ -3,6 +3,7 @@ package com.benchreadiness.interview.service;
 import com.benchreadiness.interview.branch.Branch;
 import com.benchreadiness.interview.branch.BranchAccess;
 import com.benchreadiness.interview.branch.InterviewBranchFilter;
+import com.benchreadiness.interview.org.InterviewOrgFilter;
 import com.benchreadiness.interview.branch.InterviewCandidateBranchLookup;
 import com.benchreadiness.interview.entity.*;
 import com.benchreadiness.interview.repository.*;
@@ -443,7 +444,8 @@ public class AnalyticsService {
 
     private List<Interview> getUserInterviews(String userId, String userRole) {
         List<Interview> all = interviewRepository.findAll();
-        return InterviewBranchFilter.filterForRole(all, userId, userRole, candidateBranchLookup.forInterviews(all));
+        List<Interview> branchFiltered = InterviewBranchFilter.filterForRole(all, userId, userRole, candidateBranchLookup.forInterviews(all));
+        return InterviewOrgFilter.filterForRole(branchFiltered, userRole);
     }
 
     /** Branch-scoped daily report for digest (null branch = all branches). */

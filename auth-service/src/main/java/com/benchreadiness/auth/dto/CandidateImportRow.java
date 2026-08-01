@@ -11,7 +11,6 @@ public class CandidateImportRow {
     private String contactNumber;        // Column H - Contact Number
     private String officialEmail;        // Column I - Official Mail ID
     private String personalEmail;        // Column J - Personal Mail ID
-    private String yoeActual;           // Column K - YOE - A
     private String yoePortrayed;        // Column L - YOE - P
     private String skillSet;            // Column M - Skill Set
     private String yop;                 // Column N - YOP
@@ -52,9 +51,6 @@ public class CandidateImportRow {
 
     public String getPersonalEmail() { return personalEmail; }
     public void setPersonalEmail(String personalEmail) { this.personalEmail = personalEmail; }
-
-    public String getYoeActual() { return yoeActual; }
-    public void setYoeActual(String yoeActual) { this.yoeActual = yoeActual; }
 
     public String getYoePortrayed() { return yoePortrayed; }
     public void setYoePortrayed(String yoePortrayed) { this.yoePortrayed = yoePortrayed; }

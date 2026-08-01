@@ -153,6 +153,9 @@ public class JwtService {
         } else if (user.getBranch() != null && !user.getBranch().isBlank()) {
             builder.claim("branch", user.getBranch());
         }
+        if (user.getOrgCode() != null && !user.getOrgCode().isBlank()) {
+            builder.claim("org", user.getOrgCode());
+        }
         return builder
                 .issuedAt(now)
                 .expiration(expiry)

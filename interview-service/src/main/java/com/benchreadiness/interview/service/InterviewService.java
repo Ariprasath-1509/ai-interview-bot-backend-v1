@@ -1,6 +1,7 @@
 package com.benchreadiness.interview.service;
 
 import com.benchreadiness.interview.branch.InterviewBranchFilter;
+import com.benchreadiness.interview.org.InterviewOrgFilter;
 import com.benchreadiness.interview.branch.InterviewCandidateBranchLookup;
 import com.benchreadiness.interview.client.*;
 import com.benchreadiness.interview.dto.AbandonInterviewRequest;
@@ -243,6 +244,7 @@ public class InterviewService {
         interview.setCustomDurationMinutes(req.getCustomDurationMinutes());
         interview.setCreatedByUserId(createdByUserId);
         interview.setBranch(branch != null ? branch : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
+        interview.setOrgCode(com.benchreadiness.interview.org.OrgContext.getOrDefault());
         interview.setClientId(clientId);
         interview.setProctoringMode(resolvedProctoringMode);
         interview.setStatus(InterviewStatus.SCHEDULED);
@@ -436,7 +438,8 @@ public class InterviewService {
         return findById(id).filter(interview -> {
             Map<String, String> candidateBranches = candidateBranchLookup.byEngineerIds(
                     Set.of(interview.getEngineerId()));
-            return InterviewBranchFilter.canAccess(interview, userId, userRole, candidateBranches);
+            return InterviewBranchFilter.canAccess(interview, userId, userRole, candidateBranches)
+                    && InterviewOrgFilter.canAccess(interview, userRole);
         });
     }
 
@@ -481,13 +484,15 @@ public class InterviewService {
 
     public List<Interview> findAllForRole(String userId, String userRole) {
         List<Interview> all = findAll();
-        return InterviewBranchFilter.filterForRole(all, userId, userRole, candidateBranchLookup.forInterviews(all));
+        List<Interview> branchFiltered = InterviewBranchFilter.filterForRole(all, userId, userRole, candidateBranchLookup.forInterviews(all));
+        return InterviewOrgFilter.filterForRole(branchFiltered, userRole);
     }
 
     public List<com.benchreadiness.interview.dto.InterviewSummaryDto> getSummaries(String userId, String userRole) {
         List<Interview> all = interviewRepository.findAll();
-        return mapSummaries(InterviewBranchFilter.filterForRole(
-                all, userId, userRole, candidateBranchLookup.forInterviews(all)));
+        List<Interview> branchFiltered = InterviewBranchFilter.filterForRole(
+                all, userId, userRole, candidateBranchLookup.forInterviews(all));
+        return mapSummaries(InterviewOrgFilter.filterForRole(branchFiltered, userRole));
     }
 
     public List<com.benchreadiness.interview.dto.InterviewSummaryDto> getSummaries() {
@@ -537,8 +542,9 @@ public class InterviewService {
         Instant startOfDay = today.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
         Instant endOfDay = today.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
         List<Interview> todayInterviews = interviewRepository.findCreatedToday(startOfDay, endOfDay);
-        return mapSummaries(InterviewBranchFilter.filterForRole(
-                todayInterviews, userId, userRole, candidateBranchLookup.forInterviews(todayInterviews)));
+        List<Interview> branchFiltered = InterviewBranchFilter.filterForRole(
+                todayInterviews, userId, userRole, candidateBranchLookup.forInterviews(todayInterviews));
+        return mapSummaries(InterviewOrgFilter.filterForRole(branchFiltered, userRole));
     }
 
     public List<com.benchreadiness.interview.dto.InterviewSummaryDto> getTodaysSummaries() {

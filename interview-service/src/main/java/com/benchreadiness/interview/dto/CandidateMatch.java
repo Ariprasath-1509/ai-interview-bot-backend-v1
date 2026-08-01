@@ -7,7 +7,6 @@ public class CandidateMatch {
     private String candidateName;
     private String candidateEmail;
     private String skillSet;
-    private Double yoeActual;
     private Double yoePortrayed;
     private String rating;
     private String candidateStatus;
@@ -22,16 +21,16 @@ public class CandidateMatch {
 
     public CandidateMatch() {}
 
-    public CandidateMatch(String candidateId, String candidateName, String candidateEmail, 
-                         String skillSet, Double yoeActual, String rating, String candidateStatus, 
-                         Integer noOfInterviews, Double matchScore, String matchRationale, 
-                         List<String> strengths, List<String> concerns, String lastInterviewDate, 
+    public CandidateMatch(String candidateId, String candidateName, String candidateEmail,
+                         String skillSet, Double yoePortrayed, String rating, String candidateStatus,
+                         Integer noOfInterviews, Double matchScore, String matchRationale,
+                         List<String> strengths, List<String> concerns, String lastInterviewDate,
                          String lastVerdict, Double avgScore) {
         this.candidateId = candidateId;
         this.candidateName = candidateName;
         this.candidateEmail = candidateEmail;
         this.skillSet = skillSet;
-        this.yoeActual = yoeActual;
+        this.yoePortrayed = yoePortrayed;
         this.rating = rating;
         this.candidateStatus = candidateStatus;
         this.noOfInterviews = noOfInterviews;
@@ -74,14 +73,6 @@ public class CandidateMatch {
 
     public void setSkillSet(String skillSet) {
         this.skillSet = skillSet;
-    }
-
-    public Double getYoeActual() {
-        return yoeActual;
-    }
-
-    public void setYoeActual(Double yoeActual) {
-        this.yoeActual = yoeActual;
     }
 
     public Double getYoePortrayed() {

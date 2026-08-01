@@ -215,7 +215,7 @@ public class PipelineService {
             request.put("yop", candidate.getYop());
         }
         if (candidate.getExperience() != null) {
-            request.put("yoeActual", candidate.getExperience());
+            request.put("yoePortrayed", candidate.getExperience());
         }
         request.put("candidateStatus", "Under Training");
 

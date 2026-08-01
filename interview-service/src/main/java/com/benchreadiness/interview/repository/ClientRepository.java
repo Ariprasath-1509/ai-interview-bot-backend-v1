@@ -19,6 +19,8 @@ public interface ClientRepository extends JpaRepository<Client, UUID> {
     List<Client> findByStatus(Client.ClientStatus status);
 
     List<Client> findByBranch(String branch);
+    List<Client> findByOrgCode(String orgCode);
+    List<Client> findByBranchAndOrgCode(String branch, String orgCode);
     
     @Query("SELECT c FROM Client c ORDER BY c.createdAt DESC")
     List<Client> findAllOrderByCreatedAtDesc();

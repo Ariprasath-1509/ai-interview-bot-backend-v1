@@ -1,6 +1,7 @@
 package com.benchreadiness.interview.config;
 
 import com.benchreadiness.interview.branch.BranchContext;
+import com.benchreadiness.interview.org.OrgContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,9 +32,11 @@ public class HeaderAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             BranchContext.set(request.getHeader("X-User-Branch"));
+            OrgContext.set(request.getHeader("X-User-Org"));
             filterChain.doFilter(request, response);
         } finally {
             BranchContext.clear();
+            OrgContext.clear();
         }
     }
 }

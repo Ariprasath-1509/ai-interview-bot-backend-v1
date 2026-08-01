@@ -32,6 +32,7 @@ public class FeignAuthInterceptor implements RequestInterceptor {
             String userId = request.getHeader("X-User-Id");
             String userRole = request.getHeader("X-User-Role");
             String userEmail = request.getHeader("X-User-Email");
+            String userOrg = request.getHeader("X-User-Org");
             if (userId != null) {
                 template.header("X-User-Id", userId);
             }
@@ -40,6 +41,9 @@ public class FeignAuthInterceptor implements RequestInterceptor {
             }
             if (userEmail != null) {
                 template.header("X-User-Email", userEmail);
+            }
+            if (userOrg != null) {
+                template.header("X-User-Org", userOrg);
             }
         }
         if (gatewaySharedKey != null && !gatewaySharedKey.isBlank()) {
