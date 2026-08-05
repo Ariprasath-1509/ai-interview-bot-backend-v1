@@ -824,6 +824,8 @@ public class AuthController {
         map.put("id", userId);
         map.put("role", role);
         map.put("email", email);
+        map.put("name", user != null ? user.getName() : null);
+        map.put("contactNumber", user != null ? user.getContactNumber() : null);
         if (user != null && user.getAdminSource() != null) {
             map.put("adminSource", user.getAdminSource());
         }
@@ -835,9 +837,8 @@ public class AuthController {
         return ResponseEntity.ok(map);
     }
 
-    /** PATCH /auth/me/profile — candidate updates own editable fields */
+    /** PATCH /auth/me/profile — any authenticated user updates their own editable fields */
     @PatchMapping("/me/profile")
-    @PreAuthorize("hasRole('CANDIDATE')")
     public ResponseEntity<?> updateMyProfile(@RequestHeader("X-User-Id") String userId,
                                               @RequestHeader("X-User-Role") String callerRole,
                                               @RequestBody Map<String, Object> updates) {
@@ -846,11 +847,59 @@ public class AuthController {
 
         if (updates.containsKey("name")) user.setName((String) updates.get("name"));
         if (updates.containsKey("contactNumber")) user.setContactNumber((String) updates.get("contactNumber"));
-        if (updates.containsKey("officialEmail")) user.setOfficialEmail((String) updates.get("officialEmail"));
-        if (updates.containsKey("personalEmail")) user.setPersonalEmail((String) updates.get("personalEmail"));
 
+        if (user.getRole() == UserRole.CANDIDATE) {
+            if (updates.containsKey("officialEmail")) user.setOfficialEmail((String) updates.get("officialEmail"));
+            if (updates.containsKey("personalEmail")) user.setPersonalEmail((String) updates.get("personalEmail"));
+            userRepository.save(user);
+            return ResponseEntity.ok(buildCandidateMap(user));
+        }
+
+        // Staff: the login email is the only email field — keep it unique.
+        if (updates.containsKey("email")) {
+            String newEmail = ((String) updates.get("email")).trim().toLowerCase();
+            if (!newEmail.equalsIgnoreCase(user.getEmail()) && userRepository.existsByEmailIgnoreCase(newEmail)) {
+                return ResponseEntity.status(409).body(Map.of("ok", false, "error", "Email already registered"));
+            }
+            user.setEmail(newEmail);
+        }
         userRepository.save(user);
-        return ResponseEntity.ok(buildCandidateMap(user));
+
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", user.getId());
+        map.put("role", user.getRole().name());
+        map.put("email", user.getEmail());
+        map.put("name", user.getName());
+        map.put("contactNumber", user.getContactNumber());
+        return ResponseEntity.ok(map);
+    }
+
+    /** PATCH /auth/me/password — any authenticated user changes their own password (current password required) */
+    @PatchMapping("/me/password")
+    public ResponseEntity<?> changeMyPassword(@RequestHeader("X-User-Id") String userId,
+                                               @RequestBody Map<String, String> body) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) return ResponseEntity.notFound().build();
+
+        String currentPassword = body.get("currentPassword");
+        String newPassword = body.get("newPassword");
+        if (currentPassword == null || newPassword == null) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "currentPassword and newPassword are required"));
+        }
+        if (!passwordService.matches(currentPassword, user.getPassword())) {
+            return ResponseEntity.status(403).body(Map.of("ok", false, "error", "Current password is incorrect"));
+        }
+        if (newPassword.length() < 6) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "Password must be at least 6 characters"));
+        }
+
+        user.setPassword(passwordService.encode(newPassword));
+        userRepository.save(user);
+
+        auditService.record(userId, null, user.getRole().name(), "PASSWORD_CHANGED", "USER", userId,
+                "User changed their own password");
+
+        return ResponseEntity.ok(Map.of("ok", true));
     }
 
     /** PATCH /auth/candidates/{id}/resume — Update candidate resume information */

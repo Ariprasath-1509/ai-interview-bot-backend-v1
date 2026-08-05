@@ -419,8 +419,12 @@ public class QuestionService {
                     return finalizeAndCache(requestCacheKey, req, result);
                 }
                 
-                // Check cache for first question
-                if (req.getSlot() == 1 && (req.getLastAnswer() == null || req.getLastAnswer().isBlank())) {
+                // Check cache for first question — skipped whenever a resume is present, since the
+                // opening question is personalized per-candidate from it (see llmQuestion below);
+                // the cache has no candidate dimension, so serving a hit would hand one candidate's
+                // resume-tailored question to every other candidate sharing the same JD/mode.
+                boolean hasResume = req.getResumeSummary() != null && !req.getResumeSummary().isBlank();
+                if (req.getSlot() == 1 && !hasResume && (req.getLastAnswer() == null || req.getLastAnswer().isBlank())) {
                     String firstQuestionCacheHit = cacheService.getCachedFirstQuestion(
                         req.getJdTitle(), req.getJdText(), req.getFocusAreas(), req.getInterviewMode());
                     if (firstQuestionCacheHit != null) {
@@ -438,8 +442,8 @@ public class QuestionService {
                     question = progressQuestionAvoidingAll(req);
                 }
 
-                // Cache first question if this was slot 1
-                if (req.getSlot() == 1 && (req.getLastAnswer() == null || req.getLastAnswer().isBlank())) {
+                // Cache first question if this was slot 1 — never for a resume-personalized question
+                if (req.getSlot() == 1 && !hasResume && (req.getLastAnswer() == null || req.getLastAnswer().isBlank())) {
                     cacheService.cacheFirstQuestion(
                         req.getJdTitle(), req.getJdText(), req.getFocusAreas(), req.getInterviewMode(), question);
                 }
