@@ -69,7 +69,8 @@ public class TokenTrackingService {
         DailyTokenLimit limit = dailyTokenLimitRepository.findByOrganizationId("default").orElse(defaultLimit());
         Instant startOfDay = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant();
         Instant startOfNextDay = startOfDay.plus(1, ChronoUnit.DAYS);
-        Integer todayUsage = tokenUsageRepository.getTotalTokensForUserAndDate(userId, startOfDay, startOfNextDay);
+        // Use org-wide total — the daily limit applies to the whole organisation, not per user
+        Integer todayUsage = tokenUsageRepository.getTotalTokensForDate(startOfDay, startOfNextDay);
         return (todayUsage != null ? todayUsage : 0) < limit.getDailyLimit();
     }
 
@@ -77,7 +78,8 @@ public class TokenTrackingService {
         DailyTokenLimit limit = dailyTokenLimitRepository.findByOrganizationId("default").orElse(defaultLimit());
         Instant startOfDay = LocalDate.now().atStartOfDay(ZoneOffset.UTC).toInstant();
         Instant startOfNextDay = startOfDay.plus(1, ChronoUnit.DAYS);
-        Integer todayUsage = tokenUsageRepository.getTotalTokensForUserAndDate(userId, startOfDay, startOfNextDay);
+        // Use org-wide total so the dashboard shows all tokens consumed today, regardless of which user/service triggered them
+        Integer todayUsage = tokenUsageRepository.getTotalTokensForDate(startOfDay, startOfNextDay);
         int usage = todayUsage != null ? todayUsage : 0;
 
         Map<String, Object> result = new HashMap<>();
