@@ -104,4 +104,24 @@ public class TokenTrackingController {
         tokenTrackingService.finalizeInterviewTokenSummary((String) request.get("interviewId"));
         return ResponseEntity.ok().build();
     }
+
+    // ── F4: Rubric cache endpoints ────────────────────────────────────────────
+
+    @GetMapping("/rubric-cache/{cacheKey}")
+    public ResponseEntity<Map<String, Object>> getRubricCache(@PathVariable String cacheKey) {
+        return tokenTrackingService.getRubricCache(cacheKey)
+                .map(json -> ResponseEntity.ok(Map.<String, Object>of("cacheKey", cacheKey, "rubricJson", json)))
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/rubric-cache")
+    public ResponseEntity<Void> storeRubricCache(@RequestBody Map<String, String> request) {
+        String cacheKey = request.get("cacheKey");
+        String rubricJson = request.get("rubricJson");
+        if (cacheKey == null || rubricJson == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        tokenTrackingService.storeRubricCache(cacheKey, rubricJson);
+        return ResponseEntity.ok().build();
+    }
 }

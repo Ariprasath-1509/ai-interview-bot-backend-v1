@@ -2,6 +2,7 @@ package com.benchreadiness.ops.compliance.service;
 
 import com.benchreadiness.ops.compliance.entity.*;
 import com.benchreadiness.ops.compliance.repository.*;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,15 +31,18 @@ public class TokenTrackingService {
     private final DailyTokenLimitRepository dailyTokenLimitRepository;
     private final AssessmentResponseRepository assessmentResponseRepository;
     private final InterviewTokenSummaryRepository interviewTokenSummaryRepository;
+    private final RubricCacheRepository rubricCacheRepository;
 
     public TokenTrackingService(TokenUsageRepository tokenUsageRepository,
                                 DailyTokenLimitRepository dailyTokenLimitRepository,
                                 AssessmentResponseRepository assessmentResponseRepository,
-                                InterviewTokenSummaryRepository interviewTokenSummaryRepository) {
+                                InterviewTokenSummaryRepository interviewTokenSummaryRepository,
+                                RubricCacheRepository rubricCacheRepository) {
         this.tokenUsageRepository = tokenUsageRepository;
         this.dailyTokenLimitRepository = dailyTokenLimitRepository;
         this.assessmentResponseRepository = assessmentResponseRepository;
         this.interviewTokenSummaryRepository = interviewTokenSummaryRepository;
+        this.rubricCacheRepository = rubricCacheRepository;
     }
 
     @Transactional
@@ -180,11 +184,28 @@ public class TokenTrackingService {
             .orElse(Map.of("error", "Token summary not found for interview: " + interviewId));
     }
 
+    // ── F4: Rubric cache (DB-backed) ─────────────────────────────────────────
+
+    public Optional<String> getRubricCache(String cacheKey) {
+        return rubricCacheRepository.findByCacheKey(cacheKey)
+                .map(RubricCache::getRubricJson);
+    }
+
+    @Transactional
+    public void storeRubricCache(String cacheKey, String rubricJson) {
+        RubricCache entry = rubricCacheRepository.findByCacheKey(cacheKey)
+                .orElse(new RubricCache());
+        entry.setCacheKey(cacheKey);
+        entry.setRubricJson(rubricJson);
+        rubricCacheRepository.save(entry);
+        log.info("Stored rubric cache entry for key {}", cacheKey);
+    }
+
     private DailyTokenLimit defaultLimit() {
         DailyTokenLimit d = new DailyTokenLimit();
         d.setOrganizationId("default");
-        d.setDailyLimit(100000);
-        d.setWarningThreshold(80000);
+        d.setDailyLimit(500000);
+        d.setWarningThreshold(400000);
         return d;
     }
 }

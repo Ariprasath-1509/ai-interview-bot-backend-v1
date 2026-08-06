@@ -19,4 +19,15 @@ public interface ComplianceServiceClient {
     @PostMapping("/tokens/finalize-interview")
     void finalizeInterviewTokens(@RequestBody Map<String, String> request,
                                @RequestHeader("X-User-Id") String userId);
+
+    // F1: enforce daily limit before starting expensive assessment calls
+    @GetMapping("/tokens/check-limit")
+    Map<String, Object> checkDailyLimit(@RequestHeader("X-User-Id") String userId);
+
+    // F4: DB-backed rubric cache so rubrics survive pod restarts
+    @GetMapping("/tokens/rubric-cache/{cacheKey}")
+    Map<String, Object> getRubricCache(@PathVariable("cacheKey") String cacheKey);
+
+    @PostMapping("/tokens/rubric-cache")
+    void storeRubricCache(@RequestBody Map<String, String> request);
 }

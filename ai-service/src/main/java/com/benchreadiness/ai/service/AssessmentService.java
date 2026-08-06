@@ -69,7 +69,7 @@ public class AssessmentService {
             if (hasSubstantiveCodeSubmissions(req.getCodeSubmissionJson())) {
                 log.info("Thin transcript for interview {} ({} words, {} turns) — using coding-only assessment",
                         req.getInterviewId(), candidateWords, candidateTurns);
-                Map<String, Object> result = codingOnlyAssessment(req, utterances, candidateWords, candidateTurns);
+                Map<String, Object> result = codingOnlyAssessment(req, utterances, candidateWords, candidateTurns, userId);
                 result.put("speechAnalytics", computeSpeechAnalytics(utterances));
                 cacheAssessment(cacheKey, result);
                 return result;
@@ -113,6 +113,22 @@ public class AssessmentService {
             cacheAssessment(cacheKey, result);
             return result;
         }
+
+        // F1: enforce daily token budget before firing any LLM calls
+        try {
+            Map<String, Object> limitStatus = complianceServiceClient.checkDailyLimit(userId != null ? userId : "system");
+            if (Boolean.FALSE.equals(limitStatus.get("canProceed"))) {
+                log.warn("Daily token limit reached for userId={}. Remaining: {}", userId, limitStatus.get("remainingTokens"));
+                Map<String, Object> result = tokenLimitResult(
+                        "Daily token budget exhausted. Assessment cannot proceed until tomorrow.");
+                result.put("speechAnalytics", computeSpeechAnalytics(utterances));
+                cacheAssessment(cacheKey, result);
+                return result;
+            }
+        } catch (Exception e) {
+            log.warn("Could not check daily token limit ({}); proceeding with assessment", e.getMessage());
+        }
+
         try {
             Map<String, Object> result;
             if (req.isOnboarding()) {
@@ -427,11 +443,6 @@ public class AssessmentService {
         String evidenceSummary = evidence.entrySet().stream()
             .map(e -> e.getKey() + ": " + (e.getValue().isEmpty() ? "no evidence" : String.join("; ", e.getValue())))
             .reduce("", (a, b) -> a + "\n" + b);
-
-        String codeContext = buildCodeSubmissionContext(req.getCodeSubmissionJson());
-        if (!codeContext.isBlank()) {
-            evidenceSummary = evidenceSummary + "\n\nCode submissions:\n" + codeContext;
-        }
 
         String level = (String) candidateProfile.getOrDefault("level", "mid");
         String yoe = String.valueOf(candidateProfile.getOrDefault("yearsOfExperience", "unknown"));
@@ -1107,7 +1118,8 @@ public class AssessmentService {
             AssessmentRequest req,
             List<Map<String, String>> utterances,
             long candidateWords,
-            long candidateTurns) {
+            long candidateTurns,
+            String userId) {
         List<CodeSubmissionSummary> submissions = parseCodeSubmissionSummaries(req.getCodeSubmissionJson());
         int techScore = scoreTechnicalFromCode(submissions);
         int commScore = scoreCommunicationForThinTranscript(candidateWords, candidateTurns);
@@ -1233,7 +1245,7 @@ public class AssessmentService {
         if (llmClient.isConfigured()) {
             try {
                 Map<String, Object> enriched = enrichCodingOnlyFeedbackWithLlm(
-                        req, submissions, techScore, commScore, summary, scoreRows);
+                        req, submissions, techScore, commScore, summary, scoreRows, userId);
                 if (enriched != null && !enriched.isEmpty()) {
                     candidateFeedback.putAll(enriched);
                 }
@@ -1279,7 +1291,8 @@ public class AssessmentService {
             int techScore,
             int commScore,
             String summary,
-            List<Map<String, Object>> scoreRows) throws Exception {
+            List<Map<String, Object>> scoreRows,
+            String userId) throws Exception {
         String codeContext = buildCodeSubmissionContext(req.getCodeSubmissionJson());
         String system =
                 "You enrich assessment feedback for a coding-only interview (no verbal answers).\n"
@@ -1298,7 +1311,7 @@ public class AssessmentService {
                 + "Summary: " + summary + "\n"
                 + "Code submissions:\n" + codeContext;
 
-        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), "coding-only-feedback");
+        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
         JsonNode json = objectMapper.readTree(JsonRepairUtil.repair(raw));
         Map<String, Object> out = new LinkedHashMap<>();
         if (!json.path("summary").asText("").isBlank()) {
@@ -1322,6 +1335,26 @@ public class AssessmentService {
             out.put("prosAndCons", list);
         }
         return out;
+    }
+
+    private Map<String, Object> tokenLimitResult(String reason) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("categoryScores", List.of());
+        result.put("proposedVerdict", "NEEDS_RESKILLING");
+        result.put("summary", reason);
+        result.put("candidateFeedback", Map.of(
+            "summary", reason,
+            "overallSummary", reason,
+            "prosAndCons", List.of(),
+            "strengths", List.of(),
+            "areasToImprove", List.of(),
+            "resumeConsistencyForCandidate", List.of(),
+            "roadmap", List.of(),
+            "estimatedReadiness", "Unable to assess",
+            "estimatedReadinessTimeline", "Unable to assess"
+        ));
+        result.put("source", "token-limit-exceeded");
+        return result;
     }
 
     private Map<String, Object> thinTranscriptResult(String reason) {

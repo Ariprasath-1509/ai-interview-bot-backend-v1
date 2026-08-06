@@ -15,10 +15,10 @@ public class DailyTokenLimit {
     private String organizationId = "default";
 
     @Column(name = "daily_limit", nullable = false)
-    private Integer dailyLimit = 100000;
+    private Integer dailyLimit = 500000;
 
     @Column(name = "warning_threshold", nullable = false)
-    private Integer warningThreshold = 80000;
+    private Integer warningThreshold = 400000;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();

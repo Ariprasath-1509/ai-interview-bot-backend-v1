@@ -1,14 +1,18 @@
 package com.benchreadiness.ai.service;
 
+import com.benchreadiness.ai.client.ComplianceServiceClient;
 import com.benchreadiness.ai.dto.RubricRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class RubricService {
@@ -17,22 +21,78 @@ public class RubricService {
 
     private final LlmClient llmClient;
     private final ObjectMapper objectMapper;
+    private final ComplianceServiceClient complianceServiceClient;
 
-    public RubricService(LlmClient llmClient, ObjectMapper objectMapper) {
+    // F4: in-memory layer (survives within a pod lifetime, evicted on restart)
+    private final ConcurrentHashMap<String, Map<String, Object>> inMemoryRubricCache = new ConcurrentHashMap<>();
+
+    public RubricService(LlmClient llmClient, ObjectMapper objectMapper,
+                         ComplianceServiceClient complianceServiceClient) {
         this.llmClient = llmClient;
         this.objectMapper = objectMapper;
+        this.complianceServiceClient = complianceServiceClient;
     }
 
-    @Cacheable(value = "rubrics", key = "#req.jdTitle + '_' + T(java.util.Objects).hash(#req.jdText, #req.resumeSummary)")
+    // F4: no @Cacheable — replaced with two-tier (in-memory + DB) manual cache
     public Map<String, Object> generateRubric(RubricRequest req, String userId) {
-        log.info("generateRubric called for JD: {} (will use cache if available)", req.getJdTitle());
+        String cacheKey = buildRubricCacheKey(req);
+
+        // 1. in-memory check (fastest)
+        Map<String, Object> cached = inMemoryRubricCache.get(cacheKey);
+        if (cached != null) {
+            log.info("generateRubric: in-memory HIT for key {}", cacheKey);
+            return cached;
+        }
+
+        // 2. DB check (survives restarts)
+        try {
+            Map<String, Object> dbEntry = complianceServiceClient.getRubricCache(cacheKey);
+            if (dbEntry != null && dbEntry.containsKey("rubricJson")) {
+                String rubricJson = (String) dbEntry.get("rubricJson");
+                @SuppressWarnings("unchecked")
+                Map<String, Object> result = objectMapper.readValue(rubricJson, Map.class);
+                inMemoryRubricCache.put(cacheKey, result);
+                log.info("generateRubric: DB HIT for key {}", cacheKey);
+                return result;
+            }
+        } catch (Exception e) {
+            log.warn("generateRubric: DB cache lookup failed ({}); will call Claude", e.getMessage());
+        }
+
+        // 3. Generate via Claude
+        log.info("generateRubric: CACHE MISS — calling Claude for JD: {}", req.getJdTitle());
         if (!llmClient.isConfigured()) return fallbackRubric(req);
         try {
-            log.info("Cache MISS - Generating new rubric via Claude for JD: {}", req.getJdTitle());
-            return llmRubric(req, userId);
+            Map<String, Object> result = llmRubric(req, userId);
+
+            // 4. Store in DB then in-memory
+            try {
+                String json = objectMapper.writeValueAsString(result);
+                complianceServiceClient.storeRubricCache(Map.of("cacheKey", cacheKey, "rubricJson", json));
+            } catch (Exception e) {
+                log.warn("generateRubric: failed to persist rubric to DB ({})", e.getMessage());
+            }
+            inMemoryRubricCache.put(cacheKey, result);
+            return result;
         } catch (Exception e) {
             log.warn("Rubric generation failed: {}", e.getMessage());
             return fallbackRubric(req);
+        }
+    }
+
+    private String buildRubricCacheKey(RubricRequest req) {
+        String raw = req.getJdTitle() + "|" + req.getJdText() + "|" + req.getResumeSummary();
+        return sha256(raw);
+    }
+
+    private String sha256(String value) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (Exception e) {
+            // fallback: simple hashCode as hex so cache still works
+            return Integer.toHexString(value.hashCode());
         }
     }
 
