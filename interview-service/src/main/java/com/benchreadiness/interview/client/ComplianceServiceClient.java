@@ -29,4 +29,11 @@ public interface ComplianceServiceClient {
 
     @PostMapping("/compliance/audit-logs")
     void recordAuditLog(@RequestBody Map<String, Object> auditLog);
+
+    @GetMapping("/tokens/analytics/per-interview")
+    Map<String, Object> getPerInterviewTokenAnalytics();
+
+    @GetMapping("/tokens/analytics/range")
+    Map<String, Object> getTokenAnalyticsForRange(@RequestParam("from") String from,
+                                                   @RequestParam("to") String to);
 }

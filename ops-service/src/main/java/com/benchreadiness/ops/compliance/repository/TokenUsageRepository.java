@@ -23,4 +23,10 @@ public interface TokenUsageRepository extends JpaRepository<TokenUsage, String> 
 
     @Query("SELECT t FROM TokenUsage t WHERE t.createdAt >= :startOfDay AND t.createdAt < :startOfNextDay ORDER BY t.createdAt DESC")
     List<TokenUsage> findByDate(@Param("startOfDay") Instant startOfDay, @Param("startOfNextDay") Instant startOfNextDay);
+
+    @Query("SELECT SUM(t.totalTokens) FROM TokenUsage t WHERE t.createdAt >= :start AND t.createdAt < :end")
+    Integer getTotalTokensInRange(@Param("start") Instant start, @Param("end") Instant end);
+
+    @Query("SELECT SUM(t.estimatedCostUsd) FROM TokenUsage t WHERE t.createdAt >= :start AND t.createdAt < :end")
+    java.math.BigDecimal getTotalCostInRange(@Param("start") Instant start, @Param("end") Instant end);
 }

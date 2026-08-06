@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Management Report | Bench Readiness</title>
+  <style>
+    :root {
+      --navy:       #1a5276;
+      --navy-light: #2874a6;
+      --navy-bg:    #eaf2f8;
+      --text:       #1a252f;
+      --muted:      #666;
+      --green:      #27ae60;
+      --amber:      #e67e22;
+      --red:        #e74c3c;
+      --border:     #d5e8f3;
+      --card-bg:    #ffffff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #f0f4f8;
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .page-header {
+      background: linear-gradient(135deg, var(--navy), var(--navy-light));
+      color: white;
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .page-header h1 { font-size: 1.3rem; font-weight: 700; }
+    .page-header p  { font-size: 0.85rem; opacity: 0.8; margin-top: 2px; }
+
+    /* ── Main layout ── */
+    .container { max-width: 880px; margin: 32px auto 60px; padding: 0 20px; }
+
+    /* ── Card ── */
+    .card {
+      background: var(--card-bg);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 28px 32px;
+      box-shadow: 0 2px 8px rgba(26,82,118,.08);
+    }
+    .card-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--navy);
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--navy-bg);
+    }
+
+    /* ── Date range row ── */
+    .date-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: flex-end;
+      margin-bottom: 24px;
+    }
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    .field label { font-size: 0.78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .field input[type="date"] {
+      padding: 9px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.95rem;
+      color: var(--text);
+      background: white;
+      min-width: 160px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .field input[type="date"]:focus { border-color: var(--navy-light); }
+
+    /* ── Quick presets ── */
+    .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+    .preset-btn {
+      padding: 6px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      background: white;
+      color: var(--navy);
+      transition: all .15s;
+    }
+    .preset-btn:hover, .preset-btn.active {
+      background: var(--navy);
+      color: white;
+      border-color: var(--navy);
+    }
+
+    /* ── Download button ── */
+    .btn-download {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 28px;
+      background: var(--navy);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background .15s, transform .1s;
+    }
+    .btn-download:hover   { background: var(--navy-light); }
+    .btn-download:active  { transform: scale(0.98); }
+    .btn-download:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-download svg { flex-shrink: 0; }
+
+    /* ── State messages ── */
+    .status-row { min-height: 28px; margin-top: 16px; }
+    .msg {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      padding: 10px 16px;
+      border-radius: 8px;
+    }
+    .msg.info    { background: var(--navy-bg);  color: var(--navy);  }
+    .msg.success { background: #eafaf1; color: var(--green); }
+    .msg.error   { background: #fdedec; color: var(--red);   }
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2.5px solid rgba(26,82,118,.2);
+      border-top-color: var(--navy);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── What's included panel ── */
+    .includes {
+      margin-top: 28px;
+      background: var(--navy-bg);
+      border-radius: 10px;
+      padding: 20px 24px;
+    }
+    .includes h3 { font-size: 0.88rem; font-weight: 700; color: var(--navy); margin-bottom: 12px; text-transform: uppercase; letter-spacing: .05em; }
+    .includes ul { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; }
+    .includes li {
+      font-size: 0.85rem;
+      color: var(--text);
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+    .includes li::before { content: "✓"; color: var(--green); font-weight: 700; flex-shrink: 0; }
+
+    /* ── Note ── */
+    .note {
+      margin-top: 20px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .note strong { color: var(--text); }
+  </style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <h1>📊 Management Report Download</h1>
+    <p>Generate a professional PDF report for any date range — covers interview pipeline, verdicts, trends, and AI usage.</p>
+  </div>
+</div>
+
+<div class="container">
+  <div class="card">
+    <div class="card-title">Select Report Period</div>
+
+    <!-- Quick presets -->
+    <div class="presets">
+      <button class="preset-btn" onclick="setPreset(7)">Last 7 days</button>
+      <button class="preset-btn active" onclick="setPreset(30)">Last 30 days</button>
+      <button class="preset-btn" onclick="setPreset(90)">Last 3 months</button>
+      <button class="preset-btn" onclick="setCurrentMonth()">This month</button>
+      <button class="preset-btn" onclick="setLastMonth()">Last month</button>
+    </div>
+
+    <!-- Date pickers -->
+    <div class="date-row">
+      <div class="field">
+        <label>From</label>
+        <input type="date" id="fromDate">
+      </div>
+      <div class="field">
+        <label>To</label>
+        <input type="date" id="toDate">
+      </div>
+      <button class="btn-download" id="downloadBtn" onclick="downloadReport()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download PDF Report
+      </button>
+    </div>
+
+    <!-- Status -->
+    <div class="status-row" id="statusRow"></div>
+
+    <!-- What's included -->
+    <div class="includes">
+      <h3>Report includes</h3>
+      <ul>
+        <li>Executive summary with key KPIs</li>
+        <li>Interview pipeline status breakdown</li>
+        <li>Assessment verdicts & readiness rates</li>
+        <li>Interview mode distribution</li>
+        <li>Daily / weekly activity trend table</li>
+        <li>AI token usage by day (selected period)</li>
+        <li>Avg tokens per interview breakdown</li>
+        <li>Estimated AI cost analysis</li>
+      </ul>
+    </div>
+
+    <p class="note">
+      <strong>Note:</strong> Only interviews <em>created</em> within the selected date range are included.
+      Token usage is also scoped to the same period. The PDF is generated in real-time and streamed directly to your browser.
+      Requires <strong>Admin</strong> access.
+    </p>
+  </div>
+</div>
+
+<script>
+  // ── Initialise defaults (last 30 days) ────────────────────────────────────
+  const today = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+
+  function setPreset(days) {
+    const to = new Date();
+    const from = new Date(); from.setDate(from.getDate() - (days - 1));
+    document.getElementById('fromDate').value = isoDate(from);
+    document.getElementById('toDate').value   = isoDate(to);
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+  }
+
+  function setCurrentMonth() {
+    const d = new Date();
+    document.getElementById('fromDate').value = isoDate(new Date(d.getFullYear(), d.getMonth(), 1));
+    document.getElementById('toDate').value   = isoDate(d);
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+  }
+
+  function setLastMonth() {
+    const d = new Date();
+    const first = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+    const last  = new Date(d.getFullYear(), d.getMonth(), 0);
+    document.getElementById('fromDate').value = isoDate(first);
+    document.getElementById('toDate').value   = isoDate(last);
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+  }
+
+  // Default: last 30 days
+  (function init() {
+    const to   = new Date();
+    const from = new Date(); from.setDate(from.getDate() - 29);
+    document.getElementById('fromDate').value = isoDate(from);
+    document.getElementById('toDate').value   = isoDate(to);
+  })();
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function setStatus(type, html) {
+    const row = document.getElementById('statusRow');
+    if (!type) { row.innerHTML = ''; return; }
+    const spinner = type === 'info' ? '<div class="spinner"></div>' : '';
+    row.innerHTML = `<div class="msg ${type}">${spinner}<span>${html}</span></div>`;
+  }
+
+  // ── Download ──────────────────────────────────────────────────────────────
+  async function downloadReport() {
+    const from = document.getElementById('fromDate').value;
+    const to   = document.getElementById('toDate').value;
+
+    if (!from || !to) { setStatus('error', 'Please select both a start and end date.'); return; }
+    if (from > to)    { setStatus('error', '"From" date must be before "To" date.'); return; }
+
+    const btn = document.getElementById('downloadBtn');
+    btn.disabled = true;
+    setStatus('info', 'Generating report — this may take a few seconds&hellip;');
+
+    try {
+      const url = `/api/analytics/report/download?from=${from}&to=${to}`;
+      const res = await fetch(url, { credentials: 'include' });
+
+      if (res.status === 401 || res.status === 403) {
+        setStatus('error', 'Access denied. Admin role required to download this report.');
+        return;
+      }
+      if (!res.ok) {
+        setStatus('error', `Server returned ${res.status}. Please try again or contact support.`);
+        return;
+      }
+
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const filename = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1]
+              || `BenchReadiness_Report_${from}_to_${to}.pdf`;
+      a.href = objUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objUrl);
+
+      setStatus('success', `✓ Report downloaded: <strong>${filename}</strong>`);
+    } catch (err) {
+      setStatus('error', `Download failed: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+</script>
+</body>
+</html>

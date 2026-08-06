@@ -61,6 +61,29 @@ public class TokenTrackingController {
         return ResponseEntity.ok(tokenTrackingService.getDailyAnalytics());
     }
 
+    @GetMapping("/analytics/weekly")
+    public ResponseEntity<Map<String, Object>> getWeeklyAnalytics() {
+        return ResponseEntity.ok(tokenTrackingService.getWeeklyAnalytics());
+    }
+
+    @GetMapping("/analytics/monthly")
+    public ResponseEntity<Map<String, Object>> getMonthlyAnalytics() {
+        return ResponseEntity.ok(tokenTrackingService.getMonthlyAnalytics());
+    }
+
+    @GetMapping("/analytics/per-interview")
+    public ResponseEntity<Map<String, Object>> getPerInterviewAnalytics() {
+        return ResponseEntity.ok(tokenTrackingService.getPerInterviewAnalytics());
+    }
+
+    @GetMapping("/analytics/range")
+    public ResponseEntity<Map<String, Object>> getRangeAnalytics(
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to) {
+        if (from.isAfter(to)) return ResponseEntity.badRequest().build();
+        return ResponseEntity.ok(tokenTrackingService.getRangeAnalytics(from, to));
+    }
+
     @PostMapping("/limits")
     @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
     public ResponseEntity<Map<String, Object>> updateLimits(@RequestBody Map<String, Integer> request) {

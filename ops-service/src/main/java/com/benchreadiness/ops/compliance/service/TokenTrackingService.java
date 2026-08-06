@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -182,6 +183,107 @@ public class TokenTrackingService {
                 return result;
             })
             .orElse(Map.of("error", "Token summary not found for interview: " + interviewId));
+    }
+
+    // ── Token analytics: weekly / monthly / per-interview ────────────────────
+
+    public Map<String, Object> getWeeklyAnalytics() {
+        LocalDate end = LocalDate.now();
+        LocalDate start = end.minusDays(6);
+        return buildDailyBucketsForRange(start, end, "weekly");
+    }
+
+    public Map<String, Object> getMonthlyAnalytics() {
+        LocalDate end = LocalDate.now();
+        LocalDate start = end.minusDays(29);
+        return buildDailyBucketsForRange(start, end, "monthly");
+    }
+
+    public Map<String, Object> getRangeAnalytics(LocalDate from, LocalDate to) {
+        return buildDailyBucketsForRange(from, to, "range");
+    }
+
+    private Map<String, Object> buildDailyBucketsForRange(LocalDate from, LocalDate to, String period) {
+        List<Map<String, Object>> buckets = new ArrayList<>();
+        int grandTotal = 0;
+        java.math.BigDecimal grandCost = java.math.BigDecimal.ZERO;
+
+        LocalDate cursor = from;
+        while (!cursor.isAfter(to)) {
+            Instant start = cursor.atStartOfDay(ZoneOffset.UTC).toInstant();
+            Instant end = cursor.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+            Integer tokens = tokenUsageRepository.getTotalTokensInRange(start, end);
+            java.math.BigDecimal cost = tokenUsageRepository.getTotalCostInRange(start, end);
+            int t = tokens != null ? tokens : 0;
+            java.math.BigDecimal c = cost != null ? cost : java.math.BigDecimal.ZERO;
+            grandTotal += t;
+            grandCost = grandCost.add(c);
+            Map<String, Object> bucket = new HashMap<>();
+            bucket.put("date", cursor.toString());
+            bucket.put("label", cursor.format(java.time.format.DateTimeFormatter.ofPattern("MMM d")));
+            bucket.put("tokens", t);
+            bucket.put("costUsd", c);
+            buckets.add(bucket);
+            cursor = cursor.plusDays(1);
+        }
+
+        long days = java.time.temporal.ChronoUnit.DAYS.between(from, to) + 1;
+        DailyTokenLimit limit = dailyTokenLimitRepository.findByOrganizationId("default").orElse(defaultLimit());
+        Map<String, Object> result = new HashMap<>();
+        result.put("period", period);
+        result.put("from", from.toString());
+        result.put("to", to.toString());
+        result.put("days", days);
+        result.put("buckets", buckets);
+        result.put("totalTokens", grandTotal);
+        result.put("totalCostUsd", grandCost);
+        result.put("avgDailyTokens", days > 0 ? grandTotal / days : 0);
+        result.put("dailyLimit", limit.getDailyLimit());
+        result.put("generatedAt", Instant.now().toString());
+        return result;
+    }
+
+    public Map<String, Object> getPerInterviewAnalytics() {
+        List<InterviewTokenSummary> summaries = interviewTokenSummaryRepository.findAll();
+        if (summaries.isEmpty()) {
+            Map<String, Object> empty = new HashMap<>();
+            empty.put("count", 0);
+            empty.put("avgTotalTokens", 0);
+            empty.put("avgQuestionTokens", 0);
+            empty.put("avgAssessmentTokens", 0);
+            empty.put("avgRubricTokens", 0);
+            empty.put("maxTotalTokens", 0);
+            empty.put("minTotalTokens", 0);
+            empty.put("totalCostUsd", java.math.BigDecimal.ZERO);
+            empty.put("avgCostPerInterviewUsd", java.math.BigDecimal.ZERO);
+            return empty;
+        }
+
+        int count = summaries.size();
+        long sumTotal = summaries.stream().mapToLong(s -> s.getTotalTokens() != null ? s.getTotalTokens() : 0).sum();
+        long sumQuestion = summaries.stream().mapToLong(s -> s.getQuestionTokens() != null ? s.getQuestionTokens() : 0).sum();
+        long sumAssessment = summaries.stream().mapToLong(s -> s.getAssessmentTokens() != null ? s.getAssessmentTokens() : 0).sum();
+        long sumRubric = summaries.stream().mapToLong(s -> s.getRubricTokens() != null ? s.getRubricTokens() : 0).sum();
+        int maxTotal = summaries.stream().mapToInt(s -> s.getTotalTokens() != null ? s.getTotalTokens() : 0).max().orElse(0);
+        int minTotal = summaries.stream().mapToInt(s -> s.getTotalTokens() != null ? s.getTotalTokens() : 0).min().orElse(0);
+        java.math.BigDecimal totalCost = summaries.stream()
+                .map(s -> s.getTotalCostUsd() != null ? s.getTotalCostUsd() : java.math.BigDecimal.ZERO)
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("count", count);
+        result.put("avgTotalTokens", sumTotal / count);
+        result.put("avgQuestionTokens", sumQuestion / count);
+        result.put("avgAssessmentTokens", sumAssessment / count);
+        result.put("avgRubricTokens", sumRubric / count);
+        result.put("maxTotalTokens", maxTotal);
+        result.put("minTotalTokens", minTotal);
+        result.put("totalCostUsd", totalCost);
+        result.put("avgCostPerInterviewUsd", count > 0
+                ? totalCost.divide(java.math.BigDecimal.valueOf(count), 6, java.math.RoundingMode.HALF_UP)
+                : java.math.BigDecimal.ZERO);
+        result.put("generatedAt", Instant.now().toString());
+        return result;
     }
 
     // ── F4: Rubric cache (DB-backed) ─────────────────────────────────────────
