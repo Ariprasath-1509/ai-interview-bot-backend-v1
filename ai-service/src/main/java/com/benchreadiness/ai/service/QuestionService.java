@@ -691,7 +691,7 @@ public class QuestionService {
 
         String system =
             "You are a precise, conversational technical interviewer. Your output must be exactly ONE question (1-2 sentences max).\n" +
-            "Analyze the candidate's last answer and immediately react by referencing specific technical aspects they mentioned.\n" +
+            "Your PRIMARY anchor is the Job Description and the candidate's resume — not whatever project they last mentioned.\n" +
             "\n" +
             "CURRENT INTERVIEW MATRIX CONTEXT:\n" +
             "- Current Slot Theme: " + slotTheme + "\n" +
@@ -699,20 +699,21 @@ public class QuestionService {
             "- Coverage Strategy: " + (coverageHint.isBlank() ? "Probe technical depth" : coverageHint) + "\n" +
             "- Seniority Level Guardrails: " + (levelInstruction.isBlank() ? "Calibrate to role level" : levelInstruction) + "\n" +
             "- Evaluation Rubric Focus: " + (rubricFocus.isBlank() ? "Role-relevant technical areas" : rubricFocus) + "\n" +
-            "- Covered Topics List: " + (coveredTopics.isBlank() ? "None yet" : coveredTopics) + "\n" +
+            "- JD Skills Already Touched: " + (coveredTopics.isBlank() ? "None yet" : coveredTopics) + "\n" +
             "- Allowed Difficulty Level: " + difficultyInstruction + "\n" +
             "\n" +
             "QUESTIONS ALREADY ASKED — DO NOT REPEAT OR PARAPHRASE ANY OF THESE:\n" +
             neverRepeatBlock + "\n" +
             "\n" +
             "CRITICAL EXECUTION RULES:\n" +
-            "1. Probe raw technical implementation, architecture decisions, or logic choices.\n" +
-            "2. Maintain a natural, peer-level engineering tone. Do NOT say \"Great answer!\" or \"Thanks for sharing.\"\n" +
-            "3. NEVER ask a question that is the same as or closely paraphrases any question in the list above.\n" +
-            "4. Output ONLY the raw question string. No markdown wrappers, no explanations." +
+            "1. Questions MUST test a specific skill or requirement listed in the JD or rubric — not a project or system the candidate happened to mention.\n" +
+            "2. Use the candidate's last answer ONLY to calibrate depth and tone. Never make it the subject of the next question.\n" +
+            "3. Maintain a natural, peer-level engineering tone. Do NOT say \"Great answer!\" or \"Thanks for sharing.\"\n" +
+            "4. NEVER ask a question that is the same as or closely paraphrases any question in the list above.\n" +
+            "5. Output ONLY the raw question string. No markdown wrappers, no explanations." +
             (isProgrammingEnabled(req)
                 ? ""
-                : "\n5. THEORY-ONLY interview: ask verbal/conceptual questions only. Do NOT ask the candidate to write code or use a code editor.");
+                : "\n6. THEORY-ONLY interview: ask verbal/conceptual questions only. Do NOT ask the candidate to write code or use a code editor.");
 
         String lastAnswer = req.getLastAnswer() != null ? req.getLastAnswer().trim() : "";
         String recent = buildTranscriptContext(req.getUtterances(), req.getSlot());
@@ -723,24 +724,28 @@ public class QuestionService {
         if (req.getFocusAreas() != null && !req.getFocusAreas().isBlank()) {
             user.append("Focus: ").append(req.getFocusAreas()).append("\n");
         }
-        if (req.getSlot() == 1 && req.getResumeSummary() != null && !req.getResumeSummary().isBlank()) {
-            user.append("Resume:\n")
-                .append(truncateText(req.getResumeSummary(), RESUME_DIGEST_CHARS))
+        // Resume on EVERY slot — full on slot 1 (personalised opener), key highlights only after.
+        // Without this the model loses candidate context and can't tailor questions to their background.
+        if (req.getResumeSummary() != null && !req.getResumeSummary().isBlank()) {
+            int resumeChars = req.getSlot() == 1 ? RESUME_DIGEST_CHARS : RESUME_DIGEST_CHARS / 3;
+            user.append(req.getSlot() == 1 ? "Candidate resume:\n" : "Candidate resume highlights:\n")
+                .append(truncateText(req.getResumeSummary(), resumeChars))
                 .append("\n\n");
         }
-        // JD digest on EVERY slot — without it the model loses role grounding after slot 1
-        // and drifts into generic (often wrong-stack) questions.
+        // JD on every slot — primary anchor for what skills to test.
         if (req.getJdText() != null && !req.getJdText().isBlank()) {
-            user.append("JD:\n").append(truncateText(req.getJdText(), JD_DIGEST_CHARS)).append("\n\n");
+            user.append("Job Description (skills to test):\n")
+                .append(truncateText(req.getJdText(), JD_DIGEST_CHARS))
+                .append("\n\n");
         }
         if (thinAnswerMode) {
             user.append("The candidate's last answer was thin — do NOT probe it again. "
-                + "Move to a NEW topic that fits the slot theme and the JD's actual technology stack. "
-                + "Ask your next question now.");
+                + "Pick a JD skill from the list above that hasn't been covered yet and ask a focused question about it.");
         } else {
             user.append(lastAnswer.isEmpty()
-                ? "Ask your opening technical question now. One or two sentences, no career narrative."
-                : "Ask your next question now. Must follow from their last answer.");
+                ? "Ask your opening technical question now. Anchor it in the JD requirements and the candidate's resume background. One or two sentences."
+                : "The candidate just answered. Pick the next uncovered JD skill from the list above and ask a focused question about it. "
+                + "Do NOT follow up on whatever project they just mentioned — move to a different JD requirement.");
         }
 
         String result = llmClient.chatQuestionWithSlotAndTracking(system, user.toString(), req.getSlot(), req.getInterviewId(), userId);
@@ -808,10 +813,18 @@ public class QuestionService {
 
     private String extractCoveredTopics(List<NextQuestionRequest.Utterance> utterances) {
         if (utterances == null || utterances.isEmpty()) return "";
-        return utterances.stream()
-            .filter(u -> "CANDIDATE".equals(u.speaker()))
-            .map(NextQuestionRequest.Utterance::text)
-            .collect(Collectors.joining(" | "));
+        // Collect the last 4 candidate answers, truncated to 80 chars each.
+        // A short snippet is enough to tell the model "this skill came up" without dumping
+        // full project narratives that cause the model to keep drilling into the same system.
+        List<String> recent = new ArrayList<>();
+        for (int i = utterances.size() - 1; i >= 0 && recent.size() < 4; i--) {
+            NextQuestionRequest.Utterance u = utterances.get(i);
+            if ("CANDIDATE".equals(u.speaker()) && u.text() != null && !u.text().isBlank()) {
+                recent.add(truncateText(u.text().trim(), 80));
+            }
+        }
+        java.util.Collections.reverse(recent);
+        return String.join(" | ", recent);
     }
 
     private String truncateText(String text, int maxChars) {

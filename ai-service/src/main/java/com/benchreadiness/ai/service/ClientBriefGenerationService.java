@@ -653,14 +653,14 @@ public class ClientBriefGenerationService {
             categorySchema.append("    {\n")
                 .append("      \"categoryKey\": \"").append(cat.get("key")).append("\",\n")
                 .append("      \"selectedProficiencyIndex\": 0-3,\n")
-                .append("      \"strengths\": [\"3-5 bullets starting with ").append(candidateName).append("...\"],\n")
-                .append("      \"areasOfImprovement\": [\"2-4 bullets starting with ").append(candidateName).append("...\"]\n")
+                .append("      \"strengths\": [\"3-5 specific bullets starting with ").append(candidateName).append("...\"],\n")
+                .append("      \"areasOfImprovement\": [\"EXACTLY 1 bullet framed as a next-step growth opportunity, starting with ").append(candidateName).append("...\"]\n")
                 .append("    },\n");
         }
 
         String system =
             "You prepare a client-facing structured interview report in professional third-person language.\n" +
-            "This document will be shared with an external hiring manager — keep the tone constructive, respectful, and diplomatic.\n" +
+            "This document will be shared with an external hiring manager — keep the tone highly positive, constructive, and encouraging.\n" +
             "Candidate name: " + candidateName + "\n" +
             "Use the candidate name at the start of each bullet.\n" +
             "Return ONLY raw JSON. No markdown.\n" +
@@ -669,10 +669,14 @@ public class ClientBriefGenerationService {
             "  \"skillAssessments\": [\n" + categorySchema +
             "  ]\n" +
             "}\n" +
-            "RULES:\n" +
-            "- overallFeedback MUST open with what the candidate demonstrated well, then note targeted growth areas.\n" +
-            "- Frame gaps as coaching or preparation opportunities — never as failures or disqualifiers.\n" +
-            "- Close overallFeedback with a constructive readiness outlook (e.g. suitable with mentoring, promising foundation).\n" +
+            "TONE RULES (CRITICAL — this is a client-facing document meant to present the candidate positively):\n" +
+            "- The report must be 95% positive and 5% growth-oriented — the client should feel confident about this candidate.\n" +
+            "- overallFeedback: 4-5 sentences highlighting genuine strengths and accomplishments; optionally 1 brief sentence on a specific growth area framed as a next step. Close with a strong, confident readiness statement.\n" +
+            "- strengths: Write 3-5 specific, genuine, enthusiastic bullets. Find real evidence from the transcript and scores. These must feel like a strong endorsement.\n" +
+            "- areasOfImprovement: Write EXACTLY 1 bullet only. Frame it as an exciting growth opportunity, not a weakness. Use language like 'would further strengthen', 'next step', 'opportunity to deepen'. Never use words like 'lacks', 'weak', 'struggles', 'failed', 'insufficient'.\n" +
+            "- Frame every gap as a coaching opportunity or a natural next step in their career.\n" +
+            "- Do not use harsh words like failed, bad, incompetent, liar, rejected, weak, lacks, or poor.\n" +
+            "CONTENT RULES:\n" +
             "- selectedProficiencyIndex picks ONE of the 4 proficiency options (0=strongest tier, 3=weakest).\n" +
             "- Map scores to proficiency: 8-10 -> 0, 6-7 -> 1, 3-5 -> 2, 1-2 -> 3.\n" +
             "- The numeric scores in the prompt are FINAL from the AI assessor — do not contradict or re-score them.\n" +
@@ -681,8 +685,6 @@ public class ClientBriefGenerationService {
             "- For categoryKey=communication: evaluate HOW the candidate explained answers across the interview — " +
             "clarity, structure, depth, use of examples, trade-off reasoning, and completeness. " +
             "Reference specific answers or patterns from the transcript.\n" +
-            "- Do not use harsh words like failed, liar, bad, incompetent, or rejected.\n" +
-            "- Strength bullets should be genuine and specific; improvement bullets should be actionable and fair.\n" +
             "- Every category in the schema MUST appear in skillAssessments with non-empty bullets.";
 
         String jdSnippet = jdText != null && !jdText.isBlank()

@@ -24,33 +24,42 @@ public class ClientBriefPdfGenerationService {
 
     private static final Logger log = LoggerFactory.getLogger(ClientBriefPdfGenerationService.class);
 
-    private static final Color BRAND_DARK = new Color(45, 27, 78);
-    private static final Color BRAND_PURPLE = new Color(76, 45, 130);
-    private static final Color BRAND_LIGHT = new Color(118, 75, 162);
-    private static final Color ACCENT_GOLD = new Color(212, 168, 75);
-    private static final Color PAGE_BG = new Color(252, 251, 255);
+    // ── Brand palette ─────────────────────────────────────────────────────────
+    private static final Color BRAND_DARK      = new Color(30, 17, 55);
+    private static final Color BRAND_PURPLE    = new Color(72, 40, 130);
+    private static final Color BRAND_LIGHT     = new Color(109, 65, 168);
+    private static final Color BRAND_ACCENT    = new Color(138, 92, 200);
+    private static final Color ACCENT_GOLD     = new Color(212, 168, 75);
     private static final Color LIGHT_VIOLET_BG = new Color(248, 246, 255);
-    private static final Color CARD_BORDER = new Color(210, 198, 235);
-    private static final Color PROGRESS_BG = new Color(237, 233, 254);
-    private static final Color SUCCESS = new Color(22, 120, 72);
-    private static final Color SUCCESS_BG = new Color(236, 253, 245);
-    private static final Color WARN = new Color(180, 83, 9);
-    private static final Color WARN_BG = new Color(255, 251, 235);
-    private static final Color DANGER = new Color(185, 28, 28);
-    private static final Color DANGER_BG = new Color(254, 242, 242);
-    private static final Color MUTED = new Color(90, 90, 102);
-    private static final Color META_CHIP_BG = new Color(95, 68, 145);
+    private static final Color CARD_BG         = new Color(255, 255, 255);
+    private static final Color CARD_BORDER     = new Color(218, 208, 240);
+    private static final Color PROGRESS_BG     = new Color(237, 233, 254);
+    private static final Color SUCCESS         = new Color(16, 114, 64);
+    private static final Color SUCCESS_BG      = new Color(232, 253, 242);
+    private static final Color SUCCESS_BORDER  = new Color(167, 230, 200);
+    private static final Color GROWTH         = new Color(37, 99, 180);
+    private static final Color GROWTH_BG      = new Color(235, 245, 255);
+    private static final Color GROWTH_BORDER  = new Color(187, 218, 251);
+    private static final Color WARN            = new Color(180, 83, 9);
+    private static final Color WARN_BG         = new Color(255, 251, 235);
+    private static final Color DANGER          = new Color(185, 28, 28);
+    private static final Color DANGER_BG       = new Color(254, 242, 242);
+    private static final Color MUTED           = new Color(100, 96, 115);
+    private static final Color META_CHIP_BG    = new Color(88, 58, 148);
+    private static final Color DIVIDER         = new Color(230, 224, 248);
 
-    private static final Font BRAND_FONT = new Font(Font.HELVETICA, 8, Font.BOLD, ACCENT_GOLD);
-    private static final Font DOC_SUBTITLE = new Font(Font.HELVETICA, 11, Font.NORMAL, new Color(220, 210, 240));
-    private static final Font HEADER_TITLE = new Font(Font.HELVETICA, 22, Font.BOLD, Color.WHITE);
-    private static final Font HEADER_META_BOLD = new Font(Font.HELVETICA, 9, Font.BOLD, Color.WHITE);
-    private static final Font SECTION_FONT = new Font(Font.HELVETICA, 13, Font.BOLD, BRAND_DARK);
+    // ── Typography ────────────────────────────────────────────────────────────
+    private static final Font BRAND_FONT      = new Font(Font.HELVETICA, 7, Font.BOLD, ACCENT_GOLD);
+    private static final Font DOC_SUBTITLE    = new Font(Font.HELVETICA, 10, Font.NORMAL, new Color(210, 195, 240));
+    private static final Font HEADER_TITLE    = new Font(Font.HELVETICA, 24, Font.BOLD, Color.WHITE);
+    private static final Font HEADER_META_BOLD= new Font(Font.HELVETICA, 9, Font.BOLD, Color.WHITE);
+    private static final Font SECTION_FONT    = new Font(Font.HELVETICA, 11, Font.BOLD, BRAND_DARK);
     private static final Font SUBSECTION_FONT = new Font(Font.HELVETICA, 10, Font.BOLD, BRAND_DARK);
-    private static final Font BODY_FONT = new Font(Font.HELVETICA, 10, Font.NORMAL, new Color(30, 30, 35));
-    private static final Font SMALL_FONT = new Font(Font.HELVETICA, 8, Font.NORMAL, MUTED);
-    private static final Font SCORE_FONT = new Font(Font.HELVETICA, 10, Font.BOLD, BRAND_LIGHT);
-    private static final Font FOOTER_FONT = new Font(Font.HELVETICA, 8, Font.NORMAL, MUTED);
+    private static final Font BODY_FONT       = new Font(Font.HELVETICA, 10, Font.NORMAL, new Color(28, 25, 38));
+    private static final Font BODY_FONT_SM    = new Font(Font.HELVETICA, 9, Font.NORMAL, new Color(55, 50, 70));
+    private static final Font SMALL_FONT      = new Font(Font.HELVETICA, 8, Font.NORMAL, MUTED);
+    private static final Font SCORE_FONT      = new Font(Font.HELVETICA, 10, Font.BOLD, BRAND_LIGHT);
+    private static final Font FOOTER_FONT     = new Font(Font.HELVETICA, 7, Font.NORMAL, MUTED);
 
     public byte[] generateClientBriefPdf(ClientBriefPdfContext pdfContext) throws Exception {
         ClientBriefDto brief = pdfContext.brief();
@@ -66,14 +75,15 @@ public class ClientBriefPdfGenerationService {
 
         try {
             addHeaderBanner(document, brief, ctx);
+            addRecommendationBanner(document, brief.getMustHaveSkills(), brief.getGoodToHaveSkills(), brief.getOverallFeedback());
             if (brief.getGenerationWarning() != null && !brief.getGenerationWarning().isBlank()) {
                 addWarningBanner(document, brief.getGenerationWarning());
             }
             addScoreSummaryStrip(document, brief.getMustHaveSkills(), brief.getGoodToHaveSkills());
             addSkillSummaryGrid(document, brief.getMustHaveSkills(), brief.getGoodToHaveSkills());
-            addQuestionsSection(document, brief.getQuestionsAsked());
             addOverallFeedback(document, brief.getOverallFeedback());
             addDetailedAssessments(document, brief.getSkillAssessments());
+            addQuestionsSection(document, brief.getQuestionsAsked());
             addClosingMeta(document, brief);
         } catch (DocumentException e) {
             log.error("Client brief PDF generation failed: {}", e.getMessage(), e);
@@ -177,6 +187,71 @@ public class ClientBriefPdfGenerationService {
         return box;
     }
 
+    // ── Recommendation banner ─────────────────────────────────────────────────
+
+    private void addRecommendationBanner(Document document, List<SkillSummary> mustHave,
+            List<SkillSummary> goodToHave, String overallFeedback) throws DocumentException {
+        double mustAvg = averageScore(mustHave);
+        int totalSkills = countSkills(mustHave) + countSkills(goodToHave);
+
+        String label;
+        Color bg;
+        Color border;
+        Color textColor;
+        String icon;
+
+        if (mustAvg >= 7.5) {
+            label = "STRONG CANDIDATE — RECOMMENDED";
+            bg = SUCCESS_BG;
+            border = SUCCESS_BORDER;
+            textColor = SUCCESS;
+            icon = "✔";
+        } else if (mustAvg >= 5.5) {
+            label = "PROMISING CANDIDATE — RECOMMENDED WITH MENTORING";
+            bg = new Color(240, 249, 255);
+            border = new Color(186, 224, 251);
+            textColor = GROWTH;
+            icon = "⭐";
+        } else {
+            label = "CANDIDATE REQUIRES FURTHER DEVELOPMENT";
+            bg = WARN_BG;
+            border = new Color(253, 211, 154);
+            textColor = WARN;
+            icon = "⚠";
+        }
+
+        PdfPTable banner = new PdfPTable(new float[] {0.045f, 0.955f});
+        banner.setWidthPercentage(100);
+        banner.setSpacingAfter(14);
+        banner.setKeepTogether(true);
+
+        PdfPCell stripe = new PdfPCell();
+        stripe.setBackgroundColor(textColor);
+        stripe.setBorder(Rectangle.NO_BORDER);
+        banner.addCell(stripe);
+
+        PdfPCell content = new PdfPCell();
+        content.setBackgroundColor(bg);
+        content.setBorderColor(border);
+        content.setBorderWidth(0.75f);
+        content.setPadding(14);
+
+        Paragraph heading = new Paragraph(icon + "  " + label,
+            new Font(Font.HELVETICA, 11, Font.BOLD, textColor));
+        heading.setSpacingAfter(4);
+        content.addElement(heading);
+
+        if (totalSkills > 0) {
+            String summary = totalSkills + " skill" + (totalSkills == 1 ? "" : "s") + " assessed";
+            if (mustHave != null && !mustHave.isEmpty()) {
+                summary += "  ·  Must-have avg: " + (int) Math.round(mustAvg) + "/10";
+            }
+            content.addElement(new Paragraph(summary, new Font(Font.HELVETICA, 8, Font.NORMAL, textColor)));
+        }
+        banner.addCell(content);
+        document.add(banner);
+    }
+
     // ── Summary stats ─────────────────────────────────────────────────────────
 
     private void addScoreSummaryStrip(Document document, List<SkillSummary> mustHave, List<SkillSummary> goodToHave)
@@ -194,38 +269,64 @@ public class ClientBriefPdfGenerationService {
         document.add(strip);
     }
 
-    private PdfPCell statCard(String label, double avg, int count, boolean scoreMain) {
-        PdfPCell cell = borderedCell(Color.WHITE);
-        cell.setPadding(14);
-        cell.setHorizontalAlignment(Element.ALIGN_CENTER);
+    private PdfPCell statCard(String label, double avg, int count, boolean scoreMain) throws DocumentException {
+        // Wrap in a mini table so we can add a top-accent strip
+        PdfPTable wrapper = new PdfPTable(1);
+        wrapper.setWidthPercentage(100);
+
+        // Colored top strip
+        PdfPCell strip = new PdfPCell();
+        Color stripColor = scoreMain
+            ? (count > 0 ? scoreColor((int) Math.round(avg)) : BRAND_LIGHT)
+            : BRAND_ACCENT;
+        strip.setBackgroundColor(stripColor);
+        strip.setFixedHeight(4f);
+        strip.setBorder(Rectangle.NO_BORDER);
+        wrapper.addCell(strip);
+
+        // Content area
+        PdfPCell content = new PdfPCell();
+        content.setBackgroundColor(CARD_BG);
+        content.setBorderColor(CARD_BORDER);
+        content.setBorderWidthTop(0f);
+        content.setBorderWidthLeft(0.75f);
+        content.setBorderWidthRight(0.75f);
+        content.setBorderWidthBottom(0.75f);
+        content.setPadding(14);
+        content.setHorizontalAlignment(Element.ALIGN_CENTER);
 
         Paragraph labelP = new Paragraph(label.toUpperCase(), new Font(Font.HELVETICA, 7, Font.BOLD, MUTED));
         labelP.setAlignment(Element.ALIGN_CENTER);
         labelP.setSpacingAfter(8);
-        cell.addElement(labelP);
+        content.addElement(labelP);
 
         if (scoreMain) {
             int rounded = (int) Math.round(avg);
             Paragraph score = new Paragraph(
-                count > 0 ? rounded + " / 10" : "-",
-                new Font(Font.HELVETICA, 22, Font.BOLD, scoreColor(Math.max(0, rounded))));
+                count > 0 ? rounded + " / 10" : "—",
+                new Font(Font.HELVETICA, 26, Font.BOLD, scoreColor(Math.max(0, rounded))));
             score.setAlignment(Element.ALIGN_CENTER);
             score.setSpacingAfter(4);
-            cell.addElement(score);
+            content.addElement(score);
             Paragraph sub = new Paragraph(count + " skill" + (count == 1 ? "" : "s"), SMALL_FONT);
             sub.setAlignment(Element.ALIGN_CENTER);
-            cell.addElement(sub);
+            content.addElement(sub);
         } else {
-            Paragraph countP = new Paragraph(String.valueOf(count), new Font(Font.HELVETICA, 22, Font.BOLD, BRAND_DARK));
+            Paragraph countP = new Paragraph(String.valueOf(count), new Font(Font.HELVETICA, 26, Font.BOLD, BRAND_DARK));
             countP.setAlignment(Element.ALIGN_CENTER);
             countP.setSpacingAfter(4);
-            cell.addElement(countP);
+            content.addElement(countP);
             int rounded = (int) Math.round(avg);
             Paragraph sub = new Paragraph(count > 0 ? "avg " + rounded + " / 10" : "No skills", SMALL_FONT);
             sub.setAlignment(Element.ALIGN_CENTER);
-            cell.addElement(sub);
+            content.addElement(sub);
         }
-        return cell;
+        wrapper.addCell(content);
+
+        PdfPCell outer = new PdfPCell(wrapper);
+        outer.setBorder(Rectangle.NO_BORDER);
+        outer.setPadding(3);
+        return outer;
     }
 
     // ── Skill summary ─────────────────────────────────────────────────────────
@@ -394,11 +495,13 @@ public class ClientBriefPdfGenerationService {
         card.addCell(stripe);
 
         String text = feedback != null && !feedback.isBlank() ? feedback : "No overall feedback provided.";
-        PdfPCell content = textCell(new Paragraph(text, BODY_FONT));
-        content.setBackgroundColor(Color.WHITE);
+        Paragraph feedbackPara = new Paragraph(text, new Font(Font.HELVETICA, 10, Font.NORMAL, new Color(30, 30, 35)));
+        feedbackPara.setLeading(16);
+        PdfPCell content = textCell(feedbackPara);
+        content.setBackgroundColor(LIGHT_VIOLET_BG);
         content.setBorderColor(CARD_BORDER);
         content.setBorderWidth(0.75f);
-        content.setPadding(14);
+        content.setPadding(18);
         card.addCell(content);
         document.add(card);
     }
@@ -473,20 +576,21 @@ public class ClientBriefPdfGenerationService {
     private PdfPTable strengthGrid(SkillAssessment a) throws DocumentException {
         PdfPTable grid = new PdfPTable(2);
         grid.setWidthPercentage(100);
-        grid.setWidths(new float[] {1f, 1f});
-        grid.addCell(bulletBox("Strengths", a.getStrengths(), SUCCESS_BG, SUCCESS));
-        grid.addCell(bulletBox("Areas of improvement", a.getAreasOfImprovement(), WARN_BG, WARN));
+        grid.setWidths(new float[] {1.8f, 1f});
+        grid.addCell(bulletBox("Strengths", a.getStrengths(), SUCCESS_BG, SUCCESS_BORDER, SUCCESS));
+        grid.addCell(bulletBox("Growth opportunity", a.getAreasOfImprovement(), GROWTH_BG, GROWTH_BORDER, GROWTH));
         return grid;
     }
 
-    private PdfPCell bulletBox(String label, List<String> items, Color bg, Color labelColor) {
+    private PdfPCell bulletBox(String label, List<String> items, Color bg, Color borderColor, Color labelColor) {
         PdfPCell cell = new PdfPCell();
         cell.setBackgroundColor(bg);
-        cell.setBorderColor(CARD_BORDER);
-        cell.setBorderWidth(0.5f);
-        cell.setPadding(10);
-        Paragraph title = new Paragraph(label, new Font(Font.HELVETICA, 9, Font.BOLD, labelColor));
-        title.setSpacingAfter(6);
+        cell.setBorderColor(borderColor);
+        cell.setBorderWidth(0.75f);
+        cell.setPadding(12);
+        Paragraph title = new Paragraph(label.toUpperCase(),
+            new Font(Font.HELVETICA, 7, Font.BOLD, labelColor));
+        title.setSpacingAfter(7);
         cell.addElement(title);
         addBulletParagraphs(cell, items);
         return cell;
@@ -494,15 +598,15 @@ public class ClientBriefPdfGenerationService {
 
     private void addBulletParagraphs(PdfPCell cell, List<String> items) {
         if (items == null || items.isEmpty()) {
-            Paragraph p = new Paragraph("- Not specified.", BODY_FONT);
-            p.setLeading(14);
+            Paragraph p = new Paragraph("•  Not specified.", BODY_FONT_SM);
+            p.setLeading(15);
             cell.addElement(p);
             return;
         }
         for (String item : items) {
-            Paragraph p = new Paragraph("- " + item, BODY_FONT);
-            p.setLeading(14);
-            p.setSpacingAfter(3);
+            Paragraph p = new Paragraph("•  " + item, BODY_FONT_SM);
+            p.setLeading(15);
+            p.setSpacingAfter(4);
             cell.addElement(p);
         }
     }
@@ -551,11 +655,26 @@ public class ClientBriefPdfGenerationService {
 
     // ── Layout helpers (OpenPDF-safe: nest tables only via PdfPCell(table) + addCell) ──
 
-    private Paragraph sectionTitle(String title) {
-        Paragraph p = new Paragraph(title, SECTION_FONT);
-        p.setSpacingBefore(10);
-        p.setSpacingAfter(10);
-        return p;
+    private PdfPTable sectionTitle(String title) throws DocumentException {
+        PdfPTable bar = new PdfPTable(new float[] {0.012f, 0.988f});
+        bar.setWidthPercentage(100);
+        bar.setSpacingBefore(14);
+        bar.setSpacingAfter(10);
+        PdfPCell accent = new PdfPCell();
+        accent.setBackgroundColor(BRAND_LIGHT);
+        accent.setBorder(Rectangle.NO_BORDER);
+        accent.setFixedHeight(22);
+        bar.addCell(accent);
+        PdfPCell label = new PdfPCell(new Phrase("  " + title.toUpperCase(),
+            new Font(Font.HELVETICA, 11, Font.BOLD, BRAND_DARK)));
+        label.setBorder(Rectangle.NO_BORDER);
+        label.setBackgroundColor(LIGHT_VIOLET_BG);
+        label.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        label.setPaddingLeft(10);
+        label.setPaddingTop(5);
+        label.setPaddingBottom(5);
+        bar.addCell(label);
+        return bar;
     }
 
     private PdfPCell nestedCell(PdfPTable table) {
@@ -606,11 +725,11 @@ public class ClientBriefPdfGenerationService {
         bar.setWidthPercentage(100);
         PdfPCell filledCell = new PdfPCell();
         filledCell.setBackgroundColor(scoreColor(score));
-        filledCell.setFixedHeight(7);
+        filledCell.setFixedHeight(10);
         filledCell.setBorder(Rectangle.NO_BORDER);
         PdfPCell emptyCell = new PdfPCell();
         emptyCell.setBackgroundColor(PROGRESS_BG);
-        emptyCell.setFixedHeight(7);
+        emptyCell.setFixedHeight(10);
         emptyCell.setBorder(Rectangle.NO_BORDER);
         bar.addCell(filledCell);
         bar.addCell(emptyCell);
@@ -620,15 +739,15 @@ public class ClientBriefPdfGenerationService {
     private PdfPCell scoreBadge(int score) {
         int clamped = Math.max(0, Math.min(10, score));
         PdfPCell cell = new PdfPCell(new Phrase(
-            clamped + "/10", new Font(Font.HELVETICA, 10, Font.BOLD, Color.WHITE)));
+            clamped + "/10", new Font(Font.HELVETICA, 12, Font.BOLD, Color.WHITE)));
         cell.setBackgroundColor(scoreColor(clamped));
         cell.setBorder(Rectangle.NO_BORDER);
         cell.setHorizontalAlignment(Element.ALIGN_CENTER);
         cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        cell.setPaddingTop(5);
-        cell.setPaddingBottom(5);
-        cell.setPaddingLeft(4);
-        cell.setPaddingRight(4);
+        cell.setPaddingTop(7);
+        cell.setPaddingBottom(7);
+        cell.setPaddingLeft(8);
+        cell.setPaddingRight(8);
         cell.setNoWrap(true);
         return cell;
     }
