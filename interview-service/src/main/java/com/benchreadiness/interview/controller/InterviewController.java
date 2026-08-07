@@ -19,6 +19,7 @@ import com.benchreadiness.interview.exception.VideoProctoringNotRequiredExceptio
 import com.benchreadiness.interview.security.StaffSecurityRoles;
 import com.benchreadiness.interview.service.ClientBriefPdfGenerationService;
 import com.benchreadiness.interview.service.ClientBriefService;
+import com.benchreadiness.interview.service.MentorReportPdfService;
 import com.benchreadiness.interview.service.BranchInterviewValidator;
 import com.benchreadiness.interview.service.CandidateMatchingService;
 import com.benchreadiness.interview.service.CandidateReviewService;
@@ -65,6 +66,7 @@ public class InterviewController {
     private final BranchInterviewValidator branchInterviewValidator;
     private final ClientBriefService clientBriefService;
     private final ClientBriefPdfGenerationService clientBriefPdfGenerationService;
+    private final MentorReportPdfService mentorReportPdfService;
 
     public InterviewController(InterviewService interviewService,
                               EnhancedInterviewService enhancedInterviewService,
@@ -76,7 +78,8 @@ public class InterviewController {
                               ProctoringService proctoringService,
                               BranchInterviewValidator branchInterviewValidator,
                               ClientBriefService clientBriefService,
-                              ClientBriefPdfGenerationService clientBriefPdfGenerationService) {
+                              ClientBriefPdfGenerationService clientBriefPdfGenerationService,
+                              MentorReportPdfService mentorReportPdfService) {
         this.interviewService = interviewService;
         this.enhancedInterviewService = enhancedInterviewService;
         this.candidateMatchingService = candidateMatchingService;
@@ -88,6 +91,7 @@ public class InterviewController {
         this.branchInterviewValidator = branchInterviewValidator;
         this.clientBriefService = clientBriefService;
         this.clientBriefPdfGenerationService = clientBriefPdfGenerationService;
+        this.mentorReportPdfService = mentorReportPdfService;
     }
 
     @GetMapping("/auto-fill/preview")
@@ -475,6 +479,36 @@ public class InterviewController {
             byte[] pdfBytes = clientBriefPdfGenerationService.generateClientBriefPdf(pdfContext);
             String candidateName = pdfContext.context().candidateName().replaceAll("\\s+", "_");
             String filename = candidateName + "_Client_Evaluation_Brief.pdf";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_PDF);
+            headers.setContentDispositionFormData("attachment", filename);
+            headers.setCacheControl("must-revalidate, post-check=0, pre-check=0");
+            return ResponseEntity.ok().headers(headers).body(pdfBytes);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                .header("X-Error-Message", e.getMessage())
+                .build();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                .header("X-Error-Message", e.getMessage())
+                .build();
+        }
+    }
+
+    @GetMapping("/{id}/mentor-report/download")
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
+    public ResponseEntity<byte[]> downloadMentorReport(@PathVariable String id,
+                                                       @RequestHeader("X-User-Id") String userId,
+                                                       @RequestHeader("X-User-Role") String userRole) {
+        try {
+            if (interviewService.findByIdForRole(id, userId, userRole).isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            var ctx = mentorReportPdfService.buildContext(id, userId);
+            byte[] pdfBytes = mentorReportPdfService.generatePdf(ctx);
+            String candidateName = ctx.candidateName().replaceAll("[^a-zA-Z0-9_\\- ]", "").replaceAll("\\s+", "_");
+            String filename = candidateName + "_Mentor_Report.pdf";
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_PDF);
