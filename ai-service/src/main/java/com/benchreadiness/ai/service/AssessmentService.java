@@ -501,7 +501,12 @@ public class AssessmentService {
             "- 4-5 = Surface-Level: Basic understanding but lacks deep production knowledge.\n" +
             "- 2-3 = Partial: Knows keywords but fails simple implementation checks.\n" +
             "- 1 = None: Completely incorrect answer or explicitly stated lack of knowledge.\n" +
-            "- null = Category was never discussed during the conversation loop.\n" +
+            "- null = Category was never discussed during the conversation loop (interview ran out of time — do NOT penalise the candidate for uncovered topics).\n" +
+            "\n" +
+            "IMPORTANT — TIME-LIMITED COVERAGE RULE:\n" +
+            "If a category has no evidence (null score), it means the interview ran out of time before that topic was reached.\n" +
+            "This is an interview-process limitation, NOT a candidate skill gap. Do NOT mention uncovered topics as weaknesses or gaps.\n" +
+            "Only score and describe topics that were actually discussed.\n" +
             "\n" +
             "VERDICT LOGIC MATRICES FOR ACTIVE MODE:\n" +
             getVerdictRulesForMode(req.getInterviewMode()) + "\n" +
@@ -525,6 +530,12 @@ public class AssessmentService {
                                          String claimed, String jdSnippet, AssessmentRequest req, String userId) throws Exception {
         String system =
             "You are a behavioral interview analyst. Analyze the evidence and return ONLY raw JSON. No markdown.\n" +
+            "\n" +
+            "CRITICAL RULE — TIME-LIMITED COVERAGE:\n" +
+            "Categories with no evidence were simply not reached due to interview time constraints.\n" +
+            "Do NOT list them in 'notDemonstrated' or 'flags'. They are 'categoriesMissed' in interviewQuality only.\n" +
+            "Only add a skill to 'notDemonstrated' if the candidate was explicitly asked about it but failed to answer correctly.\n" +
+            "\n" +
             "{\n" +
             "  \"behavioralSignals\": {\n" +
             "    \"ownershipLevel\": \"low|medium|high\",\n" +
@@ -536,15 +547,15 @@ public class AssessmentService {
             "  \"resumeConsistency\": {\n" +
             "    \"claimed\": [\"skill1\"],\n" +
             "    \"demonstrated\": [\"skill1\"],\n" +
-            "    \"notDemonstrated\": [\"skill2\"],\n" +
+            "    \"notDemonstrated\": [\"skill2 (only if asked and failed — NOT if topic was simply not covered)\"],\n" +
             "    \"consistencyScore\": 1-10,\n" +
-            "    \"flags\": [\"flag1\"]\n" +
+            "    \"flags\": [\"flag1 (only for genuine inconsistencies or red flags, not time-limited coverage)\"]\n" +
             "  },\n" +
             "  \"interviewQuality\": {\n" +
             "    \"coverageScore\": 1-10,\n" +
             "    \"categoriesCovered\": [],\n" +
-            "    \"categoriesMissed\": [],\n" +
-            "    \"note\": \"coverage summary\"\n" +
+            "    \"categoriesMissed\": [\"list topics not reached due to time — label them as time-limited, e.g. 'SystemDesign (not reached due to time)'\"],\n" +
+            "    \"note\": \"coverage summary noting any time-limited topics\"\n" +
             "  }\n" +
             "}";
 
@@ -583,9 +594,11 @@ public class AssessmentService {
             "  \"estimatedReadiness\": \"Explicit preparation timeline estimate string\"\n" +
             "}\n" +
             "RULES:\n" +
-            "- prosAndCons MUST include exactly ONE entry per scored category.\n" +
+            "- prosAndCons MUST include exactly ONE entry per SCORED category (skip null-scored categories — they were not assessed).\n" +
             "- roadmap MUST cover days 1-7 for any category score below 8. Use verified open-source documentation URLs.\n" +
-            "- resumeConsistencyForCandidate: list 3-5 key JD skills and whether demonstrated.";
+            "- roadmap MUST ONLY include categories that were actually scored (non-null) — do NOT add roadmap items for topics that weren't covered due to interview time constraints.\n" +
+            "- resumeConsistencyForCandidate: list 3-5 key JD skills that were actually discussed in the interview and whether demonstrated.\n" +
+            "- A null score means the topic was not reached in the interview — do NOT treat it as a failure or add it to the roadmap.";
 
         String user = "Role: " + req.getJdTitle() + "\nJD: " + jdSnippet + "\nScores:\n" + scoresInfo;
         String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
@@ -707,13 +720,20 @@ public class AssessmentService {
             .filter(k -> !k.isBlank())
             .toList();
 
+        // Distinguish "not covered due to time" from "covered but failed"
+        // Uncovered categories are NOT a candidate skill gap — the interview ran out of time.
         List<String> uncovered = mustCover.stream()
             .filter(key -> evidence.getOrDefault(key, List.of()).isEmpty())
             .toList();
 
+        // Only gate on categories that were actually assessed (have evidence or a score)
+        List<String> assessed = mustCover.stream()
+            .filter(key -> !evidence.getOrDefault(key, List.of()).isEmpty() || scoreByDimension.containsKey(key))
+            .toList();
+
         int minScoreFloor = minCoreScoreFloorForMode(interviewMode);
         List<String> weakDimensions = new ArrayList<>();
-        for (String key : mustCover) {
+        for (String key : assessed) {
             Integer score = scoreByDimension.get(key);
             if (score != null && score < minScoreFloor) {
                 weakDimensions.add(key);
@@ -722,7 +742,8 @@ public class AssessmentService {
         Integer communication = scoreByDimension.get("communication");
         boolean commWeak = communication != null && communication < Math.max(4, minScoreFloor - 2);
 
-        boolean gatePass = uncovered.isEmpty() && weakDimensions.isEmpty() && !commWeak;
+        // Gate only on what was actually tested — uncovered topics are interview-process gaps, not candidate gaps
+        boolean gatePass = weakDimensions.isEmpty() && !commWeak;
         String originalVerdict = String.valueOf(result.getOrDefault("proposedVerdict", "NEEDS_1_WEEK_PREP"));
         String finalVerdict = originalVerdict;
 
@@ -735,15 +756,17 @@ public class AssessmentService {
         gate.put("gatePassed", gatePass);
         gate.put("mode", interviewMode != null ? interviewMode : "L3");
         gate.put("minCoreScoreFloor", minScoreFloor);
-        gate.put("mustCoverCategories", mustCover);
+        gate.put("assessedCategories", assessed);
         gate.put("uncoveredCategories", uncovered);
+        gate.put("uncoveredNote", uncovered.isEmpty() ? "All planned categories were covered."
+            : "The following topics were not reached due to interview time constraints (not a candidate skill deficit): " + uncovered);
         gate.put("weakDimensions", weakDimensions);
         gate.put("communicationWeak", commWeak);
         gate.put("originalVerdict", originalVerdict);
         gate.put("finalVerdict", finalVerdict);
         gate.put("note", gatePass
-            ? "Candidate cleared deterministic readiness gates."
-            : "Readiness downgraded by deterministic gates due to missing coverage or weak core dimensions.");
+            ? "Candidate cleared deterministic readiness gates for assessed categories."
+            : "Readiness downgraded for weak scores on assessed categories (uncovered topics excluded).");
         result.put("readinessGate", gate);
     }
 

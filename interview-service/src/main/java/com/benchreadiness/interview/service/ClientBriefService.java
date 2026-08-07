@@ -383,16 +383,19 @@ public class ClientBriefService {
     }
 
     private Integer resolveTotalMinutes(Interview interview) {
-        if (interview.getStartedAt() != null && interview.getEndedAt() != null) {
-            long minutes = Duration.between(interview.getStartedAt(), interview.getEndedAt()).toMinutes();
-            if (minutes > 0 && minutes <= 480) {
-                return (int) minutes;
-            }
-        }
+        // Client brief should reflect the SCHEDULED interview duration, not how long the
+        // candidate actually took — a candidate finishing early/late shouldn't change the
+        // duration shown to the client.
         if (interview.getCustomDurationMinutes() != null && interview.getCustomDurationMinutes() > 0) {
             int custom = interview.getCustomDurationMinutes();
             if (custom <= 480) {
                 return custom;
+            }
+        }
+        if (interview.getStartedAt() != null && interview.getEndedAt() != null) {
+            long minutes = Duration.between(interview.getStartedAt(), interview.getEndedAt()).toMinutes();
+            if (minutes > 0 && minutes <= 480) {
+                return (int) minutes;
             }
         }
         return null;
