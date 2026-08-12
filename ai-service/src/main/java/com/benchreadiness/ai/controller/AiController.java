@@ -15,6 +15,7 @@ import com.benchreadiness.ai.service.LlmClient;
 import com.benchreadiness.ai.service.LlmProviderSettings;
 import com.benchreadiness.ai.service.QuestionService;
 import com.benchreadiness.ai.service.RubricService;
+import com.benchreadiness.ai.service.ScreeningChecklistService;
 import com.benchreadiness.ai.service.MediaHealthService;
 import com.benchreadiness.ai.service.TranscribeService;
 import com.benchreadiness.ai.service.TtsService;
@@ -47,6 +48,7 @@ public class AiController {
     private final TtsService ttsService;
     private final MediaHealthService mediaHealthService;
     private final DigestParseService digestParseService;
+    private final ScreeningChecklistService screeningChecklistService;
     private final ObjectMapper objectMapper;
 
     public AiController(QuestionService questionService, AssessmentService assessmentService,
@@ -54,6 +56,7 @@ public class AiController {
                        AiMatchingService aiMatchingService, LlmClient llmClient,
                        TranscribeService transcribeService, TtsService ttsService,
                        MediaHealthService mediaHealthService, DigestParseService digestParseService,
+                       ScreeningChecklistService screeningChecklistService,
                        ObjectMapper objectMapper) {
         this.questionService = questionService;
         this.assessmentService = assessmentService;
@@ -65,6 +68,7 @@ public class AiController {
         this.ttsService = ttsService;
         this.mediaHealthService = mediaHealthService;
         this.digestParseService = digestParseService;
+        this.screeningChecklistService = screeningChecklistService;
         this.objectMapper = objectMapper;
     }
 
@@ -483,6 +487,22 @@ public class AiController {
     public ResponseEntity<?> generateRubric(@RequestBody RubricRequest req,
                                            @RequestHeader("X-User-Id") String userId) {
         return ResponseEntity.ok(rubricService.generateRubric(req, userId));
+    }
+
+    /** Parse a pasted, free-form screening checklist doc into the structured checklist schema. */
+    @PostMapping("/parse-screening-checklist")
+    public ResponseEntity<?> parseScreeningChecklist(@RequestBody Map<String, String> request) {
+        try {
+            String rawText = request.get("checklistText");
+            return ResponseEntity.ok(Map.of("success", true, "checklist", screeningChecklistService.parse(rawText)));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(503).body(Map.of("success", false, "message", e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+        } catch (Exception e) {
+            log.error("[ScreeningChecklist] Parse failed: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", "Checklist parse failed: " + e.getMessage()));
+        }
     }
 
     @PostMapping("/match-candidates")

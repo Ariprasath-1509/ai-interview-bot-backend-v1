@@ -15,6 +15,10 @@ public class ClientBriefDto {
     private String overallFeedback = "";
     private String generationWarning = "";
     private List<SkillAssessment> skillAssessments = new ArrayList<>();
+    /** Present only when the interview used a client screening checklist (Phase 3/5) — the literal
+     *  weighted rating matrix, recommendation band, gate results, and knockout question answers.
+     *  Computed deterministically server-side; not an LLM-editable field like the sections above. */
+    private Map<String, Object> screeningChecklistMatrix;
     private String source;
     private boolean saved;
     private String lastEditedByUserId;
@@ -186,6 +190,8 @@ public class ClientBriefDto {
     public void setLastEditedByName(String lastEditedByName) { this.lastEditedByName = lastEditedByName; }
     public Instant getLastEditedAt() { return lastEditedAt; }
     public void setLastEditedAt(Instant lastEditedAt) { this.lastEditedAt = lastEditedAt; }
+    public Map<String, Object> getScreeningChecklistMatrix() { return screeningChecklistMatrix; }
+    public void setScreeningChecklistMatrix(Map<String, Object> screeningChecklistMatrix) { this.screeningChecklistMatrix = screeningChecklistMatrix; }
 
     public Map<String, Object> toMap() {
         Map<String, Object> map = new LinkedHashMap<>();
@@ -196,6 +202,7 @@ public class ClientBriefDto {
         map.put("overallFeedback", overallFeedback);
         map.put("generationWarning", generationWarning);
         map.put("skillAssessments", assessmentsToMaps(skillAssessments));
+        if (screeningChecklistMatrix != null) map.put("screeningChecklistMatrix", screeningChecklistMatrix);
         map.put("source", source);
         map.put("saved", saved);
         map.put("lastEditedByUserId", lastEditedByUserId);
@@ -220,6 +227,9 @@ public class ClientBriefDto {
         dto.setOverallFeedback(stringVal(map.get("overallFeedback")));
         dto.setGenerationWarning(stringVal(map.get("generationWarning")));
         dto.setSkillAssessments(parseAssessments(map.get("skillAssessments")));
+        if (map.get("screeningChecklistMatrix") instanceof Map<?, ?> matrixMap) {
+            dto.setScreeningChecklistMatrix((Map<String, Object>) matrixMap);
+        }
         dto.setSource(stringVal(map.get("source")));
         if (map.get("saved") instanceof Boolean b) dto.setSaved(b);
         dto.setLastEditedByUserId(stringVal(map.get("lastEditedByUserId")));

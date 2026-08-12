@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -59,7 +60,25 @@ public class RubricService {
             log.warn("generateRubric: DB cache lookup failed ({}); will call Claude", e.getMessage());
         }
 
-        // 3. Generate via Claude
+        // 3. Generate — deterministic from a screening checklist when the client has one, else Claude
+        boolean hasChecklist = req.getScreeningChecklistJson() != null && !req.getScreeningChecklistJson().isBlank();
+        if (hasChecklist) {
+            try {
+                Map<String, Object> result = checklistRubric(req, userId);
+                try {
+                    String json = objectMapper.writeValueAsString(result);
+                    complianceServiceClient.storeRubricCache(Map.of("cacheKey", cacheKey, "rubricJson", json));
+                } catch (Exception e) {
+                    log.warn("generateRubric: failed to persist checklist rubric to DB ({})", e.getMessage());
+                }
+                inMemoryRubricCache.put(cacheKey, result);
+                return result;
+            } catch (Exception e) {
+                log.warn("Checklist-based rubric generation failed, falling back to JD-guessed rubric: {}", e.getMessage());
+                // fall through to the normal LLM-guessed path below
+            }
+        }
+
         log.info("generateRubric: CACHE MISS — calling Claude for JD: {}", req.getJdTitle());
         if (!llmClient.isConfigured()) return fallbackRubric(req);
         try {
@@ -81,7 +100,8 @@ public class RubricService {
     }
 
     private String buildRubricCacheKey(RubricRequest req) {
-        String raw = req.getJdTitle() + "|" + req.getJdText() + "|" + req.getResumeSummary();
+        String raw = req.getJdTitle() + "|" + req.getJdText() + "|" + req.getResumeSummary()
+            + "|" + (req.getScreeningChecklistJson() != null ? req.getScreeningChecklistJson() : "");
         return sha256(raw);
     }
 
@@ -156,6 +176,136 @@ public class RubricService {
         result.put("rubric", objectMapper.convertValue(json.path("rubric"), Object.class));
         result.put("candidateProfile", objectMapper.convertValue(json.path("candidateProfile"), Object.class));
         return result;
+    }
+
+    /**
+     * Builds rubric categories deterministically from a client's screening checklist — no LLM
+     * guessing of dimensions or weights, so the interview and scoring engine stick exactly to
+     * what the client specified. The LLM is only used for candidateProfile (resume-derived),
+     * which the checklist has no way to provide.
+     */
+    private Map<String, Object> checklistRubric(RubricRequest req, String userId) throws Exception {
+        JsonNode checklist = objectMapper.readTree(req.getScreeningChecklistJson());
+        JsonNode dimensions = checklist.path("dimensions");
+
+        List<Map<String, Object>> categories = new ArrayList<>();
+        if (dimensions.isArray()) {
+            for (JsonNode dim : dimensions) {
+                String key = dim.path("key").asText();
+                String label = dim.path("label").asText();
+                String goodLooksLike = dim.path("goodLooksLike").asText("");
+                double weightPct = dim.path("weightPct").asDouble(0);
+                categories.add(checklistCategory(key, label, goodLooksLike, weightPct));
+            }
+        }
+
+        Map<String, Object> screeningChecklist = new LinkedHashMap<>();
+        screeningChecklist.put("proceedGates", toStringList(checklist.path("proceedGates")));
+        screeningChecklist.put("rejectSignals", toStringList(checklist.path("rejectSignals")));
+        screeningChecklist.put("validateFlags", toStringList(checklist.path("validateFlags")));
+        screeningChecklist.put("knockoutQuestions", toStringList(checklist.path("knockoutQuestions")));
+        screeningChecklist.put("recommendationBands", objectMapper.convertValue(checklist.path("recommendationBands"), Object.class));
+        screeningChecklist.put("ratingScale", objectMapper.convertValue(resolveRatingScale(checklist.path("ratingScale")), Object.class));
+
+        Map<String, Object> rubric = new LinkedHashMap<>();
+        rubric.put("categories", categories);
+        rubric.put("focusAreas", List.of());
+        rubric.put("screeningChecklist", screeningChecklist);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("rubric", rubric);
+        result.put("candidateProfile", llmCandidateProfileOnly(req, userId));
+        return result;
+    }
+
+    /** Falls back to a generic 1-5 scale when the source checklist did not define its own rating scale. */
+    private Map<String, Object> resolveRatingScale(JsonNode ratingScaleNode) {
+        Map<String, Object> scale = new LinkedHashMap<>();
+        if (ratingScaleNode != null && ratingScaleNode.isObject()
+                && ratingScaleNode.has("levels") && ratingScaleNode.path("levels").isArray()
+                && ratingScaleNode.path("levels").size() > 0) {
+            scale.put("min", ratingScaleNode.path("min").asInt(1));
+            scale.put("max", ratingScaleNode.path("max").asInt(5));
+            List<Map<String, Object>> levels = new ArrayList<>();
+            for (JsonNode level : ratingScaleNode.path("levels")) {
+                Map<String, Object> l = new LinkedHashMap<>();
+                l.put("score", level.path("score").asInt());
+                l.put("definition", level.path("definition").asText(""));
+                levels.add(l);
+            }
+            scale.put("levels", levels);
+            return scale;
+        }
+        scale.put("min", 1);
+        scale.put("max", 5);
+        scale.put("levels", List.of(
+            Map.of("score", 1, "definition", "No evidence or a fundamental gap in this area"),
+            Map.of("score", 2, "definition", "Basic or theoretical knowledge only; no meaningful production experience"),
+            Map.of("score", 3, "definition", "Adequate hands-on experience; meets the baseline requirement"),
+            Map.of("score", 4, "definition", "Strong hands-on experience; meets the requirement with clear, specific examples"),
+            Map.of("score", 5, "definition", "Expert-level; exceeds the requirement and could mentor others in this area")
+        ));
+        return scale;
+    }
+
+    /** Lighter LLM call used in checklist mode — resume/JD-derived candidate profile only, no rubric guessing. */
+    private Map<String, Object> llmCandidateProfileOnly(RubricRequest req, String userId) throws Exception {
+        if (req.getResumeSummary() == null || req.getResumeSummary().isBlank() || !llmClient.isConfigured()) {
+            return Map.of(
+                "yearsOfExperience", 0,
+                "level", "mid",
+                "primarySkills", List.of(),
+                "claimedExpertise", List.of(),
+                "questionDifficulty", "medium",
+                "resumeSummary", ""
+            );
+        }
+        String system =
+            "Extract a candidate profile from the resume against the role. Output ONLY this JSON, no markdown, no prose:\n" +
+            "{\n" +
+            "  \"yearsOfExperience\": 5,\n" +
+            "  \"level\": \"junior|mid|senior|staff\",\n" +
+            "  \"primarySkills\": [\"skill1\"],\n" +
+            "  \"claimedExpertise\": [\"area1\"],\n" +
+            "  \"questionDifficulty\": \"easy (<2 yrs) | medium (2-5 yrs) | hard (>5 yrs)\",\n" +
+            "  \"resumeSummary\": \"A concise one-sentence description\"\n" +
+            "}";
+        String user = "Role: " + req.getJdTitle() + "\n" +
+            "Resume:\n" + req.getResumeSummary().substring(0, Math.min(4000, req.getResumeSummary().length()));
+
+        String raw = llmClient.chatRubricWithTracking(system, user, req.getInterviewId(), userId);
+        JsonNode json = objectMapper.readTree(JsonRepairUtil.repair(raw));
+        return objectMapper.convertValue(json, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+    }
+
+    private List<String> toStringList(JsonNode node) {
+        List<String> list = new ArrayList<>();
+        if (node.isArray()) node.forEach(n -> list.add(n.asText()));
+        return list;
+    }
+
+    /** weightPct >= 20 is treated as a MUST_HAVE-tier dimension for the legacy 1-3 weight field
+     *  (still consumed by the default scoring engine); the exact weightPct is preserved for the
+     *  checklist-aware weighted scoring path. */
+    private Map<String, Object> checklistCategory(String key, String label, String goodLooksLike, double weightPct) {
+        int legacyWeight = weightPct >= 20 ? 3 : weightPct >= 10 ? 2 : 1;
+        String priority = legacyWeight == 3 ? "MUST_HAVE" : "GOOD_TO_HAVE";
+        Map<String, Object> cat = new LinkedHashMap<>();
+        cat.put("key", key);
+        cat.put("label", label);
+        cat.put("subSkill", label);
+        cat.put("description", goodLooksLike);
+        cat.put("weight", legacyWeight);
+        cat.put("weightPct", weightPct);
+        cat.put("priority", priority);
+        cat.put("note", "");
+        cat.put("proficiencyOptions", List.of(
+            "Strong knowledge of " + label,
+            "Good knowledge of " + label,
+            "Only theoretical knowledge of " + label + " with no practical experience",
+            "No knowledge of " + label
+        ));
+        return cat;
     }
 
     private Map<String, Object> fallbackRubric(RubricRequest req) {

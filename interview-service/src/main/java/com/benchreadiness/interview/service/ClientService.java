@@ -197,6 +197,17 @@ public class ClientService {
         return convertToDTO(savedClient);
     }
 
+    /** Save/replace the structured screening checklist on a client without touching any other field. */
+    public ClientDTO updateScreeningChecklist(UUID id, String screeningChecklistJson,
+                                               String screeningChecklistName, String userRole) {
+        Client client = requireAccessibleClient(id, userRole);
+        client.setScreeningChecklistJson(screeningChecklistJson);
+        client.setScreeningChecklistName(screeningChecklistName);
+        client.setUpdatedAt(LocalDateTime.now());
+        Client saved = clientRepository.save(client);
+        return convertToDTO(saved);
+    }
+
     private void applyJdFile(Client client, MultipartFile jdFile) {
         if (jdFile == null || jdFile.isEmpty()) {
             return;
@@ -330,6 +341,8 @@ public class ClientService {
         dto.setBranch(client.getBranch() != null && !client.getBranch().isBlank()
                 ? Branch.normalize(client.getBranch())
                 : BranchAccess.defaultBranch());
+        dto.setScreeningChecklistJson(client.getScreeningChecklistJson());
+        dto.setScreeningChecklistName(client.getScreeningChecklistName());
         return dto;
     }
     

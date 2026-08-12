@@ -17,6 +17,7 @@ import java.util.Map;
 public class ProctoringSettingsService {
 
     static final List<String> SOURCES = List.of("BENCH", "B2B", "MARKET");
+    static final String STRICT_LOCKDOWN_KEY = "STRICT_LOCKDOWN";
 
     private final MasterDataService masterDataService;
     private final MasterDataEntryRepository repository;
@@ -32,7 +33,19 @@ public class ProctoringSettingsService {
         for (String source : SOURCES) {
             settings.put(source, isVideoProctoringEnabled(source));
         }
+        settings.put(STRICT_LOCKDOWN_KEY, isStrictLockdownEnabled());
         return settings;
+    }
+
+    /** Global switch — immediate termination on tab-switch/blur/fullscreen-exit, plus
+     *  best-effort OS key capture (Windows/Meta key, Alt+Tab) during interviews. */
+    public boolean isStrictLockdownEnabled() {
+        MasterDataEntry entry = repository.findByCategoryAndCodeIgnoreCase(
+                MasterDataCategory.SYSTEM_SETTING, STRICT_LOCKDOWN_KEY).orElse(null);
+        if (entry == null || !entry.isActive()) {
+            return true;
+        }
+        return readFlag(entry.getMetadata(), "enabled", true);
     }
 
     public boolean isVideoProctoringEnabled(String candidateSource) {
@@ -72,6 +85,21 @@ public class ProctoringSettingsService {
             repository.save(entry);
         }
 
+        Boolean strictLockdown = updates.get(STRICT_LOCKDOWN_KEY);
+        if (strictLockdown != null) {
+            MasterDataEntry entry = repository.findByCategoryAndCodeIgnoreCase(
+                            MasterDataCategory.SYSTEM_SETTING, STRICT_LOCKDOWN_KEY)
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "System setting not found: " + STRICT_LOCKDOWN_KEY));
+
+            Map<String, Object> metadata = entry.getMetadata() != null
+                    ? new LinkedHashMap<>(entry.getMetadata())
+                    : new LinkedHashMap<>();
+            metadata.put("enabled", strictLockdown);
+            entry.setMetadata(metadata);
+            repository.save(entry);
+        }
+
         masterDataService.refreshCache();
         return getSettings();
     }
@@ -81,10 +109,14 @@ public class ProctoringSettingsService {
     }
 
     private static boolean readEnabledFlag(Map<String, Object> metadata, boolean defaultValue) {
+        return readFlag(metadata, "videoProctoringEnabled", defaultValue);
+    }
+
+    private static boolean readFlag(Map<String, Object> metadata, String key, boolean defaultValue) {
         if (metadata == null) {
             return defaultValue;
         }
-        Object value = metadata.get("videoProctoringEnabled");
+        Object value = metadata.get(key);
         if (value instanceof Boolean b) {
             return b;
         }

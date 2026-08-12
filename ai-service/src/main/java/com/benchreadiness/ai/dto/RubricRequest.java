@@ -6,6 +6,9 @@ public class RubricRequest {
     private String resumeSummary;
     private String focusAreas;
     private String interviewId;
+    /** When set, rubric categories are built deterministically from this checklist's dimensions
+     *  instead of LLM-guessed from the JD text. See ScreeningChecklistService for the schema. */
+    private String screeningChecklistJson;
 
     public String getJdTitle() { return jdTitle; }
     public void setJdTitle(String jdTitle) { this.jdTitle = jdTitle; }
@@ -17,4 +20,6 @@ public class RubricRequest {
     public void setFocusAreas(String focusAreas) { this.focusAreas = focusAreas; }
     public String getInterviewId() { return interviewId; }
     public void setInterviewId(String interviewId) { this.interviewId = interviewId; }
+    public String getScreeningChecklistJson() { return screeningChecklistJson; }
+    public void setScreeningChecklistJson(String screeningChecklistJson) { this.screeningChecklistJson = screeningChecklistJson; }
 }

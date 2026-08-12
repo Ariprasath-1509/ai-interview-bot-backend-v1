@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class ClientBriefPdfGenerationService {
@@ -75,14 +76,22 @@ public class ClientBriefPdfGenerationService {
 
         try {
             addHeaderBanner(document, brief, ctx);
-            addRecommendationBanner(document, brief.getMustHaveSkills(), brief.getGoodToHaveSkills(), brief.getOverallFeedback());
             if (brief.getGenerationWarning() != null && !brief.getGenerationWarning().isBlank()) {
                 addWarningBanner(document, brief.getGenerationWarning());
             }
-            addScoreSummaryStrip(document, brief.getMustHaveSkills(), brief.getGoodToHaveSkills());
-            addSkillSummaryGrid(document, brief.getMustHaveSkills(), brief.getGoodToHaveSkills());
-            addOverallFeedback(document, brief.getOverallFeedback());
-            addDetailedAssessments(document, brief.getSkillAssessments());
+            if (brief.getScreeningChecklistMatrix() != null) {
+                // Checklist-driven brief: the matrix + gates ARE the report — the generic
+                // must-have/good-to-have/skill-assessment sections don't apply (and would render
+                // empty, since generateChecklistBrief deliberately leaves those lists blank).
+                addOverallFeedback(document, brief.getOverallFeedback());
+                addScreeningChecklistMatrix(document, brief.getScreeningChecklistMatrix());
+            } else {
+                addRecommendationBanner(document, brief.getMustHaveSkills(), brief.getGoodToHaveSkills(), brief.getOverallFeedback());
+                addScoreSummaryStrip(document, brief.getMustHaveSkills(), brief.getGoodToHaveSkills());
+                addSkillSummaryGrid(document, brief.getMustHaveSkills(), brief.getGoodToHaveSkills());
+                addOverallFeedback(document, brief.getOverallFeedback());
+                addDetailedAssessments(document, brief.getSkillAssessments());
+            }
             addQuestionsSection(document, brief.getQuestionsAsked());
             addClosingMeta(document, brief);
         } catch (DocumentException e) {
@@ -504,6 +513,196 @@ public class ClientBriefPdfGenerationService {
         content.setPadding(18);
         card.addCell(content);
         document.add(card);
+    }
+
+    // ── Screening checklist matrix (Phase 5) ────────────────────────────────────
+
+    /**
+     * Renders the client's own weighted rating matrix, recommendation band, gate results, and
+     * knockout question answers verbatim — this is the literal "attach the completed matrix...
+     * do not summarize with a single yes/no" deliverable, not a paraphrase of it.
+     */
+    @SuppressWarnings("unchecked")
+    private void addScreeningChecklistMatrix(Document document, Map<String, Object> matrix) throws DocumentException {
+        if (matrix == null) return;
+
+        document.add(sectionTitle("Screening checklist result"));
+
+        // ── Recommendation band ──
+        String band = str(matrix.get("band"));
+        String bandAction = str(matrix.get("bandAction"));
+        boolean gateOverride = Boolean.TRUE.equals(matrix.get("gateOverride"));
+        Object weightedTotalObj = matrix.get("weightedTotal");
+        String weightedTotal = weightedTotalObj != null ? String.valueOf(weightedTotalObj) : "—";
+        Object scoreMaxObj = matrix.get("scoreMax");
+        String scoreMax = scoreMaxObj instanceof Number n
+            ? (n.doubleValue() == Math.floor(n.doubleValue()) ? String.valueOf(n.intValue()) : String.valueOf(n.doubleValue()))
+            : "5";
+
+        Color bandColor = gateOverride || band.toLowerCase().contains("reject") ? DANGER
+            : band.toLowerCase().contains("borderline") ? WARN : SUCCESS;
+        Color bandBg = gateOverride || band.toLowerCase().contains("reject") ? DANGER_BG
+            : band.toLowerCase().contains("borderline") ? WARN_BG : SUCCESS_BG;
+
+        PdfPTable bandCard = new PdfPTable(new float[] {0.25f, 0.75f});
+        bandCard.setWidthPercentage(100);
+        bandCard.setSpacingAfter(14);
+        bandCard.setKeepTogether(true);
+
+        PdfPCell scoreCell = new PdfPCell();
+        scoreCell.setBackgroundColor(bandColor);
+        scoreCell.setBorder(Rectangle.NO_BORDER);
+        scoreCell.setHorizontalAlignment(Element.ALIGN_CENTER);
+        scoreCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        scoreCell.setPadding(16);
+        Paragraph scoreP = new Paragraph(weightedTotal + " / " + scoreMax, new Font(Font.HELVETICA, 22, Font.BOLD, Color.WHITE));
+        scoreP.setAlignment(Element.ALIGN_CENTER);
+        scoreCell.addElement(scoreP);
+        Paragraph weightedLabel = new Paragraph("WEIGHTED SCORE", new Font(Font.HELVETICA, 7, Font.BOLD, Color.WHITE));
+        weightedLabel.setAlignment(Element.ALIGN_CENTER);
+        weightedLabel.setSpacingBefore(4);
+        scoreCell.addElement(weightedLabel);
+        bandCard.addCell(scoreCell);
+
+        PdfPCell bandDetail = new PdfPCell();
+        bandDetail.setBackgroundColor(bandBg);
+        bandDetail.setBorderColor(bandColor);
+        bandDetail.setBorderWidth(1f);
+        bandDetail.setPadding(16);
+        Paragraph bandTitle = new Paragraph(band.isBlank() ? "Recommendation" : band, new Font(Font.HELVETICA, 13, Font.BOLD, bandColor));
+        bandDetail.addElement(bandTitle);
+        if (!bandAction.isBlank()) {
+            Paragraph actionP = new Paragraph(bandAction, BODY_FONT_SM);
+            actionP.setSpacingBefore(4);
+            actionP.setLeading(14);
+            bandDetail.addElement(actionP);
+        }
+        if (gateOverride) {
+            Paragraph overrideP = new Paragraph(
+                "⚠ Mandatory reject signal — this recommendation overrides the weighted score.",
+                new Font(Font.HELVETICA, 9, Font.BOLD, DANGER));
+            overrideP.setSpacingBefore(6);
+            bandDetail.addElement(overrideP);
+        }
+        bandCard.addCell(bandDetail);
+        document.add(bandCard);
+
+        // ── Dimension breakdown table ──
+        List<Map<String, Object>> breakdown = (List<Map<String, Object>>) matrix.getOrDefault("dimensionBreakdown", List.of());
+        if (!breakdown.isEmpty()) {
+            PdfPTable table = new PdfPTable(new float[] {0.42f, 0.16f, 0.16f, 0.26f});
+            table.setWidthPercentage(100);
+            table.setSpacingAfter(14);
+            addMatrixHeaderCell(table, "Dimension");
+            addMatrixHeaderCell(table, "Weight");
+            addMatrixHeaderCell(table, "Score");
+            addMatrixHeaderCell(table, "Weighted");
+            for (Map<String, Object> row : breakdown) {
+                String label = str(row.get("label"));
+                Object weightPct = row.get("weightPct");
+                Object score = row.get("score");
+                Object weightedScore = row.get("weightedScore");
+                addMatrixCell(table, label, BODY_FONT_SM, Element.ALIGN_LEFT);
+                addMatrixCell(table, weightPct != null ? weightPct + "%" : "—", BODY_FONT_SM, Element.ALIGN_CENTER);
+                addMatrixCell(table, score != null ? score + "/" + scoreMax : "Not covered", BODY_FONT_SM, Element.ALIGN_CENTER);
+                addMatrixCell(table, weightedScore != null ? String.format("%.2f", ((Number) weightedScore).doubleValue()) : "—",
+                    BODY_FONT_SM, Element.ALIGN_CENTER);
+            }
+            document.add(table);
+        }
+
+        // ── Gates ──
+        addGateList(document, "Reject signals", (List<Map<String, Object>>) matrix.getOrDefault("rejectSignalsTriggered", List.of()),
+            "signal", "triggered", DANGER, DANGER_BG);
+        addGateList(document, "Proceed gates", (List<Map<String, Object>>) matrix.getOrDefault("proceedGatesMet", List.of()),
+            "gate", "met", SUCCESS, SUCCESS_BG);
+        addGateList(document, "Needs validation", (List<Map<String, Object>>) matrix.getOrDefault("validateFlagsTriggered", List.of()),
+            "flag", "triggered", WARN, WARN_BG);
+
+        // ── Knockout questions ──
+        List<Map<String, Object>> knockouts = (List<Map<String, Object>>) matrix.getOrDefault("knockoutQuestionsAsked", List.of());
+        if (!knockouts.isEmpty()) {
+            document.add(spaced(new Paragraph("Knockout questions", SUBSECTION_FONT), 8, 6));
+            for (Map<String, Object> k : knockouts) {
+                String question = str(k.get("question"));
+                boolean asked = Boolean.TRUE.equals(k.get("asked"));
+                String answer = str(k.get("answerSummary"));
+                PdfPTable kCard = new PdfPTable(1);
+                kCard.setWidthPercentage(100);
+                kCard.setSpacingAfter(6);
+                kCard.setKeepTogether(true);
+                PdfPCell kCell = new PdfPCell();
+                kCell.setBackgroundColor(LIGHT_VIOLET_BG);
+                kCell.setBorderColor(CARD_BORDER);
+                kCell.setBorderWidth(0.75f);
+                kCell.setPadding(10);
+                Paragraph qP = new Paragraph((asked ? "✓ " : "✗ Not asked — ") + question,
+                    new Font(Font.HELVETICA, 9, Font.BOLD, asked ? SUCCESS : DANGER));
+                qP.setLeading(13);
+                kCell.addElement(qP);
+                if (asked && !answer.isBlank()) {
+                    Paragraph aP = new Paragraph(answer, BODY_FONT_SM);
+                    aP.setSpacingBefore(4);
+                    aP.setLeading(13);
+                    kCell.addElement(aP);
+                }
+                kCard.addCell(kCell);
+                document.add(kCard);
+            }
+        }
+    }
+
+    private void addMatrixHeaderCell(PdfPTable table, String text) {
+        PdfPCell cell = new PdfPCell(new Phrase(text, new Font(Font.HELVETICA, 8, Font.BOLD, Color.WHITE)));
+        cell.setBackgroundColor(BRAND_PURPLE);
+        cell.setBorder(Rectangle.NO_BORDER);
+        cell.setPadding(8);
+        cell.setHorizontalAlignment(Element.ALIGN_CENTER);
+        table.addCell(cell);
+    }
+
+    private void addMatrixCell(PdfPTable table, String text, Font font, int align) {
+        PdfPCell cell = new PdfPCell(new Phrase(text, font));
+        cell.setBorderColor(CARD_BORDER);
+        cell.setBorderWidth(0.5f);
+        cell.setPadding(7);
+        cell.setHorizontalAlignment(align);
+        table.addCell(cell);
+    }
+
+    private void addGateList(Document document, String title, List<Map<String, Object>> items,
+                              String textKey, String flagKey, Color color, Color bg) throws DocumentException {
+        if (items.isEmpty()) return;
+        document.add(spaced(new Paragraph(title, SUBSECTION_FONT), 8, 6));
+        for (Map<String, Object> item : items) {
+            boolean flag = Boolean.TRUE.equals(item.get(flagKey));
+            String text = str(item.get(textKey));
+            String reasoning = str(item.get("reasoning"));
+            PdfPTable row = new PdfPTable(1);
+            row.setWidthPercentage(100);
+            row.setSpacingAfter(5);
+            row.setKeepTogether(true);
+            PdfPCell cell = new PdfPCell();
+            cell.setBackgroundColor(flag ? bg : new Color(248, 248, 250));
+            cell.setBorderColor(flag ? color : CARD_BORDER);
+            cell.setBorderWidth(0.75f);
+            cell.setPadding(9);
+            Paragraph p = new Paragraph((flag ? "● " : "○ ") + text, new Font(Font.HELVETICA, 9, Font.BOLD, flag ? color : MUTED));
+            p.setLeading(13);
+            cell.addElement(p);
+            if (!reasoning.isBlank()) {
+                Paragraph r = new Paragraph(reasoning, SMALL_FONT);
+                r.setSpacingBefore(3);
+                r.setLeading(12);
+                cell.addElement(r);
+            }
+            row.addCell(cell);
+            document.add(row);
+        }
+    }
+
+    private String str(Object value) {
+        return value != null ? String.valueOf(value).trim() : "";
     }
 
     // ── Detailed assessments ──────────────────────────────────────────────────

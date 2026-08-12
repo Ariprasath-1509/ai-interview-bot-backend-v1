@@ -37,6 +37,8 @@ public class QuestionService {
     private static final int MANIPULATION_TERMINATE_THRESHOLD = InjectionGuard.TERMINATE_THRESHOLD;
     private static final long QUESTION_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
     private static final int MAX_CROSS_QUESTIONS_PER_SLOT = 1;
+    /** Minimum question slots that must pass between two cross-questions. */
+    private static final int CROSS_QUESTION_COOLDOWN_SLOTS = 5;
     private static final int RECENT_BOT_QUESTIONS_FOR_DEDUP = 4;
     /** Dedup against every bot question ever asked in this session, not just recent ones. */
     private static final int ALL_BOT_QUESTIONS_DEDUP = Integer.MAX_VALUE;
@@ -302,7 +304,51 @@ public class QuestionService {
         "Here's a small scenario: [describe a situation relevant to %s]. How would you approach it?"
     );
 
-    /** Designated slot for the single coding exercise per interview mode. */
+    /** Last-resort pool once curated + slot-fallback questions are exhausted (long, extended-timer
+     *  interviews). Deliberately large so genuine collisions are rare before falling through to the
+     *  frame/angle synthesizer below. */
+    private static final List<String> LAST_RESORT_ALTERNATES = List.of(
+        "Describe a technical decision you reversed after production feedback — what signal triggered the change?",
+        "Tell me about a time you simplified an over-engineered solution — what did you remove and why?",
+        "What's a monitoring or observability gap you discovered only after an incident, and how did you close it?",
+        "How would you onboard a new engineer to the most complex part of a system you've built?",
+        "Walk me through how you'd debug a memory leak in a long-running service — tools, steps, root cause approach.",
+        "Describe the most brittle part of a system you've maintained and what you did to make it more resilient.",
+        "What's the hardest trade-off you've made between developer experience and system performance?",
+        "Tell me about a time you disagreed with a technical decision — how did you handle it?",
+        "What's a piece of legacy code you inherited and how did you approach improving it?",
+        "Describe a time you had to make a call with incomplete information — what did you do?",
+        "What's the most useful piece of feedback you've received on your code, and how did it change your approach?",
+        "Walk me through how you'd approach reviewing a large, unfamiliar pull request.",
+        "Tell me about a production incident you were involved in — what was your role and what did you learn?",
+        "What's a technical skill you've deliberately worked on improving in the last year, and how?",
+        "Describe how you'd explain a complex technical concept to a non-technical stakeholder.",
+        "What's a time estimate you got wrong — what threw it off, and what would you do differently?",
+        "How do you decide when to write a test versus when it's not worth the time?",
+        "Tell me about a dependency or third-party service that caused you trouble — how did you handle it?",
+        "What's a part of your current stack you'd change if you could, and why?",
+        "Describe a time you had to push back on scope to hit a deadline."
+    );
+
+    /** Rotating sentence frames for synthesizing a genuinely fresh fallback question once even
+     *  {@link #LAST_RESORT_ALTERNATES} is exhausted. "%s" takes an angle from {@link #LAST_RESORT_ANGLES}. */
+    private static final List<String> LAST_RESORT_FRAMES = List.of(
+        "Let's go deeper on %s — walk me through a specific example from your experience.",
+        "Thinking about %s: what's a mistake you've seen made there, and what would you do instead?",
+        "How do you approach %s in your current role — what does good look like?",
+        "Tell me about a time %s mattered more than you expected — what happened?",
+        "What's your mental checklist for %s, and where does it usually break down in practice?"
+    );
+
+    /** Rotating engineering angles paired with {@link #LAST_RESORT_FRAMES}. */
+    private static final List<String> LAST_RESORT_ANGLES = List.of(
+        "code review quality", "on-call and incident response", "technical debt prioritization",
+        "cross-team collaboration", "performance under load", "backward compatibility",
+        "rollout and rollback strategy", "documentation and knowledge sharing",
+        "estimating and scoping work", "mentoring and unblocking teammates"
+    );
+
+    /** Designated slot for the primary coding exercise per interview mode. */
     private static final Map<String, Integer> CODING_SLOT_BY_MODE = Map.of(
         "SCREENING", 3,
         "L1", 3,
@@ -310,6 +356,17 @@ public class QuestionService {
         "L3", 8,
         "L4", 8
     );
+
+    /** At most 2 coding questions per interview — a 2nd is only offered if the 1st was wrong/partial. */
+    private static final int MAX_CODING_QUESTIONS_PER_INTERVIEW = 2;
+    /** Slots after the primary coding slot before offering the (conditional) easier retry. */
+    private static final int SECOND_CODING_SLOT_OFFSET = 2;
+
+    /** Checklist knockout questions (mandatory, from a client screening checklist) are given a
+     *  deadline slot each so they're guaranteed to be asked rather than left to chance — the
+     *  Nth knockout question (0-indexed) must be asked by slot KNOCKOUT_FIRST_DEADLINE_SLOT + N * KNOCKOUT_SLOT_SPACING. */
+    private static final int KNOCKOUT_FIRST_DEADLINE_SLOT = 4;
+    private static final int KNOCKOUT_SLOT_SPACING = 4;
 
     private final LlmClient llmClient;
     private final QuestionCacheService cacheService;
@@ -494,6 +551,7 @@ public class QuestionService {
     private QuestionResult finalizeAndCache(String key, NextQuestionRequest req, QuestionResult result) {
         QuestionResult sanitized = sanitizeQuestionResult(req, result);
         QuestionResult finalized = applyCodingSlotPolicy(req, sanitized);
+        finalized = applyKnockoutQuestionPolicy(req, finalized);
 
         // Hard final gate: one last check against ALL bot questions before sending to candidate.
         // Explanations are exempt — they intentionally restate the question they simplify.
@@ -666,7 +724,10 @@ public class QuestionService {
             } catch (Exception ignored) {}
         }
 
-        // Parse rubric categories to focus on relevant topics
+        // Parse rubric categories to focus on relevant topics — include each category's
+        // "what to probe" description (for checklist-based rubrics this is the client's own
+        // "what good looks like" text) so questions target the exact evidence being scored,
+        // not just the category name.
         String rubricFocus = "";
         if (req.getRubricJson() != null && !req.getRubricJson().isBlank()) {
             try {
@@ -674,9 +735,14 @@ public class QuestionService {
                     new com.fasterxml.jackson.databind.ObjectMapper().readTree(req.getRubricJson());
                 com.fasterxml.jackson.databind.JsonNode cats = rubric.path("categories");
                 if (cats.isArray()) {
-                    List<String> catLabels = new ArrayList<>();
-                    cats.forEach(c -> catLabels.add(c.path("label").asText()));
-                    rubricFocus = "Key areas to probe for this role: " + String.join(", ", catLabels);
+                    List<String> catFocus = new ArrayList<>();
+                    cats.forEach(c -> {
+                        String label = c.path("label").asText();
+                        String description = c.path("description").asText("");
+                        catFocus.add(description.isBlank() ? label : label + " (" + description + ")");
+                    });
+                    rubricFocus = "Key areas to probe for this role:\n" + catFocus.stream()
+                        .map(f -> "- " + f).collect(java.util.stream.Collectors.joining("\n"));
                 }
             } catch (Exception ignored) {}
         }
@@ -700,7 +766,7 @@ public class QuestionService {
             "- Seniority Level Guardrails: " + (levelInstruction.isBlank() ? "Calibrate to role level" : levelInstruction) + "\n" +
             "- Evaluation Rubric Focus: " + (rubricFocus.isBlank() ? "Role-relevant technical areas" : rubricFocus) + "\n" +
             "- JD Skills Already Touched: " + (coveredTopics.isBlank() ? "None yet" : coveredTopics) + "\n" +
-            "- Allowed Difficulty Level: " + difficultyInstruction + "\n" +
+            "- Allowed Difficulty Level: " + difficultyInstruction + " — HARD REQUIREMENT, not a suggestion.\n" +
             "\n" +
             "QUESTIONS ALREADY ASKED — DO NOT REPEAT OR PARAPHRASE ANY OF THESE:\n" +
             neverRepeatBlock + "\n" +
@@ -710,10 +776,11 @@ public class QuestionService {
             "2. Use the candidate's last answer ONLY to calibrate depth and tone. Never make it the subject of the next question.\n" +
             "3. Maintain a natural, peer-level engineering tone. Do NOT say \"Great answer!\" or \"Thanks for sharing.\"\n" +
             "4. NEVER ask a question that is the same as or closely paraphrases any question in the list above.\n" +
-            "5. Output ONLY the raw question string. No markdown wrappers, no explanations." +
+            "5. The question's difficulty MUST match \"" + difficultyInstruction + "\" exactly: for easy difficulty, ask foundational/definitional questions with no multi-step reasoning or advanced internals; for medium, expect applied working knowledge; for hard, expect deep trade-off/internals reasoning. Do not ask a harder or easier question than this level.\n" +
+            "6. Output ONLY the raw question string. No markdown wrappers, no explanations." +
             (isProgrammingEnabled(req)
                 ? ""
-                : "\n6. THEORY-ONLY interview: ask verbal/conceptual questions only. Do NOT ask the candidate to write code or use a code editor.");
+                : "\n7. THEORY-ONLY interview: ask verbal/conceptual questions only. Do NOT ask the candidate to write code or use a code editor.");
 
         String lastAnswer = req.getLastAnswer() != null ? req.getLastAnswer().trim() : "";
         String recent = buildTranscriptContext(req.getUtterances(), req.getSlot());
@@ -1164,7 +1231,36 @@ public class QuestionService {
         return countSimilarRepeatedBotQuestions(utterances);
     }
 
+    /**
+     * Real cadence gate: cross-questions are allowed at most once every
+     * {@link #CROSS_QUESTION_COOLDOWN_SLOTS} question slots. Uses the persisted, ordered
+     * question-source history (one entry per slot: AI_GENERATED / QUESTION_BANK /
+     * AI_CROSS_QUESTION / ...) when available — this is the ground truth, unlike scanning
+     * transcript text for similarity. Falls back to the old similarity-based heuristic only
+     * when no source history was supplied (e.g. very first slots, or older clients).
+     */
     private boolean shouldBlockCrossQuestion(NextQuestionRequest req) {
+        String sourcesRaw = req.getRecentQuestionSources();
+        if (sourcesRaw != null && !sourcesRaw.isBlank()) {
+            String[] sources = sourcesRaw.split(",");
+            int slotsSinceLastCross = 0;
+            boolean sawCross = false;
+            for (int i = sources.length - 1; i >= 0; i--) {
+                if ("AI_CROSS_QUESTION".equalsIgnoreCase(sources[i].trim())) {
+                    sawCross = true;
+                    break;
+                }
+                slotsSinceLastCross++;
+            }
+            if (sawCross && slotsSinceLastCross < CROSS_QUESTION_COOLDOWN_SLOTS) {
+                return true;
+            }
+            // Cadence gate is open — still guard against the model re-asking a near-duplicate
+            // of something it just said.
+            return countSimilarRepeatedBotQuestions(req.getUtterances()) >= 1;
+        }
+
+        // No source history supplied — fall back to the original heuristic.
         return countRecentCrossQuestions(req.getUtterances()) >= MAX_CROSS_QUESTIONS_PER_SLOT
             || countSimilarRepeatedBotQuestions(req.getUtterances()) >= 1;
     }
@@ -1371,19 +1467,22 @@ public class QuestionService {
         }
 
         // Last resort: open-ended alternates unlikely to repeat
-        List<String> alternates = List.of(
-            "Describe a technical decision you reversed after production feedback — what signal triggered the change?",
-            "Tell me about a time you simplified an over-engineered solution — what did you remove and why?",
-            "What's a monitoring or observability gap you discovered only after an incident, and how did you close it?",
-            "How would you onboard a new engineer to the most complex part of a system you've built?",
-            "Walk me through how you'd debug a memory leak in a long-running service — tools, steps, root cause approach.",
-            "Describe the most brittle part of a system you've maintained and what you did to make it more resilient.",
-            "What's the hardest trade-off you've made between developer experience and system performance?"
-        );
-        for (String alt : alternates) {
+        for (String alt : LAST_RESORT_ALTERNATES) {
             if (!isQuestionSimilarToRecent(alt, usedQuestions)) return alt;
         }
-        return alternates.get(startSlot % alternates.size());
+
+        // Even the expanded pool is exhausted (very long, extended-timer interview). Rather than
+        // silently repeating a question, synthesize a fresh, distinguishable variant by combining
+        // a rotating frame with a rotating engineering angle — the combinatorics (frames × angles)
+        // make an exact repeat effectively unreachable, unlike the flat modulo this replaced.
+        int depth = usedQuestions.size();
+        String frame = LAST_RESORT_FRAMES.get(depth % LAST_RESORT_FRAMES.size());
+        String angle = LAST_RESORT_ANGLES.get((depth / LAST_RESORT_FRAMES.size()) % LAST_RESORT_ANGLES.size());
+        String synthesized = String.format(frame, angle);
+        if (!isQuestionSimilarToRecent(synthesized, usedQuestions)) return synthesized;
+
+        // Truly exhausted (frames × angles also collided) — last-ditch unique tail using depth itself.
+        return synthesized + " (follow-up " + depth + ")";
     }
 
     /** Fallback question picker for ONBOARDING assessments — concept-scoped, not role/mode-scoped. */
@@ -1598,7 +1697,7 @@ public class QuestionService {
             String reason) {
         Integer codingSlot = codingSlotForMode(req.getInterviewMode() != null ? req.getInterviewMode() : "L3");
         boolean wantCoding = isProgrammingEnabled(req) && codingSlot != null && req.getSlot() == codingSlot
-            && !hasCodingQuestionBeenAsked(req.getUtterances());
+            && countCodingQuestionsAsked(req.getUtterances()) == 0;
 
         com.fasterxml.jackson.databind.JsonNode best = null;
         int bestScore = -1;
@@ -1663,12 +1762,12 @@ public class QuestionService {
             "Question Bank: " + questionBankContext + "\n" +
             "Active Slot Theme: " + slotTheme + "\n" +
             "Active Mode: " + mode + "\n" +
-            "Target Difficulty: " + resolveDifficulty(req) + " — prefer bank questions whose complexity matches this level; cross-questions must also match it.\n" +
+            "Target Difficulty: " + resolveDifficulty(req) + " — you MUST ONLY select bank questions whose complexity matches this level; if none of the unused bank questions fit, do not force a mismatched one — pick the closest available and note it is a fallback. Cross-questions must also match this level.\n" +
             "Recently asked (DO NOT repeat or paraphrase closely):\n" + recentQuestionsBlock + "\n" +
             "\n" +
             "SELECTION LOGIC:\n" +
             "1. Prefer unused bank questions with relevancy HIGH, then MEDIUM. Do not pick LOW if HIGH/MEDIUM exist.\n" +
-            "2. Cross-question (source AI_CROSS_QUESTION) only if the last answer needs one brief clarification AND no cross-question was already asked on this topic. Maximum one cross-question before moving to a new bank question.\n" +
+            "2. Cross-question (source AI_CROSS_QUESTION) only if the last answer needs one brief clarification. Cross-questions are RATIONED — at most one every " + CROSS_QUESTION_COOLDOWN_SLOTS + " question slots, never back-to-back or on consecutive topics.\n" +
             (crossBlocked ? "3. Cross-questions are DISALLOWED this turn — you MUST return source QUESTION_BANK with a new unused question ID.\n"
                 : "3. If you cross-question, it must be a NEW angle — never repeat the previous interviewer question.\n") +
             "4. isCoding MUST be true ONLY when the candidate must write executable code in an editor (implement function, algorithm with I/O). Conceptual, architecture, and Kafka/system-design questions MUST have isCoding false.\n" +
@@ -1766,15 +1865,6 @@ public class QuestionService {
         return questions.stream().filter(q -> !isBankCodingQuestion(q)).toList();
     }
 
-    private boolean hasCodingQuestionBeenAsked(List<NextQuestionRequest.Utterance> utterances) {
-        if (utterances == null) return false;
-        for (NextQuestionRequest.Utterance u : utterances) {
-            if ("BOT".equals(u.speaker()) && detectCodingQuestion(u.text(), null)) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     private String defaultCodingPrompt(NextQuestionRequest req) {
         String lang = inferLanguageFromContext("", req.getJdTitle());
@@ -1811,15 +1901,17 @@ public class QuestionService {
         Integer codingSlot = codingSlotForMode(mode);
         if (codingSlot == null) return result;
 
-        boolean alreadyHadCoding = hasCodingQuestionBeenAsked(req.getUtterances());
+        int codingCount = countCodingQuestionsAsked(req.getUtterances());
         int slot = req.getSlot();
 
-        if (alreadyHadCoding && result.isCoding()) {
-            log.info("Coding already asked — converting slot {} question to verbal", slot);
+        // Cap: never more than 2 coding questions in a single interview.
+        if (codingCount >= MAX_CODING_QUESTIONS_PER_INTERVIEW && result.isCoding()) {
+            log.info("Coding cap ({}) reached — converting slot {} question to verbal", MAX_CODING_QUESTIONS_PER_INTERVIEW, slot);
             return copyResult(result, result.question(), false);
         }
 
-        if (slot == codingSlot && !alreadyHadCoding) {
+        // Primary coding slot — always forced once, same as before.
+        if (slot == codingSlot && codingCount == 0) {
             String q = result.question();
             String bankType = bankQuestionTypeForResult(req, result);
             boolean textIsCoding = detectCodingQuestion(q, bankType);
@@ -1833,12 +1925,106 @@ public class QuestionService {
             return copyResult(result, q, true, lang, result.starterCode());
         }
 
-        if (result.isCoding() && slot != codingSlot) {
-            log.info("Coding detected off-slot (slot {} vs coding slot {}) — verbal only", slot, codingSlot);
+        // Second coding slot — ONLY if the first submission was wrong/partial. A candidate who got
+        // the first program right never sees a second one; the interview stays at 1 coding question.
+        int secondCodingSlot = codingSlot + SECOND_CODING_SLOT_OFFSET;
+        boolean firstAttemptFailed = "incorrect".equalsIgnoreCase(req.getLastCodeCorrectness())
+            || "partial".equalsIgnoreCase(req.getLastCodeCorrectness());
+        if (slot == secondCodingSlot && codingCount == 1 && firstAttemptFailed) {
+            String q = defaultEasyCodingPrompt(req);
+            String lang = inferLanguageFromContext(q, req.getJdTitle());
+            log.info("First coding attempt was {} — forcing an EASY second coding question at slot {}",
+                req.getLastCodeCorrectness(), slot);
+            return copyResult(result, q, true, lang, null);
+        }
+
+        // Any other coding-flavored question that isn't one of the two sanctioned slots — verbal only.
+        if (result.isCoding()) {
+            log.info("Coding detected off-slot (slot {} vs coding slot {}/{}) — verbal only", slot, codingSlot, secondCodingSlot);
             return copyResult(result, result.question(), false);
         }
 
         return result;
+    }
+
+    /** Counts BOT questions in the transcript that look like coding prompts (0, 1, or 2+). */
+    private int countCodingQuestionsAsked(List<NextQuestionRequest.Utterance> utterances) {
+        if (utterances == null) return 0;
+        int count = 0;
+        for (NextQuestionRequest.Utterance u : utterances) {
+            if ("BOT".equals(u.speaker()) && detectCodingQuestion(u.text(), null)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private String defaultEasyCodingPrompt(NextQuestionRequest req) {
+        String lang = inferLanguageFromContext("", req.getJdTitle());
+        if ("java".equals(lang)) {
+            return "Let's try a simpler one. Implement a Java method that reverses a string. "
+                + "Open the code editor, write your solution, and click Run & Submit when ready.";
+        }
+        if ("javascript".equals(lang) || "typescript".equals(lang)) {
+            return "Let's try a simpler one. Write a function that reverses a string. "
+                + "Use the code editor and click Run & Submit when your solution is ready.";
+        }
+        return "Let's try a simpler one. Write a short function that reverses a string or counts vowels in it. "
+            + "Use the code editor and click Run & Submit when your solution is ready.";
+    }
+
+    /**
+     * Guarantees a client screening checklist's knockout questions actually get asked instead of
+     * being left to the model's discretion — each unasked knockout question gets a deadline slot;
+     * once reached, it's forced verbatim as this slot's question (unless this slot is already the
+     * forced coding slot, which takes priority).
+     */
+    private QuestionResult applyKnockoutQuestionPolicy(NextQuestionRequest req, QuestionResult result) {
+        if (result == null) return null;
+        if (result.question() != null && result.question().startsWith(EXPLANATION_PREFIX)) return result;
+        if (req.isOnboarding()) return result;
+
+        List<String> knockoutQuestions = parseKnockoutQuestions(req.getRubricJson());
+        if (knockoutQuestions.isEmpty()) return result;
+
+        // Coding slot already forced this turn — don't clobber it. The knockout question's deadline
+        // simply carries over to the next call, same as it would if the model overran naturally.
+        if (result.isCoding()) return result;
+
+        List<String> allBot = extractRecentBotQuestions(req.getUtterances(), ALL_BOT_QUESTIONS_DEDUP);
+        int slot = req.getSlot();
+
+        for (int i = 0; i < knockoutQuestions.size(); i++) {
+            String knockout = knockoutQuestions.get(i);
+            if (isQuestionSimilarToRecent(knockout, allBot)) continue; // already asked
+            int deadline = KNOCKOUT_FIRST_DEADLINE_SLOT + i * KNOCKOUT_SLOT_SPACING;
+            if (slot >= deadline) {
+                log.info("Knockout question {} deadline reached (slot {} >= {}) — forcing it verbatim", i + 1, slot, deadline);
+                return copyResult(result, knockout, false);
+            }
+        }
+        return result;
+    }
+
+    /** Extracts the checklist's mandatory knockout questions from a rubric (Phase 2 schema). */
+    private List<String> parseKnockoutQuestions(String rubricJson) {
+        if (rubricJson == null || rubricJson.isBlank()) return List.of();
+        try {
+            com.fasterxml.jackson.databind.JsonNode rubric =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(rubricJson);
+            com.fasterxml.jackson.databind.JsonNode questions =
+                rubric.path("screeningChecklist").path("knockoutQuestions");
+            List<String> result = new ArrayList<>();
+            if (questions.isArray()) {
+                questions.forEach(q -> {
+                    String text = q.asText("");
+                    if (!text.isBlank()) result.add(text);
+                });
+            }
+            return result;
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 
     private QuestionResult copyResult(QuestionResult src, String question, boolean isCoding) {

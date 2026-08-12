@@ -26,6 +26,14 @@ public class NextQuestionRequest {
     private Boolean includeProgrammingQuestions;
     /** CLIENT_INTERVIEW (default) | ONBOARDING — onboarding uses concept-scoped themes instead of JD-role themes. */
     private String assessmentType;
+    /** Ordered (slot 1..N), comma-separated question "source" values already persisted for this
+     *  interview (e.g. "AI_GENERATED,QUESTION_BANK,AI_CROSS_QUESTION,..."). Used to enforce a real
+     *  once-per-5-slots cross-question cadence instead of a text-similarity proxy. Null/blank is
+     *  treated as no history (cadence gate open). */
+    private String recentQuestionSources;
+    /** correct | partial | incorrect — AI-review verdict of the most recent code submission, if any.
+     *  Drives whether a second (easy) coding slot is offered. Null when no code has been submitted yet. */
+    private String lastCodeCorrectness;
 
     public record Utterance(String speaker, String text) {}
 
@@ -70,4 +78,8 @@ public class NextQuestionRequest {
     public String getAssessmentType() { return assessmentType; }
     public void setAssessmentType(String assessmentType) { this.assessmentType = assessmentType; }
     public boolean isOnboarding() { return "ONBOARDING".equals(assessmentType); }
+    public String getRecentQuestionSources() { return recentQuestionSources; }
+    public void setRecentQuestionSources(String recentQuestionSources) { this.recentQuestionSources = recentQuestionSources; }
+    public String getLastCodeCorrectness() { return lastCodeCorrectness; }
+    public void setLastCodeCorrectness(String lastCodeCorrectness) { this.lastCodeCorrectness = lastCodeCorrectness; }
 }

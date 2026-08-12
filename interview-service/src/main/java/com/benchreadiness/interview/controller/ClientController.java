@@ -348,6 +348,21 @@ public class ClientController {
         }
     }
 
+    public record ScreeningChecklistRequest(String screeningChecklistJson, String screeningChecklistName) {}
+
+    @PutMapping(value = "/{id}/screening-checklist", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('" + STAFF_WRITE_ROLES + "')")
+    public ResponseEntity<ClientDTO> updateScreeningChecklist(@PathVariable UUID id,
+                                                               @RequestBody ScreeningChecklistRequest request,
+                                                               @RequestHeader("X-User-Role") String userRole) {
+        try {
+            return ResponseEntity.ok(clientService.updateScreeningChecklist(
+                id, request.screeningChecklistJson(), request.screeningChecklistName(), userRole));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('" + STAFF_ADMIN_ROLES + "')")
     public ResponseEntity<Void> deleteClient(@PathVariable UUID id,

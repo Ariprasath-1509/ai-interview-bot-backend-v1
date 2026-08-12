@@ -22,6 +22,8 @@ public class ClientDTO {
     private LocalDateTime updatedAt;
     private String docId;
     private String jdFileName;
+    private String screeningChecklistJson;
+    private String screeningChecklistName;
     private List<SkillRequirementDTO> skillRequirements = new ArrayList<>();
     
     // Constructors
@@ -171,7 +173,23 @@ public class ClientDTO {
     public void setJdFileName(String jdFileName) {
         this.jdFileName = jdFileName;
     }
-    
+
+    public String getScreeningChecklistJson() {
+        return screeningChecklistJson;
+    }
+
+    public void setScreeningChecklistJson(String screeningChecklistJson) {
+        this.screeningChecklistJson = screeningChecklistJson;
+    }
+
+    public String getScreeningChecklistName() {
+        return screeningChecklistName;
+    }
+
+    public void setScreeningChecklistName(String screeningChecklistName) {
+        this.screeningChecklistName = screeningChecklistName;
+    }
+
     public List<SkillRequirementDTO> getSkillRequirements() {
         return skillRequirements;
     }

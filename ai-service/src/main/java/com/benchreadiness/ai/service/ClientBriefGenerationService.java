@@ -35,6 +35,14 @@ public class ClientBriefGenerationService {
         }
 
         Map<String, Object> assessment = objectMapper.readValue(assessmentJson, Map.class);
+
+        // Screening-checklist interviews (Phase 3) get their own deterministic brief: the client's
+        // own weighted matrix and gate results, verbatim — never run through the 95%-positive tone
+        // prompt below, since that would misrepresent (or outright hide) a genuine reject verdict.
+        if (assessment.get("screeningChecklistResult") instanceof Map) {
+            return generateChecklistBrief(candidateName, request, assessment, interviewId);
+        }
+
         List<Map<String, Object>> rubricCategories = parseCategoriesFromRequest(request);
         Map<String, Integer> scoresByKey = extractScores(assessment);
         log.info("Client brief {} normalized scores (1-10 display): {}", interviewId, scoresByKey);
@@ -124,6 +132,61 @@ public class ClientBriefGenerationService {
         result.put("skillAssessments", skillAssessments);
         result.put("source", "ai");
         applyEmptyAssessmentFallback(result, assessment, interviewId);
+        return result;
+    }
+
+    /**
+     * Deterministic client brief for screening-checklist interviews — no LLM call, no tone shaping.
+     * The weighted matrix, recommendation band, gate results, and knockout answers are taken
+     * verbatim from {@code screeningChecklistResult} (computed in AssessmentService, Phase 3),
+     * exactly as the client's own checklist defines them.
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> generateChecklistBrief(String candidateName, Map<String, Object> request,
+                                                        Map<String, Object> assessment, String interviewId) {
+        Map<String, Object> checklistResult = (Map<String, Object>) assessment.get("screeningChecklistResult");
+
+        String band = stringVal(checklistResult.get("band"));
+        String bandAction = stringVal(checklistResult.get("bandAction"));
+        boolean gateOverride = Boolean.TRUE.equals(checklistResult.get("gateOverride"));
+        Object weightedTotalObj = checklistResult.get("weightedTotal");
+        String weightedTotal = weightedTotalObj != null ? String.valueOf(weightedTotalObj) : "";
+        Object scoreMaxObj = checklistResult.get("scoreMax");
+        String scoreMax = scoreMaxObj != null ? String.valueOf(scoreMaxObj) : "5";
+
+        StringBuilder overallFeedback = new StringBuilder();
+        overallFeedback.append(candidateName).append(" was assessed against the client's screening checklist. ");
+        if (!weightedTotal.isBlank()) {
+            overallFeedback.append("Weighted score: ").append(weightedTotal).append("/").append(scoreMax).append(". ");
+        }
+        if (!band.isBlank()) {
+            overallFeedback.append("Recommendation: ").append(band).append(".");
+        }
+        if (!bandAction.isBlank()) {
+            overallFeedback.append(" ").append(bandAction);
+        }
+        if (gateOverride) {
+            List<Object> triggered = ((List<Map<String, Object>>) checklistResult.getOrDefault("rejectSignalsTriggered", List.of())).stream()
+                .filter(s -> Boolean.TRUE.equals(s.get("triggered")))
+                .map(s -> s.get("signal"))
+                .collect(java.util.stream.Collectors.toList());
+            overallFeedback.append(" This recommendation was set by a mandatory reject signal, which overrides the weighted score: ")
+                .append(triggered.isEmpty() ? "see gate details below." : String.join("; ", triggered.stream().map(String::valueOf).toList()))
+                .append(".");
+        }
+
+        List<Map<String, Object>> questionInputs = parseQuestionInputs(request.get("questions"));
+
+        Map<String, Object> header = buildHeader(request);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("header", header);
+        result.put("mustHaveSkills", List.of());
+        result.put("goodToHaveSkills", List.of());
+        result.put("questionsAsked", questionInputs);
+        result.put("overallFeedback", overallFeedback.toString());
+        result.put("skillAssessments", List.of());
+        result.put("screeningChecklistMatrix", checklistResult);
+        result.put("source", "ai-checklist");
         return result;
     }
 

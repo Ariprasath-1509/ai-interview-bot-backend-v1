@@ -13,6 +13,7 @@ public final class MasterDataCategory {
     public static final String CATEGORY_INTERVIEW_TYPE = "CATEGORY_INTERVIEW_TYPE";
     public static final String POSITION_SOURCE = "POSITION_SOURCE";
     public static final String BRANCH = "BRANCH";
+    public static final String SYSTEM_SETTING = "SYSTEM_SETTING";
 
     private MasterDataCategory() {}
 }

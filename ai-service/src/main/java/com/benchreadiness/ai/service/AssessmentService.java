@@ -452,9 +452,16 @@ public class AssessmentService {
         String resumeSnippet = req.getResumeSummary() != null
             ? req.getResumeSummary().substring(0, Math.min(4000, req.getResumeSummary().length())) : "";
 
+        // Screening-checklist mode (Phase 2/3): when the rubric was built from a client checklist,
+        // score 1-5 against its exact dimensions/gates instead of the default 1-10 JD-guessed pass.
+        Map<String, Object> screeningChecklist = parseScreeningChecklist(req.getRubricJson());
+        boolean checklistMode = screeningChecklist != null;
+
         // ── Stage 1: Category scoring (small, deterministic JSON) ─────────────
-        log.info("Stage 1: category scoring for interview {}", req.getInterviewId());
-        JsonNode scoresJson = runStage1Scoring(categories, evidenceSummary, level, yoe, req, userId);
+        log.info("Stage 1: category scoring for interview {} (checklistMode={})", req.getInterviewId(), checklistMode);
+        JsonNode scoresJson = checklistMode
+            ? runChecklistStage1Scoring(categories, evidenceSummary, level, yoe, screeningChecklist, req, userId)
+            : runStage1Scoring(categories, evidenceSummary, level, yoe, req, userId);
 
         // ── Stage 2: Behavioral signals + resume consistency ──────────────────
         log.info("Stage 2: behavioral + resume consistency for interview {}", req.getInterviewId());
@@ -462,7 +469,7 @@ public class AssessmentService {
 
         // ── Stage 3: Candidate feedback (pros/cons + roadmap) ─────────────────
         log.info("Stage 3: candidate feedback for interview {}", req.getInterviewId());
-        JsonNode feedbackJson = runStage3Feedback(scoresJson, categories, jdSnippet, req, userId);
+        JsonNode feedbackJson = runStage3Feedback(scoresJson, categories, jdSnippet, screeningChecklist, req, userId);
 
         // Client brief (Stage 3b) is generated on demand when staff prepares client feedback — not during assess.
 
@@ -470,11 +477,16 @@ public class AssessmentService {
         log.info("Stage 4: aggregating results for interview {}", req.getInterviewId());
         Map<String, Object> result = aggregateStages(scoresJson, behavioralJson, feedbackJson, null,
             categories, evidence, req, userId);
-        applyReadinessGates(result, categories, evidence, req.getInterviewMode());
+        if (checklistMode) {
+            applyChecklistVerdict(result, categories, screeningChecklist, scoresJson);
+        } else {
+            applyReadinessGates(result, categories, evidence, req.getInterviewMode());
+        }
 
         try {
             String assessmentJson = objectMapper.writeValueAsString(result);
-            storeAssessmentResponse(req.getInterviewId(), assessmentJson, 0, "claude-four-stage", userId);
+            storeAssessmentResponse(req.getInterviewId(), assessmentJson, 0,
+                checklistMode ? "claude-screening-checklist" : "claude-four-stage", userId);
             finalizeInterviewTokens(req.getInterviewId(), userId);
         } catch (Exception e) {
             log.warn("Failed to store assessment response for interview {}: {}", req.getInterviewId(), e.getMessage());
@@ -525,6 +537,69 @@ public class AssessmentService {
         return objectMapper.readTree(JsonRepairUtil.repair(raw));
     }
 
+    // ── Stage 1 (checklist mode): 1-5 scoring matching the client's rating matrix, plus explicit
+    // gate evaluation. The LLM never computes the weighted total or final verdict — that's done
+    // deterministically in Java (computeChecklistVerdict) so the arithmetic is trustworthy. ──────
+    @SuppressWarnings("unchecked")
+    private JsonNode runChecklistStage1Scoring(List<Map<String, Object>> categories, String evidenceSummary,
+                                               String level, String yoe, Map<String, Object> checklist,
+                                               AssessmentRequest req, String userId) throws Exception {
+        Map<String, Object> ratingScale = (Map<String, Object>) checklist.get("ratingScale");
+        int scaleMin = ratingScale != null ? ((Number) ratingScale.getOrDefault("min", 1)).intValue() : 1;
+        int scaleMax = ratingScale != null ? ((Number) ratingScale.getOrDefault("max", 5)).intValue() : 5;
+
+        String categoryScoreSchema = categories.stream()
+            .map(c -> "  \"" + c.get("key") + "\": {\"score\": " + scaleMin + "-" + scaleMax + " or null, \"strengths\": [\"...\"], \"weaknesses\": [\"...\"], \"evidence\": \"direct quote\", \"gap\": \"missing topics\", \"confidence\": \"low|medium|high\"}")
+            .collect(java.util.stream.Collectors.joining(",\n"));
+
+        List<String> rejectSignals = (List<String>) checklist.getOrDefault("rejectSignals", List.of());
+        List<String> proceedGates = (List<String>) checklist.getOrDefault("proceedGates", List.of());
+        List<String> validateFlags = (List<String>) checklist.getOrDefault("validateFlags", List.of());
+        List<String> knockoutQuestions = (List<String>) checklist.getOrDefault("knockoutQuestions", List.of());
+
+        StringBuilder scaleText = new StringBuilder("RATING SCALE (" + scaleMin + "-" + scaleMax + ", matches the client's own definitions):\n");
+        List<Map<String, Object>> levels = ratingScale != null
+            ? (List<Map<String, Object>>) ratingScale.getOrDefault("levels", List.of()) : List.of();
+        for (Map<String, Object> lvl : levels) {
+            scaleText.append("- ").append(lvl.get("score")).append(" = ").append(lvl.get("definition")).append("\n");
+        }
+        scaleText.append("- null = Category was never discussed (interview ran out of time — do NOT penalize; this is not a candidate gap).\n");
+
+        String system =
+            "You are an expert technical hiring assessor scoring a candidate STRICTLY against a client-provided\n" +
+            "screening checklist. Do not invent your own criteria — score only the dimensions and gates below.\n" +
+            "Profile Target: " + level + " level candidate with " + yoe + " years of professional experience.\n" +
+            "\n" +
+            scaleText +
+            "\n" +
+            "IMMEDIATE REJECT SIGNALS — evaluate each one strictly from the evidence, true only if clearly demonstrated:\n" +
+            (rejectSignals.isEmpty() ? "(none specified)\n" : rejectSignals.stream().map(s -> "- " + s).collect(java.util.stream.Collectors.joining("\n")) + "\n") +
+            "\n" +
+            "PROCEED GATES — must ALL be true to recommend proceeding without reservation:\n" +
+            (proceedGates.isEmpty() ? "(none specified)\n" : proceedGates.stream().map(s -> "- " + s).collect(java.util.stream.Collectors.joining("\n")) + "\n") +
+            "\n" +
+            "NEEDS VALIDATION FLAGS — flag if applicable, do not auto-reject on these:\n" +
+            (validateFlags.isEmpty() ? "(none specified)\n" : validateFlags.stream().map(s -> "- " + s).collect(java.util.stream.Collectors.joining("\n")) + "\n") +
+            "\n" +
+            (knockoutQuestions.isEmpty() ? "" : "KNOCKOUT QUESTIONS this interview was required to ask — note whether each was actually asked and answered:\n"
+                + knockoutQuestions.stream().map(s -> "- " + s).collect(java.util.stream.Collectors.joining("\n")) + "\n\n") +
+            "Output ONLY raw JSON. No markdown. No prose. Do NOT include a proposedVerdict or weighted total — those are computed separately.\n" +
+            "{\n" +
+            "  \"categoryScores\": {\n" + categoryScoreSchema + "\n  },\n" +
+            "  \"communication\": {\"score\": " + scaleMin + "-" + scaleMax + ", \"rationale\": \"Detailed explanation of structure and clarity\"},\n" +
+            "  \"rejectSignalsTriggered\": [{\"signal\": \"exact signal text\", \"triggered\": true|false, \"reasoning\": \"brief evidence-based reasoning\"}],\n" +
+            "  \"proceedGatesMet\": [{\"gate\": \"exact gate text\", \"met\": true|false, \"reasoning\": \"brief evidence-based reasoning\"}],\n" +
+            "  \"validateFlagsTriggered\": [{\"flag\": \"exact flag text\", \"triggered\": true|false, \"reasoning\": \"brief evidence-based reasoning\"}],\n" +
+            "  \"knockoutQuestionsAsked\": [{\"question\": \"exact question text\", \"asked\": true|false, \"answerSummary\": \"brief summary of the candidate's answer, or empty if not asked\"}],\n" +
+            "  \"summary\": \"2-3 sentence overview for an engineering manager, referencing the checklist explicitly\"\n" +
+            "}";
+
+        String user = "Role: " + req.getJdTitle() + "\nEvidence per category:\n" + evidenceSummary;
+        String raw = llmClient.chatAssessmentWithTracking(system, user, req.getInterviewId(), userId);
+        log.info("Checklist Stage 1 response length: {}", raw.length());
+        return objectMapper.readTree(JsonRepairUtil.repair(raw));
+    }
+
     // ── Stage 2: behavioral signals + resume consistency ──────────────────────
     private JsonNode runStage2Behavioral(String evidenceSummary, String resumeSnippet,
                                          String claimed, String jdSnippet, AssessmentRequest req, String userId) throws Exception {
@@ -570,8 +645,16 @@ public class AssessmentService {
     }
 
     // ── Stage 3: pros/cons + roadmap + resume consistency for candidate ────────
+    @SuppressWarnings("unchecked")
     private JsonNode runStage3Feedback(JsonNode scoresJson, List<Map<String, Object>> categories,
-                                       String jdSnippet, AssessmentRequest req, String userId) throws Exception {
+                                       String jdSnippet, Map<String, Object> screeningChecklist,
+                                       AssessmentRequest req, String userId) throws Exception {
+        boolean checklistMode = scoresJson.has("rejectSignalsTriggered");
+        int scoreMax = 10;
+        if (checklistMode && screeningChecklist != null) {
+            Map<String, Object> ratingScale = (Map<String, Object>) screeningChecklist.get("ratingScale");
+            scoreMax = ratingScale != null ? ((Number) ratingScale.getOrDefault("max", 5)).intValue() : 5;
+        }
         StringBuilder scoresInfo = new StringBuilder();
         JsonNode catScores = scoresJson.path("categoryScores");
         for (Map<String, Object> cat : categories) {
@@ -579,7 +662,7 @@ public class AssessmentService {
             JsonNode s = catScores.path(key);
             if (!s.isMissingNode()) {
                 scoresInfo.append(key).append(": ").append(s.path("score").asText("null"))
-                    .append("/10 gap: ").append(s.path("gap").asText("none")).append("\n");
+                    .append("/").append(scoreMax).append(" gap: ").append(s.path("gap").asText("none")).append("\n");
             }
         }
 
@@ -770,6 +853,168 @@ public class AssessmentService {
         result.put("readinessGate", gate);
     }
 
+    /**
+     * Checklist-mode counterpart to {@link #applyReadinessGates}. The LLM (Stage 1) scores each
+     * dimension 1-5 and evaluates gates as booleans; this method does the actual arithmetic and
+     * verdict mapping in Java so the weighted total is exact, not LLM-estimated. Mandatory reject
+     * signals override the score regardless of the weighted total, per the checklist's own rule.
+     */
+    @SuppressWarnings("unchecked")
+    private void applyChecklistVerdict(
+            Map<String, Object> result,
+            List<Map<String, Object>> categories,
+            Map<String, Object> checklist,
+            JsonNode scoresJson
+    ) {
+        Map<String, Object> ratingScale = (Map<String, Object>) checklist.get("ratingScale");
+        double scaleMax = ratingScale != null ? ((Number) ratingScale.getOrDefault("max", 5)).doubleValue() : 5.0;
+
+        List<Map<String, Object>> scoreRows = (List<Map<String, Object>>) result.getOrDefault("categoryScores", List.of());
+        Map<String, Integer> scoreByDimension = new LinkedHashMap<>();
+        for (Map<String, Object> row : scoreRows) {
+            Object dim = row.get("dimension");
+            Object value = row.get("value");
+            if (dim == null || value == null) continue;
+            try {
+                scoreByDimension.put(String.valueOf(dim), Integer.parseInt(String.valueOf(value)));
+            } catch (Exception ignored) { /* ignore malformed score row */ }
+        }
+
+        double weightedSum = 0;
+        double weightAssessed = 0;
+        List<Map<String, Object>> breakdown = new ArrayList<>();
+        for (Map<String, Object> cat : categories) {
+            String key = String.valueOf(cat.getOrDefault("key", ""));
+            if (key.isBlank() || "communication".equals(key)) continue;
+            double weightPct = cat.get("weightPct") instanceof Number n ? n.doubleValue() : 0;
+            Integer score = scoreByDimension.get(key);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("key", key);
+            row.put("label", cat.getOrDefault("label", key));
+            row.put("weightPct", weightPct);
+            row.put("score", score);
+            if (score != null) {
+                double weightedScore = score * weightPct / 100.0;
+                row.put("weightedScore", weightedScore);
+                weightedSum += score * weightPct;
+                weightAssessed += weightPct;
+            } else {
+                row.put("weightedScore", null);
+                row.put("note", "Not covered — interview time constraint, excluded from weighted total.");
+            }
+            breakdown.add(row);
+        }
+        // Normalize by the weight of ASSESSED categories only — an interview that ran out of time
+        // before reaching every dimension still gets a fair 1-5 total on what it DID cover, exactly
+        // like the existing default-mode gate already does for coverage.
+        double weightedTotal = weightAssessed > 0 ? weightedSum / weightAssessed : 0;
+        weightedTotal = Math.round(weightedTotal * 100) / 100.0;
+
+        List<Map<String, Object>> rejectSignalsTriggered = new ArrayList<>();
+        boolean gateOverride = false;
+        for (JsonNode sig : scoresJson.path("rejectSignalsTriggered")) {
+            boolean triggered = sig.path("triggered").asBoolean(false);
+            if (triggered) gateOverride = true;
+            rejectSignalsTriggered.add(Map.of(
+                "signal", sig.path("signal").asText(""),
+                "triggered", triggered,
+                "reasoning", sig.path("reasoning").asText("")
+            ));
+        }
+
+        List<Map<String, Object>> proceedGatesMet = new ArrayList<>();
+        for (JsonNode g : scoresJson.path("proceedGatesMet")) {
+            proceedGatesMet.add(Map.of(
+                "gate", g.path("gate").asText(""),
+                "met", g.path("met").asBoolean(false),
+                "reasoning", g.path("reasoning").asText("")
+            ));
+        }
+
+        List<Map<String, Object>> validateFlagsTriggered = new ArrayList<>();
+        for (JsonNode f : scoresJson.path("validateFlagsTriggered")) {
+            validateFlagsTriggered.add(Map.of(
+                "flag", f.path("flag").asText(""),
+                "triggered", f.path("triggered").asBoolean(false),
+                "reasoning", f.path("reasoning").asText("")
+            ));
+        }
+
+        List<Map<String, Object>> knockoutQuestionsAsked = new ArrayList<>();
+        for (JsonNode k : scoresJson.path("knockoutQuestionsAsked")) {
+            knockoutQuestionsAsked.add(Map.of(
+                "question", k.path("question").asText(""),
+                "asked", k.path("asked").asBoolean(false),
+                "answerSummary", k.path("answerSummary").asText("")
+            ));
+        }
+
+        List<Map<String, Object>> bands = (List<Map<String, Object>>) checklist.getOrDefault("recommendationBands", List.of());
+        Map<String, Object> matchedBand = null;
+        for (Map<String, Object> band : bands) {
+            double min = band.get("min") instanceof Number n ? n.doubleValue() : 0;
+            double max = band.get("max") instanceof Number n ? n.doubleValue() : scaleMax;
+            if (weightedTotal >= min && weightedTotal <= max) {
+                matchedBand = band;
+                break;
+            }
+        }
+        // Mandatory gates override the score — force the lowest/reject-labeled band regardless of total.
+        if (gateOverride) {
+            matchedBand = bands.stream()
+                .filter(b -> String.valueOf(b.get("label")).toLowerCase(java.util.Locale.ROOT).contains("reject"))
+                .findFirst()
+                .orElseGet(() -> Map.of("label", "Reject", "action", "Does not meet baseline requirement — mandatory reject signal triggered."));
+        }
+
+        String bandLabel = matchedBand != null ? String.valueOf(matchedBand.getOrDefault("label", "")) : "";
+        String bandAction = matchedBand != null ? String.valueOf(matchedBand.getOrDefault("action", "")) : "";
+        String verdict = mapBandLabelToVerdict(bandLabel, weightedTotal, scaleMax, gateOverride);
+        result.put("proposedVerdict", verdict);
+        result.put("scoreMax", (int) scaleMax);
+
+        Map<String, Object> checklistResult = new LinkedHashMap<>();
+        checklistResult.put("weightedTotal", weightedTotal);
+        checklistResult.put("scoreMax", scaleMax);
+        checklistResult.put("band", bandLabel);
+        checklistResult.put("bandAction", bandAction);
+        checklistResult.put("gateOverride", gateOverride);
+        checklistResult.put("dimensionBreakdown", breakdown);
+        checklistResult.put("rejectSignalsTriggered", rejectSignalsTriggered);
+        checklistResult.put("proceedGatesMet", proceedGatesMet);
+        checklistResult.put("validateFlagsTriggered", validateFlagsTriggered);
+        checklistResult.put("knockoutQuestionsAsked", knockoutQuestionsAsked);
+        result.put("screeningChecklistResult", checklistResult);
+
+        // Keep readinessGate populated too, so any existing consumer expecting this key still gets something.
+        Map<String, Object> gate = new LinkedHashMap<>();
+        gate.put("gatePassed", !gateOverride);
+        gate.put("mode", "SCREENING_CHECKLIST");
+        gate.put("weightedTotal", weightedTotal);
+        gate.put("band", bandLabel);
+        gate.put("originalVerdict", verdict);
+        gate.put("finalVerdict", verdict);
+        gate.put("note", gateOverride
+            ? "Mandatory reject signal triggered — overrides the weighted score per the client's screening checklist."
+            : "Verdict computed from the client's weighted screening checklist (band: " + bandLabel + ").");
+        result.put("readinessGate", gate);
+    }
+
+    /** Maps a checklist recommendation-band label to the platform's internal verdict enum values. */
+    private String mapBandLabelToVerdict(String bandLabel, double weightedTotal, double scaleMax, boolean gateOverride) {
+        if (gateOverride) return "NEEDS_RESKILLING";
+        String normalized = bandLabel.toLowerCase(java.util.Locale.ROOT);
+        if (normalized.contains("reject")) return "NEEDS_RESKILLING";
+        if (normalized.contains("borderline")) return "NEEDS_1_WEEK_PREP";
+        if (normalized.contains("proceed")) return "READY";
+        // Label didn't match known keywords (client used custom wording) — fall back to the
+        // weighted total as a fraction of the checklist's own scale.
+        double fraction = scaleMax > 0 ? weightedTotal / scaleMax : 0;
+        if (fraction >= 0.6) return "READY";
+        if (fraction >= 0.4) return "NEEDS_1_WEEK_PREP";
+        return "NEEDS_RESKILLING";
+    }
+
     private int minCoreScoreFloorForMode(String mode) {
         String m = mode != null ? mode : "L3";
         return switch (m) {
@@ -953,6 +1198,9 @@ public class AssessmentService {
                     cat.put("subSkill", c.path("subSkill").asText(c.path("label").asText()));
                     cat.put("description", c.path("description").asText());
                     cat.put("weight", c.path("weight").asInt(2));
+                    if (c.has("weightPct")) {
+                        cat.put("weightPct", c.path("weightPct").asDouble(0));
+                    }
                     String priority = c.path("priority").asText("");
                     if (priority.isBlank()) {
                         priority = c.path("weight").asInt(2) >= 3 ? "MUST_HAVE" : "GOOD_TO_HAVE";
@@ -975,6 +1223,60 @@ public class AssessmentService {
             }
         } catch (Exception ignored) {}
         return defaultCategories();
+    }
+
+    /** Non-null only when the rubric was built from a client screening checklist (Phase 2). */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseScreeningChecklist(String rubricJson) {
+        if (rubricJson == null || rubricJson.isBlank()) return null;
+        try {
+            JsonNode node = objectMapper.readTree(rubricJson);
+            JsonNode checklist = node.path("screeningChecklist");
+            if (checklist.isMissingNode() || checklist.isNull()) return null;
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("proceedGates", toStringList(checklist.path("proceedGates")));
+            result.put("rejectSignals", toStringList(checklist.path("rejectSignals")));
+            result.put("validateFlags", toStringList(checklist.path("validateFlags")));
+            result.put("knockoutQuestions", toStringList(checklist.path("knockoutQuestions")));
+
+            List<Map<String, Object>> bands = new ArrayList<>();
+            checklist.path("recommendationBands").forEach(b -> {
+                Map<String, Object> band = new LinkedHashMap<>();
+                band.put("min", b.path("min").asDouble(0));
+                band.put("max", b.path("max").asDouble(5));
+                band.put("label", b.path("label").asText(""));
+                band.put("action", b.path("action").asText(""));
+                bands.add(band);
+            });
+            result.put("recommendationBands", bands);
+
+            JsonNode scaleNode = checklist.path("ratingScale");
+            int scaleMin = scaleNode.path("min").asInt(1);
+            int scaleMax = scaleNode.path("max").asInt(5);
+            List<Map<String, Object>> levels = new ArrayList<>();
+            if (scaleNode.path("levels").isArray() && scaleNode.path("levels").size() > 0) {
+                for (JsonNode level : scaleNode.path("levels")) {
+                    Map<String, Object> l = new LinkedHashMap<>();
+                    l.put("score", level.path("score").asInt());
+                    l.put("definition", level.path("definition").asText(""));
+                    levels.add(l);
+                }
+            } else {
+                levels.add(Map.of("score", 1, "definition", "No evidence or a fundamental gap in this area"));
+                levels.add(Map.of("score", scaleMax, "definition", "Expert-level; exceeds the requirement"));
+            }
+            Map<String, Object> ratingScale = new LinkedHashMap<>();
+            ratingScale.put("min", scaleMin);
+            ratingScale.put("max", scaleMax);
+            ratingScale.put("levels", levels);
+            result.put("ratingScale", ratingScale);
+
+            return result;
+        } catch (Exception e) {
+            log.warn("Failed to parse screeningChecklist from rubric: {}", e.getMessage());
+            return null;
+        }
     }
 
     private List<Map<String, Object>> defaultCategories() {

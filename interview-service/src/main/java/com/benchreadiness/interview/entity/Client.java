@@ -65,7 +65,17 @@ public class Client {
     
     @Column(name = "jd_file_name")
     private String jdFileName;
-    
+
+    /** Structured screening checklist (dimensions with weighted scoring, proceed/reject gates,
+     *  knockout questions, recommendation bands) — parsed once from a pasted checklist doc and
+     *  reused for every interview created against this client. Null when no checklist is set. */
+    @Column(name = "screening_checklist_json", columnDefinition = "TEXT")
+    private String screeningChecklistJson;
+
+    /** Human-readable name shown as a badge on the create-interview page, e.g. "iOS Developer Screening Checklist". */
+    @Column(name = "screening_checklist_name")
+    private String screeningChecklistName;
+
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<SkillRequirement> skillRequirements = new ArrayList<>();
     
@@ -154,7 +164,15 @@ public class Client {
     public String getJdFileName() {
         return jdFileName;
     }
-    
+
+    public String getScreeningChecklistJson() {
+        return screeningChecklistJson;
+    }
+
+    public String getScreeningChecklistName() {
+        return screeningChecklistName;
+    }
+
     // Setters
     public void setId(UUID id) {
         this.id = id;
@@ -223,7 +241,15 @@ public class Client {
     public void setJdFileName(String jdFileName) {
         this.jdFileName = jdFileName;
     }
-    
+
+    public void setScreeningChecklistJson(String screeningChecklistJson) {
+        this.screeningChecklistJson = screeningChecklistJson;
+    }
+
+    public void setScreeningChecklistName(String screeningChecklistName) {
+        this.screeningChecklistName = screeningChecklistName;
+    }
+
     public List<SkillRequirement> getSkillRequirements() {
         return skillRequirements;
     }

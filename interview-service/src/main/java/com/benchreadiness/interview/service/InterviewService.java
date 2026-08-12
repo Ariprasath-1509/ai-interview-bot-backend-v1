@@ -85,18 +85,36 @@ public class InterviewService {
 
         boolean isClientInterview = !"ONBOARDING".equals(normalizeAssessmentType(req.getAssessmentType()));
 
+        // Load the client once, early — used both for the checklist-aware rubric request below and
+        // for the question-bank lookup further down (avoids a second DB round trip).
+        Client resolvedClient = null;
+        if (clientId != null) {
+            resolvedClient = clientRepository.findById(clientId).orElse(null);
+        } else if (req.getClientId() != null && !req.getClientId().isBlank()) {
+            try {
+                resolvedClient = clientRepository.findById(UUID.fromString(req.getClientId())).orElse(null);
+            } catch (IllegalArgumentException ignored) { /* not a valid UUID — leave null */ }
+        }
+
         // Generate rubric from ai-service (slow — can take 30-60s, must be outside transaction).
         // Onboarding interviews test one stated concept, not a JD's multi-category skill spread — no rubric needed.
         String rubricJson = null;
         String candidateProfileJson = null;
         if (isClientInterview) {
             try {
-                Map<String, String> rubricRequest = Map.of(
+                Map<String, String> rubricRequestMap = new java.util.HashMap<>(Map.of(
                     "jdTitle", req.getJdTitle(),
                     "jdText", req.getJdText() != null ? req.getJdText() : "",
                     "resumeSummary", req.getResumeSummary() != null ? req.getResumeSummary() : "",
                     "focusAreas", req.getFocusAreas() != null ? req.getFocusAreas() : ""
-                );
+                ));
+                if (resolvedClient != null && resolvedClient.getScreeningChecklistJson() != null
+                        && !resolvedClient.getScreeningChecklistJson().isBlank()) {
+                    rubricRequestMap.put("screeningChecklistJson", resolvedClient.getScreeningChecklistJson());
+                    log.info("Using screening checklist '{}' for rubric generation (client {})",
+                        resolvedClient.getScreeningChecklistName(), resolvedClient.getId());
+                }
+                Map<String, String> rubricRequest = rubricRequestMap;
                 String rubricResponse = aiServiceClient.generateRubric(rubricRequest);
                 if (rubricResponse != null) {
                     com.fasterxml.jackson.databind.JsonNode rubricNode = objectMapper.readTree(rubricResponse);
@@ -133,21 +151,17 @@ public class InterviewService {
             } catch (Exception e) {
                 log.warn("Failed to resolve selectedQuestionIds: {}", e.getMessage());
             }
-        } else if (isClientInterview && req.getClientId() != null && !req.getClientId().isBlank()) {
+        } else if (isClientInterview && resolvedClient != null) {
             try {
-                UUID clientUuid = UUID.fromString(req.getClientId());
-                Optional<Client> clientOpt = clientRepository.findById(clientUuid);
-                if (clientOpt.isPresent()) {
-                    String clientSlug = clientOpt.get().getClientName().toLowerCase().replaceAll("\\s+", "-");
-                    String mode = req.getInterviewMode().name();
-                    com.fasterxml.jackson.databind.JsonNode questionsResponse =
-                        questionBankClient.fetchQuestionsByCompanyAndMode(clientSlug, mode);
-                    if (questionsResponse != null && questionsResponse.has("data")
-                            && questionsResponse.get("data").isArray()
-                            && questionsResponse.get("data").size() > 0) {
-                        questionBankQuestionsJson = objectMapper.writeValueAsString(questionsResponse.get("data"));
-                        log.info("Fetched {} questions from question bank", questionsResponse.get("data").size());
-                    }
+                String clientSlug = resolvedClient.getClientName().toLowerCase().replaceAll("\\s+", "-");
+                String mode = req.getInterviewMode().name();
+                com.fasterxml.jackson.databind.JsonNode questionsResponse =
+                    questionBankClient.fetchQuestionsByCompanyAndMode(clientSlug, mode);
+                if (questionsResponse != null && questionsResponse.has("data")
+                        && questionsResponse.get("data").isArray()
+                        && questionsResponse.get("data").size() > 0) {
+                    questionBankQuestionsJson = objectMapper.writeValueAsString(questionsResponse.get("data"));
+                    log.info("Fetched {} questions from question bank", questionsResponse.get("data").size());
                 }
             } catch (Exception e) {
                 log.warn("Failed to fetch questions from question bank: {}", e.getMessage());
