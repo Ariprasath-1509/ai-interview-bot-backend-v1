@@ -108,7 +108,13 @@ public class InterviewService {
                     "resumeSummary", req.getResumeSummary() != null ? req.getResumeSummary() : "",
                     "focusAreas", req.getFocusAreas() != null ? req.getFocusAreas() : ""
                 ));
-                if (resolvedClient != null && resolvedClient.getScreeningChecklistJson() != null
+                if (req.getScreeningChecklistJson() != null && !req.getScreeningChecklistJson().isBlank()) {
+                    // Ad-hoc checklist pasted directly on the create-interview form — takes priority
+                    // over a client's saved checklist since it's what the admin explicitly chose now.
+                    rubricRequestMap.put("screeningChecklistJson", req.getScreeningChecklistJson());
+                    log.info("Using ad-hoc screening checklist '{}' for rubric generation (no client save required)",
+                        req.getScreeningChecklistName());
+                } else if (resolvedClient != null && resolvedClient.getScreeningChecklistJson() != null
                         && !resolvedClient.getScreeningChecklistJson().isBlank()) {
                     rubricRequestMap.put("screeningChecklistJson", resolvedClient.getScreeningChecklistJson());
                     log.info("Using screening checklist '{}' for rubric generation (client {})",

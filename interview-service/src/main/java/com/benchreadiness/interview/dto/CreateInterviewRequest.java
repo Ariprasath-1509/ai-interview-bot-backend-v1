@@ -61,7 +61,15 @@ public class CreateInterviewRequest {
 
     /** ISO-8601 instant after which the interview link is inaccessible (null = no expiry). */
     private Instant expiresAt;
-    
+
+    /**
+     * Ad-hoc screening checklist pasted directly into the create-interview JD section — used for
+     * this interview only, without requiring a saved client. Takes priority over a client's own
+     * saved checklist when both are present, since it's what the admin explicitly chose for this run.
+     */
+    private String screeningChecklistJson;
+    private String screeningChecklistName;
+
     // Constructors
     public CreateInterviewRequest() {}
     
@@ -262,4 +270,9 @@ public class CreateInterviewRequest {
     public void setScheduledAt(Instant scheduledAt) { this.scheduledAt = scheduledAt; }
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
+
+    public String getScreeningChecklistJson() { return screeningChecklistJson; }
+    public void setScreeningChecklistJson(String screeningChecklistJson) { this.screeningChecklistJson = screeningChecklistJson; }
+    public String getScreeningChecklistName() { return screeningChecklistName; }
+    public void setScreeningChecklistName(String screeningChecklistName) { this.screeningChecklistName = screeningChecklistName; }
 }
