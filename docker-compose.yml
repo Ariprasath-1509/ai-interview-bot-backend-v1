@@ -430,8 +430,8 @@ services:
     ports:
       - "6013:8000"
     environment:
-      - WHISPER_MODEL=small
-      - WHISPER__MODEL=Systran/faster-whisper-small
+      - WHISPER_MODEL=medium
+      - WHISPER__MODEL=Systran/faster-whisper-medium
       - WHISPER__COMPUTE_TYPE=int8
       - WHISPER__INFERENCE_DEVICE=cpu
       - WHISPER__CPU_THREADS=4
