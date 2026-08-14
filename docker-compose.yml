@@ -464,10 +464,14 @@ services:
           memory: 2G
 
   kokoro-tts:
-    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    # GPU image — the CPU image was taking 34-45s per short sentence (measured directly
+    # against the running container), far past the app's 7s client-side TTS timeout, so
+    # every synthesis silently lost to browser TTS. Kokoro is a small (82M param) model
+    # that should be near-instant on GPU; this box has an idle A5000 with ~13GB free VRAM.
+    image: ghcr.io/remsky/kokoro-fastapi-gpu:latest
     container_name: kokoro-tts
-    mem_limit: 4g
-    memswap_limit: 4g
+    mem_limit: 6g
+    memswap_limit: 6g
     ports:
       - "6014:8880"
     environment:
@@ -491,10 +495,14 @@ services:
       resources:
         limits:
           cpus: '4'
-          memory: 4G
+          memory: 6G
         reservations:
           cpus: '1'
           memory: 2G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   media-warmup:
     image: python:3.12-alpine
