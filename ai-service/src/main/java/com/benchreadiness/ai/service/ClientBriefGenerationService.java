@@ -698,11 +698,18 @@ public class ClientBriefGenerationService {
             String interviewId,
             String userId) throws Exception {
 
+        // Categories with a null score were never reached during the interview (ran out of
+        // time) — same convention used everywhere else in the assessment pipeline. Only ask
+        // the model for bullets on categories it actually has evidence for; asking it to write
+        // "strong, enthusiastic" bullets for a topic with zero evidence is what was producing
+        // "no evidence found"-style text leaking into the client-facing brief.
+        List<Map<String, Object>> coveredCategories = new ArrayList<>();
         StringBuilder scoresInfo = new StringBuilder();
         for (Map<String, Object> cat : categories) {
             String key = stringVal(cat.get("key"));
             Integer score = scoresByKey.get(key);
             if (score == null) continue;
+            coveredCategories.add(cat);
             scoresInfo.append(key).append(" (").append(cat.get("label")).append(" / ")
                 .append(cat.get("subSkill")).append("): ").append(score).append("/10\n");
             Map<String, Object> detail = scoreDetails.get(key);
@@ -712,12 +719,12 @@ public class ClientBriefGenerationService {
         }
 
         StringBuilder categorySchema = new StringBuilder();
-        for (Map<String, Object> cat : categories) {
+        for (Map<String, Object> cat : coveredCategories) {
             categorySchema.append("    {\n")
                 .append("      \"categoryKey\": \"").append(cat.get("key")).append("\",\n")
                 .append("      \"selectedProficiencyIndex\": 0-3,\n")
                 .append("      \"strengths\": [\"3-5 specific bullets starting with ").append(candidateName).append("...\"],\n")
-                .append("      \"areasOfImprovement\": [\"EXACTLY 1 bullet framed as a next-step growth opportunity, starting with ").append(candidateName).append("...\"]\n")
+                .append("      \"areasOfImprovement\": [\"EXACTLY 1 bullet, DISTINCT from the strengths bullets — a genuine next-step growth opportunity, not a restatement of a strength, starting with ").append(candidateName).append("...\"]\n")
                 .append("    },\n");
         }
 
@@ -736,7 +743,7 @@ public class ClientBriefGenerationService {
             "- The report must be 95% positive and 5% growth-oriented — the client should feel confident about this candidate.\n" +
             "- overallFeedback: 4-5 sentences highlighting genuine strengths and accomplishments; optionally 1 brief sentence on a specific growth area framed as a next step. Close with a strong, confident readiness statement.\n" +
             "- strengths: Write 3-5 specific, genuine, enthusiastic bullets. Find real evidence from the transcript and scores. These must feel like a strong endorsement.\n" +
-            "- areasOfImprovement: Write EXACTLY 1 bullet only. Frame it as an exciting growth opportunity, not a weakness. Use language like 'would further strengthen', 'next step', 'opportunity to deepen'. Never use words like 'lacks', 'weak', 'struggles', 'failed', 'insufficient'.\n" +
+            "- areasOfImprovement: Write EXACTLY 1 bullet only. It must describe a DIFFERENT aspect of the category than any strengths bullet — never restate or lightly reword a strength as the growth opportunity. Frame it as an exciting growth opportunity, not a weakness. Use language like 'would further strengthen', 'next step', 'opportunity to deepen'. Never use words like 'lacks', 'weak', 'struggles', 'failed', 'insufficient'.\n" +
             "- Frame every gap as a coaching opportunity or a natural next step in their career.\n" +
             "- Do not use harsh words like failed, bad, incompetent, liar, rejected, weak, lacks, or poor.\n" +
             "CONTENT RULES:\n" +
