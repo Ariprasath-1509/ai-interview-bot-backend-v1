@@ -2,6 +2,7 @@ package com.benchreadiness.screening.controller;
 
 import com.benchreadiness.screening.dto.LockTestRequest;
 import com.benchreadiness.screening.dto.SubmitAnswersRequest;
+import com.benchreadiness.screening.dto.VerifyEmailRequest;
 import com.benchreadiness.screening.service.CandidateTestService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -33,6 +34,21 @@ public class ScreeningPublicController {
             return ResponseEntity.status(404).body(Map.of("ok", false, "error", e.getMessage()));
         } catch (IllegalStateException e) {
             return ResponseEntity.status(410).body(Map.of("ok", false, "error", e.getMessage()));
+        }
+    }
+
+    /** Checked before the candidate is let into the test — see CandidateTestService.verifyEmail for why. */
+    @PostMapping("/{token}/verify-email")
+    public ResponseEntity<?> verifyEmail(@PathVariable String token, @Valid @RequestBody VerifyEmailRequest req) {
+        try {
+            candidateTestService.verifyEmail(token, req.getEmail());
+            return ResponseEntity.ok(Map.of("ok", true));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.status(404).body(Map.of("ok", false, "error", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(410).body(Map.of("ok", false, "error", e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", e.getMessage()));
         }
     }
 

@@ -88,6 +88,34 @@ public class CandidateTestService {
         return response;
     }
 
+    /**
+     * Checked before the candidate is let into the test (not just at submit) so a mistyped email is
+     * caught immediately instead of after they've completed the whole timed, proctored test.
+     */
+    @Transactional(readOnly = true)
+    public void verifyEmail(String token, String emailConfirmation) {
+        ScreeningCandidate candidate = candidateRepository.findByToken(token)
+                .orElseThrow(() -> new NoSuchElementException("Invalid or expired link"));
+        ScreeningBatch batch = candidate.getBatch();
+
+        if (candidate.getStage() != CandidateStage.ROUND1_PENDING && candidate.getStage() != CandidateStage.ROUND1_IN_PROGRESS) {
+            throw new IllegalStateException("This test has already been submitted");
+        }
+        if (candidate.isViolationLocked()) {
+            throw new IllegalStateException("Your test was paused after a proctoring violation. Please contact your recruiter or admin to continue.");
+        }
+        if (!candidate.isAllowLateSubmission() && Instant.now().isAfter(batch.getDeadline())) {
+            throw new IllegalStateException("This test window has expired");
+        }
+        if (!emailMatches(candidate, emailConfirmation)) {
+            throw new IllegalArgumentException("Email confirmation does not match this invite");
+        }
+    }
+
+    private boolean emailMatches(ScreeningCandidate candidate, String emailConfirmation) {
+        return emailConfirmation != null && candidate.getEmail().equalsIgnoreCase(emailConfirmation.trim());
+    }
+
     @Transactional
     public Map<String, Object> submitAnswers(String token, SubmitAnswersRequest req) throws Exception {
         ScreeningCandidate candidate = candidateRepository.findByToken(token)
@@ -103,7 +131,9 @@ public class CandidateTestService {
         if (!candidate.isAllowLateSubmission() && Instant.now().isAfter(batch.getDeadline())) {
             throw new IllegalStateException("This test window has expired");
         }
-        if (!candidate.getEmail().equalsIgnoreCase(req.getCandidateEmailConfirmation().trim())) {
+        // Re-checked here too (defense in depth) even though the frontend now verifies before letting
+        // the candidate start — this endpoint is reachable directly, not just via the confirmation screen.
+        if (!emailMatches(candidate, req.getCandidateEmailConfirmation())) {
             throw new IllegalArgumentException("Email confirmation does not match this invite");
         }
 
