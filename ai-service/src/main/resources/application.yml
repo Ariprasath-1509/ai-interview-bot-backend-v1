@@ -42,15 +42,15 @@ app:
     question-temperature: ${APP_CLAUDE_QUESTION_TEMPERATURE:0.55}
     assessment-temperature: ${APP_CLAUDE_ASSESSMENT_TEMPERATURE:0.25}
   ollama:
-    base-url: ${APP_OLLAMA_BASE_URL:http://103.182.211.219:11434}
-    # Conversational Bot — qwen2.5:14b: fast, strong reasoning, good code/tech vocabulary
-    question-model: ${APP_OLLAMA_QUESTION_MODEL:qwen2.5:14b}
-    # Assessment Evaluator — routed to Claude in hybrid mode; Ollama fallback if Claude unavailable
-    assessment-model: ${APP_OLLAMA_ASSESSMENT_MODEL:qwen2.5:14b}
-    # Rubric Generator — qwen2.5:14b: reliable structured JSON output
-    rubric-model: ${APP_OLLAMA_RUBRIC_MODEL:qwen2.5:14b}
+    base-url: ${APP_OLLAMA_BASE_URL:https://aimodels.qspiders.com}
+    # Question generation — live/per-slot, latency-sensitive: qwen3:8b (fast, tools-capable)
+    question-model: ${APP_OLLAMA_QUESTION_MODEL:qwen3:8b}
+    # Assessment Evaluator — highest-stakes grading; routed to Claude in hybrid mode, Ollama fallback if Claude unavailable
+    assessment-model: ${APP_OLLAMA_ASSESSMENT_MODEL:qwen3.8:27b}
+    # Rubric Generator — structured JSON output, mid-stakes
+    rubric-model: ${APP_OLLAMA_RUBRIC_MODEL:qwen3:14b}
     # Candidate Matcher — routed to Claude in hybrid mode; Ollama fallback if Claude unavailable
-    matching-model: ${APP_OLLAMA_MATCHING_MODEL:qwen2.5:14b}
+    matching-model: ${APP_OLLAMA_MATCHING_MODEL:qwen3.8:27b}
     transcribe-model: ${APP_OLLAMA_TRANSCRIBE_MODEL:whisper}
     question-temperature: ${APP_OLLAMA_QUESTION_TEMPERATURE:0.0}
     assessment-temperature: ${APP_OLLAMA_ASSESSMENT_TEMPERATURE:0.2}

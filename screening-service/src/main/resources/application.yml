@@ -76,8 +76,8 @@ app:
     question-temperature: ${APP_SCREENING_QUESTION_TEMPERATURE:0.5}
     grading-temperature: ${APP_SCREENING_GRADING_TEMPERATURE:0.1}
   ollama:
-    base-url: ${APP_SCREENING_OLLAMA_BASE_URL:http://127.0.0.1:11434}
-    model: ${APP_SCREENING_OLLAMA_MODEL:qwen2.5:14b}
+    base-url: ${APP_SCREENING_OLLAMA_BASE_URL:https://aimodels.qspiders.com}
+    model: ${APP_SCREENING_OLLAMA_MODEL:qwen3:14b}
   mail:
     from: ${MAIL_FROM:noreply@voiceaibot.in}
   screening:
