@@ -19,7 +19,7 @@ public class LlmProviderSettings {
     @Value("${app.llm.provider:claude}")
     private String startupProvider;
 
-    // Per-operation provider: "claude" or "ollama"
+    // Per-operation provider: "claude", "ollama", or "deepseek"
     private volatile String questionProvider;
     private volatile String rubricProvider;
     private volatile String assessmentProvider;
@@ -46,7 +46,7 @@ public class LlmProviderSettings {
 
     public String getStartupProvider() { return startupProvider; }
 
-    /** When true, HybridLlmClient may fall back to Ollama if Claude is unavailable. */
+    /** When true, HybridLlmClient may fall back to Ollama if the selected provider (Claude/DeepSeek) is unavailable. */
     public boolean ollamaFallbackEnabled() {
         return "hybrid".equals(startupProvider) || "ollama".equals(startupProvider);
     }
@@ -62,8 +62,8 @@ public class LlmProviderSettings {
     public void setMatchingProvider(String p)   { this.matchingProvider   = validated(p); }
 
     private String validated(String p) {
-        if (!"claude".equals(p) && !"ollama".equals(p)) {
-            throw new IllegalArgumentException("Provider must be 'claude' or 'ollama', got: " + p);
+        if (!"claude".equals(p) && !"ollama".equals(p) && !"deepseek".equals(p)) {
+            throw new IllegalArgumentException("Provider must be 'claude', 'ollama', or 'deepseek', got: " + p);
         }
         return p;
     }

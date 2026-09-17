@@ -29,7 +29,7 @@ eureka:
 app:
   llm:
     # 'claude' routes everything to Claude (recommended for production quality)
-    # 'hybrid' allows per-operation routing via admin UI; 'ollama' routes everything to Ollama
+    # 'hybrid' allows per-operation routing via admin UI; 'ollama' routes everything to Ollama; 'deepseek' routes everything to DeepSeek
     provider: ${APP_LLM_PROVIDER:claude}
   jwt:
     secret: ${JWT_SECRET:}
@@ -41,6 +41,12 @@ app:
     assessment-model: ${APP_CLAUDE_ASSESSMENT_MODEL:claude-sonnet-4-6}
     question-temperature: ${APP_CLAUDE_QUESTION_TEMPERATURE:0.55}
     assessment-temperature: ${APP_CLAUDE_ASSESSMENT_TEMPERATURE:0.25}
+  deepseek:
+    api-key: ${APP_DEEPSEEK_API_KEY:}
+    base-url: ${APP_DEEPSEEK_BASE_URL:https://api.deepseek.com}
+    model: ${APP_DEEPSEEK_MODEL:deepseek-chat}
+    question-temperature: ${APP_DEEPSEEK_QUESTION_TEMPERATURE:0.55}
+    assessment-temperature: ${APP_DEEPSEEK_ASSESSMENT_TEMPERATURE:0.25}
   ollama:
     base-url: ${APP_OLLAMA_BASE_URL:https://aimodels.qspiders.com}
     # Question generation — live/per-slot, latency-sensitive: qwen3:8b (fast, tools-capable)

@@ -19,8 +19,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Standalone Claude client for screening-service — deliberately not shared with ai-service's LlmClient
+ * Standalone LLM client for screening-service — deliberately not shared with ai-service's LlmClient
  * hierarchy so this new service stays fully isolated from the existing AI infrastructure.
+ * Primary provider is Claude or DeepSeek (app.screening.llm-provider); Ollama is the local-dev fallback.
  */
 @Component
 public class ScreeningLlmClient {
@@ -29,6 +30,10 @@ public class ScreeningLlmClient {
 
     private static final String CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
     private static final String ANTHROPIC_VERSION = "2023-06-01";
+
+    // Which primary provider to use: 'claude' or 'deepseek'. Ollama remains the fallback either way.
+    @Value("${app.screening.llm-provider:claude}")
+    private String llmProvider;
 
     @Value("${app.claude.api-key:}")
     private String apiKey;
@@ -42,8 +47,17 @@ public class ScreeningLlmClient {
     @Value("${app.claude.grading-temperature:0.1}")
     private double gradingTemperature;
 
-    // Fallback used when no Claude key is configured — defaults on for local dev, explicitly
-    // disabled in docker-compose for deployed environments (which must have a real Claude key).
+    @Value("${app.deepseek.api-key:}")
+    private String deepseekApiKey;
+
+    @Value("${app.deepseek.base-url:https://api.deepseek.com}")
+    private String deepseekBaseUrl;
+
+    @Value("${app.deepseek.model:deepseek-chat}")
+    private String deepseekModel;
+
+    // Fallback used when the primary provider has no key configured — defaults on for local dev,
+    // explicitly disabled in docker-compose for deployed environments (which must have a real key).
     @Value("${app.screening.ollama-fallback-enabled:true}")
     private boolean ollamaFallbackEnabled;
 
@@ -61,7 +75,9 @@ public class ScreeningLlmClient {
     }
 
     public boolean isConfigured() {
-        return apiKey != null && !apiKey.isBlank();
+        return "deepseek".equals(llmProvider)
+                ? deepseekApiKey != null && !deepseekApiKey.isBlank()
+                : apiKey != null && !apiKey.isBlank();
     }
 
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
@@ -83,10 +99,14 @@ public class ScreeningLlmClient {
     private String chat(String systemPrompt, String userPrompt, double temperature, int maxTokens) throws Exception {
         if (!isConfigured()) {
             if (!ollamaFallbackEnabled) {
-                throw new IllegalStateException("No Claude API key configured for screening-service (APP_CLAUDE_API_KEY)");
+                throw new IllegalStateException(
+                    "No " + llmProvider + " API key configured for screening-service (APP_" + llmProvider.toUpperCase() + "_API_KEY)");
             }
-            log.warn("[Screening] No Claude API key configured — falling back to local Ollama ({})", ollamaModel);
+            log.warn("[Screening] No {} API key configured — falling back to local Ollama ({})", llmProvider, ollamaModel);
             return chatOllama(systemPrompt, userPrompt, temperature);
+        }
+        if ("deepseek".equals(llmProvider)) {
+            return chatDeepSeek(systemPrompt, userPrompt, temperature, maxTokens);
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", model);
@@ -115,6 +135,41 @@ public class ScreeningLlmClient {
 
         JsonNode root = objectMapper.readTree(response.body());
         String text = root.path("content").get(0).path("text").asText().trim();
+        return stripMarkdownFences(text);
+    }
+
+    /** DeepSeek — OpenAI-compatible POST {baseUrl}/chat/completions, same shape as ai-service's DeepSeekAiClient. */
+    private String chatDeepSeek(String systemPrompt, String userPrompt, double temperature, int maxTokens) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", deepseekModel);
+        body.put("max_tokens", maxTokens);
+        body.put("temperature", temperature);
+        body.put("messages", List.of(
+                Map.of("role", "system", "content", systemPrompt),
+                Map.of("role", "user", "content", userPrompt)
+        ));
+
+        String url = (deepseekBaseUrl.endsWith("/") ? deepseekBaseUrl.substring(0, deepseekBaseUrl.length() - 1) : deepseekBaseUrl) + "/chat/completions";
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + deepseekApiKey)
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() == 429) {
+            Thread.sleep(3000);
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        }
+        if (response.statusCode() != 200) {
+            throw new RuntimeException("DeepSeek returned " + response.statusCode() + ": " + response.body());
+        }
+
+        JsonNode root = objectMapper.readTree(response.body());
+        String text = root.path("choices").get(0).path("message").path("content").asText().trim();
         return stripMarkdownFences(text);
     }
 

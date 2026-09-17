@@ -6,12 +6,12 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
 /**
- * Primary LlmClient that routes each operation to Claude or Ollama
+ * Primary LlmClient that routes each operation to Claude, Ollama, or DeepSeek
  * based on the runtime-mutable LlmProviderSettings.
  *
  * Routing defaults (can be changed by admin via /ai/admin/llm-settings):
  *   All operations → Claude when APP_LLM_PROVIDER=claude (default)
- *   Hybrid mode also defaults all operations to Claude; admin can route individual ops to Ollama
+ *   Hybrid mode also defaults all operations to Claude; admin can route individual ops to Ollama or DeepSeek
  */
 @Service
 @Primary
@@ -21,17 +21,19 @@ public class HybridLlmClient implements LlmClient {
 
     private final ClaudeAiClient claude;
     private final OllamaAiClient ollama;
+    private final DeepSeekAiClient deepseek;
     private final LlmProviderSettings settings;
 
-    public HybridLlmClient(ClaudeAiClient claude, OllamaAiClient ollama, LlmProviderSettings settings) {
+    public HybridLlmClient(ClaudeAiClient claude, OllamaAiClient ollama, DeepSeekAiClient deepseek, LlmProviderSettings settings) {
         this.claude   = claude;
         this.ollama   = ollama;
+        this.deepseek = deepseek;
         this.settings = settings;
     }
 
     @Override
     public boolean isConfigured() {
-        return claude.isConfigured() || ollama.isConfigured();
+        return claude.isConfigured() || ollama.isConfigured() || deepseek.isConfigured();
     }
 
     @Override
@@ -89,6 +91,15 @@ public class HybridLlmClient implements LlmClient {
             log.warn("[Hybrid] Claude not configured — falling back to Ollama");
             return ollama;
         }
+        if ("deepseek".equals(providerName)) {
+            if (deepseek.isConfigured()) return deepseek;
+            if (!settings.ollamaFallbackEnabled()) {
+                throw new IllegalStateException(
+                    "DeepSeek is required but APP_DEEPSEEK_API_KEY is not configured");
+            }
+            log.warn("[Hybrid] DeepSeek not configured — falling back to Ollama");
+            return ollama;
+        }
         if ("ollama".equals(providerName)) {
             if (ollama.isConfigured()) return ollama;
             if (!settings.ollamaFallbackEnabled()) {
@@ -107,4 +118,5 @@ public class HybridLlmClient implements LlmClient {
 
     public boolean isClaudeConfigured() { return claude.isConfigured(); }
     public boolean isOllamaConfigured() { return ollama.isConfigured(); }
+    public boolean isDeepSeekConfigured() { return deepseek.isConfigured(); }
 }

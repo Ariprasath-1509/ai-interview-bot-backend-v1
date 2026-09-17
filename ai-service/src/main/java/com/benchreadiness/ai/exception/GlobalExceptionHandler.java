@@ -133,16 +133,18 @@ public class GlobalExceptionHandler {
         HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
         
         if (ex.getMessage() != null) {
-            if (ex.getMessage().contains("Claude returned 429")) {
+            String msg = ex.getMessage();
+            boolean providerError = msg.contains("Claude returned") || msg.contains("DeepSeek returned") || msg.contains("Ollama returned");
+            if (providerError && (msg.contains(" 429") || msg.contains("rate limit"))) {
                 message = "AI service rate limit exceeded. Please try again in a few moments.";
                 status = HttpStatus.TOO_MANY_REQUESTS;
-            } else if (ex.getMessage().contains("Claude returned 401")) {
+            } else if (providerError && msg.contains(" 401")) {
                 message = "AI service authentication failed. Please contact support.";
                 status = HttpStatus.SERVICE_UNAVAILABLE;
-            } else if (ex.getMessage().contains("Claude returned 500")) {
+            } else if (providerError && msg.contains(" 500")) {
                 message = "AI service is temporarily unavailable. Please try again later.";
                 status = HttpStatus.SERVICE_UNAVAILABLE;
-            } else if (ex.getMessage().contains("not configured")) {
+            } else if (msg.contains("not configured")) {
                 message = "AI service is not properly configured. Please contact support.";
                 status = HttpStatus.SERVICE_UNAVAILABLE;
             }

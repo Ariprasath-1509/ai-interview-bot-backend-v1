@@ -81,7 +81,8 @@ public class AiController {
                 "mode", "single",
                 "message", "HybridLlmClient is not active. Restart with app.llm.provider=hybrid to enable per-operation routing.",
                 "claudeConfigured", llmClient.isConfigured(),
-                "ollamaConfigured", false
+                "ollamaConfigured", false,
+                "deepseekConfigured", false
             ));
         }
         LlmProviderSettings s = hybrid.getSettings();
@@ -89,6 +90,7 @@ public class AiController {
         resp.put("mode", "hybrid");
         resp.put("claudeConfigured", hybrid.isClaudeConfigured());
         resp.put("ollamaConfigured", hybrid.isOllamaConfigured());
+        resp.put("deepseekConfigured", hybrid.isDeepSeekConfigured());
         resp.putAll(s.toMap());
         return ResponseEntity.ok(resp);
     }
@@ -105,6 +107,7 @@ public class AiController {
             resp.put("mode", "hybrid");
             resp.put("claudeConfigured", hybrid.isClaudeConfigured());
             resp.put("ollamaConfigured", hybrid.isOllamaConfigured());
+            resp.put("deepseekConfigured", hybrid.isDeepSeekConfigured());
             resp.putAll(s.toMap());
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException e) {

@@ -25,7 +25,9 @@ public class TokenTrackingService {
     private static final Map<String, BigDecimal> MODEL_PRICING = Map.of(
         "claude-haiku-4-5", new BigDecimal("0.00025"),
         "claude-sonnet-4-5", new BigDecimal("0.003"),
-        "claude-opus-4-5", new BigDecimal("0.015")
+        "claude-opus-4-5", new BigDecimal("0.015"),
+        "deepseek-chat", new BigDecimal("0.00027"),
+        "deepseek-reasoner", new BigDecimal("0.00055")
     );
 
     private final TokenUsageRepository tokenUsageRepository;
