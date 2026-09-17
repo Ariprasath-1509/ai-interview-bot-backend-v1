@@ -576,18 +576,26 @@ public class AiController {
     
     private String generateAiResumeSummary(String resumeText, String candidateName) {
         try {
-            String prompt = "You are an expert technical recruiter. Analyze this resume and create a concise, professional summary for interview purposes.\n\n" +
+            // This summary is the ONLY resume context downstream interview/rubric generation
+            // sees — it must retain enough detail for questions to be asked about the
+            // candidate's own tech stack, named projects, and certifications, not just a vague
+            // one-liner. A tight word cap here silently strips that detail before it ever
+            // reaches question generation.
+            String prompt = "You are an expert technical recruiter. Analyze this resume and produce a structured summary for interview " +
+                "prep — it will be used to generate interview questions, so it must preserve concrete, named detail, not just a vague overview.\n\n" +
+                "Output exactly these labeled sections, each on its own line(s):\n" +
+                "Overview: One to two sentences — experience level, years of experience, primary domain.\n" +
+                "Tech Stack: Comma-separated list of specific technologies, languages, and frameworks actually named in the resume.\n" +
+                "Projects: One line per notable project — name/purpose, what was built, and the tech used. Include every distinct project the resume names, not just the most recent one. Write \"None listed\" only if the resume truly names none.\n" +
+                "Certifications: Comma-separated list of certifications exactly as named in the resume. Write \"None listed\" if there are none.\n\n" +
                 "Guidelines:\n" +
-                "- Focus on technical skills, experience level, and key achievements\n" +
-                "- Identify primary technology stack and years of experience\n" +
-                "- Highlight relevant projects or leadership experience\n" +
-                "- Keep it under 150 words\n" +
-                "- Be objective and factual\n" +
-                "- Format as a single paragraph\n\n" +
+                "- Be objective and factual — do not invent or infer anything not stated in the resume.\n" +
+                "- Keep each section concise, but do not drop a named project or certification to save space.\n" +
+                "- No markdown, no bullet symbols — plain \"Label: value\" lines as specified above.\n\n" +
                 "Candidate Name: " + candidateName + "\n" +
                 "Resume Content:\n" + resumeText;
-            
-            String response = llmClient.chatQuestion(prompt, "Generate a professional resume summary");
+
+            String response = llmClient.chatDigest(prompt, "Generate a structured resume summary");
             
             // Clean up the response
             if (response != null) {

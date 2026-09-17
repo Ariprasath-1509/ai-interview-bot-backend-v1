@@ -128,6 +128,8 @@ public class RubricService {
             "5. Each category MUST include exactly 4 proficiencyOptions from strongest to weakest tier.\n" +
             "6. Optional note field for skill substitution context (e.g. MySQL tested instead of generic SQL).\n" +
             "\n" +
+            "7. From the resume ALONE (not the JD), also extract: the candidate's own tech stack, their named projects (one line each: what it was + tech used), and any certifications. These populate candidateProfile and are used to ask the candidate about their own background, not just the JD.\n" +
+            "\n" +
             "OUTPUT PROTOCAL:\n" +
             "Your response must consist of your internal reasoning steps, followed directly by the final raw JSON payload. Ensure your JSON perfectly mirrors this schema layout with no trailing elements:\n" +
             "{\n" +
@@ -157,11 +159,15 @@ public class RubricService {
             "    \"primarySkills\": [\"skill1\"],\n" +
             "    \"claimedExpertise\": [\"area1\"],\n" +
             "    \"questionDifficulty\": \"medium\",\n" +
-            "    \"resumeSummary\": \"A concise one-sentence description\"\n" +
+            "    \"resumeSummary\": \"A concise one-sentence description\",\n" +
+            "    \"techStack\": [\"Technology named on the resume, e.g. Kafka\"],\n" +
+            "    \"projects\": [\"One line per named project: what it was and the tech used\"],\n" +
+            "    \"certifications\": [\"Certification name exactly as listed on the resume\"]\n" +
             "  }\n" +
             "}\n" +
             "\n" +
-            "Valid values — level: junior | mid | senior | staff. questionDifficulty: easy (<2 yrs) | medium (2-5 yrs) | hard (>5 yrs).";
+            "Valid values — level: junior | mid | senior | staff. questionDifficulty: easy (<2 yrs) | medium (2-5 yrs) | hard (>5 yrs). " +
+            "techStack/projects/certifications: empty arrays if the resume doesn't mention any — never invent one.";
 
         String user = "JD Title: " + req.getJdTitle() + "\n" +
             "JD:\n" + req.getJdText().substring(0, Math.min(6000, req.getJdText().length())) + "\n" +
@@ -257,7 +263,10 @@ public class RubricService {
                 "primarySkills", List.of(),
                 "claimedExpertise", List.of(),
                 "questionDifficulty", "medium",
-                "resumeSummary", ""
+                "resumeSummary", "",
+                "techStack", List.of(),
+                "projects", List.of(),
+                "certifications", List.of()
             );
         }
         String system =
@@ -268,8 +277,12 @@ public class RubricService {
             "  \"primarySkills\": [\"skill1\"],\n" +
             "  \"claimedExpertise\": [\"area1\"],\n" +
             "  \"questionDifficulty\": \"easy (<2 yrs) | medium (2-5 yrs) | hard (>5 yrs)\",\n" +
-            "  \"resumeSummary\": \"A concise one-sentence description\"\n" +
-            "}";
+            "  \"resumeSummary\": \"A concise one-sentence description\",\n" +
+            "  \"techStack\": [\"Technology named on the resume, e.g. Kafka\"],\n" +
+            "  \"projects\": [\"One line per named project: what it was and the tech used\"],\n" +
+            "  \"certifications\": [\"Certification name exactly as listed on the resume\"]\n" +
+            "}\n" +
+            "techStack/projects/certifications: empty arrays if the resume doesn't mention any — never invent one.";
         String user = "Role: " + req.getJdTitle() + "\n" +
             "Resume:\n" + req.getResumeSummary().substring(0, Math.min(4000, req.getResumeSummary().length()));
 
@@ -326,7 +339,10 @@ public class RubricService {
             "primarySkills", List.of(),
             "claimedExpertise", List.of(),
             "questionDifficulty", "medium",
-            "resumeSummary", ""
+            "resumeSummary", "",
+            "techStack", List.of(),
+            "projects", List.of(),
+            "certifications", List.of()
         ));
         return result;
     }

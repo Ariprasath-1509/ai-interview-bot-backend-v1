@@ -708,12 +708,14 @@ public class QuestionService {
         String slotTheme = resolveSlotTheme(mode, req.getSlot());
         String coveredTopics = extractCoveredTopics(req.getUtterances());
         List<String> rubricLabels = extractRubricLabels(req.getRubricJson());
-        String targetSkill = pickTargetSkill(req.getSlot(), rubricLabels, coveredTopics);
-        String coverageHint = buildCoverageHint(rubricLabels, coveredTopics);
+        List<String> focusAreaList = splitTopicList(req.getFocusAreas());
 
         // Difficulty: explicit per-round selection wins; otherwise derived from mode
         String difficultyInstruction = resolveDifficulty(req);
         String levelInstruction = "";
+        List<String> techStack = List.of();
+        List<String> projects = List.of();
+        List<String> certifications = List.of();
         if (req.getCandidateProfileJson() != null && !req.getCandidateProfileJson().isBlank()) {
             try {
                 com.fasterxml.jackson.databind.JsonNode profile =
@@ -721,8 +723,25 @@ public class QuestionService {
                 String level = profile.path("level").asText("mid");
                 int yoe = profile.path("yearsOfExperience").asInt(0);
                 levelInstruction = "Candidate is a " + level + " engineer with " + yoe + " years experience — calibrate depth accordingly.";
+                techStack = jsonArrayToStringList(profile.path("techStack"));
+                projects = jsonArrayToStringList(profile.path("projects"));
+                certifications = jsonArrayToStringList(profile.path("certifications"));
             } catch (Exception ignored) {}
         }
+
+        // Combined rotation pool: JD/rubric skills, admin-set focus areas, and the candidate's
+        // own resume background (tech stack, named projects, certifications) — interleaved so
+        // the interview samples across ALL of these sources instead of exhausting one (usually
+        // the JD/rubric) before ever touching the others.
+        List<String> topicPool = interleaveTopics(rubricLabels, focusAreaList, techStack, projects, certifications);
+        String targetSkill = pickTargetSkill(req.getSlot(), topicPool, coveredTopics);
+        String coverageHint = buildCoverageHint(topicPool, coveredTopics);
+
+        List<String> backgroundParts = new ArrayList<>();
+        if (!techStack.isEmpty()) backgroundParts.add("Tech stack: " + String.join(", ", techStack));
+        if (!projects.isEmpty()) backgroundParts.add("Projects: " + String.join("; ", projects));
+        if (!certifications.isEmpty()) backgroundParts.add("Certifications: " + String.join(", ", certifications));
+        String candidateBackground = String.join(" | ", backgroundParts);
 
         // Parse rubric categories to focus on relevant topics — include each category's
         // "what to probe" description (for checklist-based rubrics this is the client's own
@@ -757,23 +776,34 @@ public class QuestionService {
 
         String system =
             "You are a precise, conversational technical interviewer. Your output must be exactly ONE question (1-2 sentences max).\n" +
-            "Your PRIMARY anchor is the Job Description and the candidate's resume — not whatever project they last mentioned.\n" +
+            "Your question sources are, ALL of them, in rotation: the Job Description / rubric, the candidate's OWN resume " +
+            "background (their tech stack, named projects, and certifications), and any admin-specified focus areas. " +
+            "Do not stay anchored to only one of these — the interview must sample across all of them, not just the JD.\n" +
             "\n" +
             "CURRENT INTERVIEW MATRIX CONTEXT:\n" +
             "- Current Slot Theme: " + slotTheme + "\n" +
-            "- Target Skill Priority: " + (targetSkill.isBlank() ? "General technical depth" : targetSkill) + "\n" +
+            "- Target Topic Priority: " + (targetSkill.isBlank() ? "General technical depth" : targetSkill) + "\n" +
             "- Coverage Strategy: " + (coverageHint.isBlank() ? "Probe technical depth" : coverageHint) + "\n" +
             "- Seniority Level Guardrails: " + (levelInstruction.isBlank() ? "Calibrate to role level" : levelInstruction) + "\n" +
             "- Evaluation Rubric Focus: " + (rubricFocus.isBlank() ? "Role-relevant technical areas" : rubricFocus) + "\n" +
-            "- JD Skills Already Touched: " + (coveredTopics.isBlank() ? "None yet" : coveredTopics) + "\n" +
+            "- Candidate's Own Resume Background (fair game as direct question subjects, not just calibration): "
+                + (candidateBackground.isBlank() ? "No resume details extracted" : candidateBackground) + "\n" +
+            "- Admin Focus Areas (must also be rotated into questions, not just the JD): "
+                + (focusAreaList.isEmpty() ? "None set" : String.join(", ", focusAreaList)) + "\n" +
+            "- Topics Already Touched (from candidate's recent answers): " + (coveredTopics.isBlank() ? "None yet" : coveredTopics) + "\n" +
             "- Allowed Difficulty Level: " + difficultyInstruction + " — HARD REQUIREMENT, not a suggestion.\n" +
             "\n" +
             "QUESTIONS ALREADY ASKED — DO NOT REPEAT OR PARAPHRASE ANY OF THESE:\n" +
             neverRepeatBlock + "\n" +
             "\n" +
             "CRITICAL EXECUTION RULES:\n" +
-            "1. Questions MUST test a specific skill or requirement listed in the JD or rubric — not a project or system the candidate happened to mention.\n" +
-            "2. Use the candidate's last answer ONLY to calibrate depth and tone. Never make it the subject of the next question.\n" +
+            "1. Every question MUST test one of: a JD/rubric requirement, an admin focus area, or an item from the candidate's " +
+                "OWN resume (their tech stack, a named project, or a certification). Rotate across ALL of these sources over " +
+                "the course of the interview — do not let the JD/rubric crowd out the resume-derived topics, and do not let " +
+                "focus areas crowd out everything else either.\n" +
+            "2. Use the candidate's last answer to calibrate depth and tone, and you may briefly follow up on it ONLY if it " +
+                "connects to something already in the sources above (a JD/rubric skill, a focus area, or a listed resume " +
+                "tech/project/certification). Do not chase a new tangent the candidate raises that isn't part of those sources.\n" +
             "3. Maintain a natural, peer-level engineering tone. Do NOT say \"Great answer!\" or \"Thanks for sharing.\"\n" +
             "4. NEVER ask a question that is the same as or closely paraphrases any question in the list above.\n" +
             "5. The question's difficulty MUST match \"" + difficultyInstruction + "\" exactly: for easy difficulty, ask foundational/definitional questions with no multi-step reasoning or advanced internals; for medium, expect applied working knowledge; for hard, expect deep trade-off/internals reasoning. Do not ask a harder or easier question than this level.\n" +
@@ -807,12 +837,12 @@ public class QuestionService {
         }
         if (thinAnswerMode) {
             user.append("The candidate's last answer was thin — do NOT probe it again. "
-                + "Pick a JD skill from the list above that hasn't been covered yet and ask a focused question about it.");
+                + "Pick a topic from the list above (JD/rubric, focus area, or their own resume background) that hasn't been covered yet and ask a focused question about it.");
         } else {
             user.append(lastAnswer.isEmpty()
-                ? "Ask your opening technical question now. Anchor it in the JD requirements and the candidate's resume background. One or two sentences."
-                : "The candidate just answered. Pick the next uncovered JD skill from the list above and ask a focused question about it. "
-                + "Do NOT follow up on whatever project they just mentioned — move to a different JD requirement.");
+                ? "Ask your opening technical question now. Anchor it in the JD requirements or the candidate's resume background (their tech stack or a named project). One or two sentences."
+                : "The candidate just answered. Pick the next uncovered topic from the list above — JD/rubric, a focus area, or their own resume background — and ask a focused question about it. "
+                + "Only follow up on what they just said if it's already part of that topic pool; don't chase an unrelated tangent.");
         }
 
         String result = llmClient.chatQuestionWithSlotAndTracking(system, user.toString(), req.getSlot(), req.getInterviewId(), userId);
@@ -1160,26 +1190,61 @@ public class QuestionService {
         }
     }
 
-    private String pickTargetSkill(int slot, List<String> rubricLabels, String coveredTopics) {
-        if (rubricLabels.isEmpty()) return "";
+    private String pickTargetSkill(int slot, List<String> topicPool, String coveredTopics) {
+        if (topicPool.isEmpty()) return "";
         String covered = coveredTopics == null ? "" : coveredTopics.toLowerCase();
-        List<String> missing = rubricLabels.stream()
+        List<String> missing = topicPool.stream()
             .filter(label -> !covered.contains(label.toLowerCase()))
             .toList();
-        List<String> source = missing.isEmpty() ? rubricLabels : missing;
+        List<String> source = missing.isEmpty() ? topicPool : missing;
         int idx = Math.max(0, (slot - 1) % source.size());
         return source.get(idx);
     }
 
-    private String buildCoverageHint(List<String> rubricLabels, String coveredTopics) {
-        if (rubricLabels.isEmpty()) return "";
+    private String buildCoverageHint(List<String> topicPool, String coveredTopics) {
+        if (topicPool.isEmpty()) return "";
         String covered = coveredTopics == null ? "" : coveredTopics.toLowerCase();
-        List<String> missing = rubricLabels.stream()
+        List<String> missing = topicPool.stream()
             .filter(label -> !covered.contains(label.toLowerCase()))
             .limit(3)
             .toList();
-        if (missing.isEmpty()) return "All rubric areas have at least one touchpoint. Go deeper on weakest evidence.";
+        if (missing.isEmpty()) return "All topics have at least one touchpoint. Go deeper on weakest evidence.";
         return "Must-cover remaining (prioritize soon): " + String.join(", ", missing);
+    }
+
+    /** Splits admin-entered focus areas on comma/semicolon/newline, trims, drops empties. */
+    private List<String> splitTopicList(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        return java.util.Arrays.stream(raw.split("[,;\\n]"))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .toList();
+    }
+
+    private List<String> jsonArrayToStringList(com.fasterxml.jackson.databind.JsonNode node) {
+        if (node == null || !node.isArray()) return List.of();
+        List<String> out = new ArrayList<>();
+        node.forEach(n -> {
+            String s = n.asText("").trim();
+            if (!s.isEmpty()) out.add(s);
+        });
+        return out;
+    }
+
+    /** Round-robins across multiple topic sources (JD/rubric, focus areas, resume tech stack,
+     *  projects, certifications) so slot rotation samples all of them instead of exhausting
+     *  the first non-empty source before ever reaching the others. */
+    @SafeVarargs
+    private List<String> interleaveTopics(List<String>... sources) {
+        List<String> result = new ArrayList<>();
+        int maxLen = 0;
+        for (List<String> s : sources) maxLen = Math.max(maxLen, s.size());
+        for (int i = 0; i < maxLen; i++) {
+            for (List<String> s : sources) {
+                if (i < s.size()) result.add(s.get(i));
+            }
+        }
+        return result;
     }
 
     private int countRecentProbeQuestions(List<NextQuestionRequest.Utterance> utterances) {
