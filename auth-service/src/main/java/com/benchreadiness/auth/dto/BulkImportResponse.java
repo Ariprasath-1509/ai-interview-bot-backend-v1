@@ -162,26 +162,34 @@ public class BulkImportResponse {
         private String batch;
         private String username;
         private String generatedPassword;
-        
+        private String officialEmail;
+        private String personalEmail;
+
         public CredentialPreview() {}
-        
+
         // Getters and Setters
         public int getRowNumber() { return rowNumber; }
         public void setRowNumber(int rowNumber) { this.rowNumber = rowNumber; }
-        
+
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
-        
+
         public String getSource() { return source; }
         public void setSource(String source) { this.source = source; }
-        
+
         public String getBatch() { return batch; }
         public void setBatch(String batch) { this.batch = batch; }
-        
+
         public String getUsername() { return username; }
         public void setUsername(String username) { this.username = username; }
-        
+
         public String getGeneratedPassword() { return generatedPassword; }
         public void setGeneratedPassword(String generatedPassword) { this.generatedPassword = generatedPassword; }
+
+        public String getOfficialEmail() { return officialEmail; }
+        public void setOfficialEmail(String officialEmail) { this.officialEmail = officialEmail; }
+
+        public String getPersonalEmail() { return personalEmail; }
+        public void setPersonalEmail(String personalEmail) { this.personalEmail = personalEmail; }
     }
 }

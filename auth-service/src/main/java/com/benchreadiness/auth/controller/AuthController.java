@@ -1111,7 +1111,12 @@ public class AuthController {
             response.put("errorCount", result.getErrorCount());
             response.put("errors", result.getErrors());
             response.put("sessionId", sessionId);
-            
+            // Row -> candidateId only (never the generated password) so a caller can attach a
+            // bulk-uploaded resume to the right candidate right after creation.
+            response.put("createdCandidates", result.getCreatedCandidates().stream()
+                .map(c -> Map.of("rowNumber", c.getRowNumber(), "candidateId", c.getId()))
+                .collect(Collectors.toList()));
+
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of(

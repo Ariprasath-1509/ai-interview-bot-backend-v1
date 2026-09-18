@@ -339,10 +339,12 @@ public class ExcelParserService {
             preview.setBatch(candidate.getBatch());
             
             // Determine username (prefer official email)
-            String username = !isBlank(candidate.getOfficialEmail()) ? 
+            String username = !isBlank(candidate.getOfficialEmail()) ?
                 candidate.getOfficialEmail() : candidate.getPersonalEmail();
             preview.setUsername(username);
-            
+            preview.setOfficialEmail(candidate.getOfficialEmail());
+            preview.setPersonalEmail(candidate.getPersonalEmail());
+
             // Generate password: FirstName@2024
             String firstName = candidate.getName() != null ? 
                 candidate.getName().split(" ")[0] : "User";
