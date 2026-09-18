@@ -1587,7 +1587,8 @@ public class AuthController {
     @PostMapping("/candidates/market")
     @PreAuthorize("hasAnyRole('" + STAFF_ADMIN_ROLES + "')")
     public ResponseEntity<?> createMarketCandidate(@RequestBody Map<String, String> body,
-                                                   @RequestHeader("X-User-Branch") String callerBranch) {
+                                                   @RequestHeader("X-User-Branch") String callerBranch,
+                                                   @RequestHeader(value = "X-User-Org", required = false) String callerOrg) {
         String name = body.get("name");
         String email = body.get("email");
         String contactNumber = body.get("contactNumber");
@@ -1609,6 +1610,7 @@ public class AuthController {
         user.setSource("MARKET");
         user.setActive(false);
         user.setBranch(Branch.normalize(callerBranch));
+        user.setOrgCode(callerOrg != null && !callerOrg.isBlank() ? callerOrg : "TESTYANTRA");
         userRepository.save(user);
 
         try {
