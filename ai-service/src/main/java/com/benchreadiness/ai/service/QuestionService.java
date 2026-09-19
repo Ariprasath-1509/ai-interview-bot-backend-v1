@@ -1050,37 +1050,38 @@ public class QuestionService {
 
     private boolean isVagueAnswer(String answer) {
         if (answer == null || answer.isBlank()) return false;
-        
+
         String trimmed = answer.trim().toLowerCase();
-        
+
         if (isSkipOrAdvanceRequest(answer)) {
             log.info("Detected skip request: '{}' - NOT treating as vague, will progress naturally", trimmed);
             return false;
         }
-        
-        // Check word count (under 15 words)
-        // Voice-to-text answers can be rambling but still short; we only want to probe when it's truly minimal.
+
         int wordCount = trimmed.split("\\s+").length;
         if (wordCount < 15) {
             log.debug("Answer too short ({} words): '{}'", wordCount, trimmed);
             return true;
         }
-        
-        // Check for vague keywords
+
+        // Long answers are never vague regardless of keywords
+        if (wordCount >= 30) return false;
+
+        // Bare "yes" and "no" removed — they match as substrings inside any sentence
         String[] vaguePatterns = {
-            "i don't know", "i dont know", "not sure", "maybe", "yes", "no", 
+            "i don't know", "i dont know", "not sure", "maybe",
             "can you repeat", "what do you mean", "i'm not familiar", "im not familiar",
             "i haven't used", "i havent used", "never worked with", "not really",
             "i think so", "probably", "i guess", "sort of", "kind of"
         };
-        
+
         for (String pattern : vaguePatterns) {
             if (trimmed.contains(pattern)) {
                 log.debug("Detected vague pattern '{}' in answer: '{}'", pattern, trimmed);
                 return true;
             }
         }
-        
+
         return false;
     }
 
@@ -1967,6 +1968,11 @@ public class QuestionService {
         if (codingSlot == null) return result;
 
         int codingCount = countCodingQuestionsAsked(req.getUtterances());
+        // If transcript doesn't capture the submission (code-editor flow), fall back to lastCodeCorrectness
+        if (codingCount == 0 && req.getLastCodeCorrectness() != null
+                && !req.getLastCodeCorrectness().isBlank()) {
+            codingCount = 1;
+        }
         int slot = req.getSlot();
 
         // Cap: never more than 2 coding questions in a single interview.

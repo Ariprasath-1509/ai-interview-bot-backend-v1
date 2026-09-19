@@ -248,7 +248,6 @@ public class InterviewController {
 
     @PutMapping("/{id}/assessment-status")
     @PatchMapping("/{id}/assessment-status")
-    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
     public ResponseEntity<?> updateAssessmentStatus(@PathVariable String id,
                                                     @RequestBody Map<String, Object> body) {
         try {
