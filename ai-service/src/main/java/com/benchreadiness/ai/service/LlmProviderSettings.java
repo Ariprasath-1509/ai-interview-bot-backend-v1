@@ -48,7 +48,7 @@ public class LlmProviderSettings {
 
     /** When true, HybridLlmClient may fall back to Ollama if the selected provider (Claude/DeepSeek) is unavailable. */
     public boolean ollamaFallbackEnabled() {
-        return "hybrid".equals(startupProvider) || "ollama".equals(startupProvider);
+        return "hybrid".equals(startupProvider) || "ollama".equals(startupProvider) || "deepseek".equals(startupProvider);
     }
 
     public String getQuestionProvider()   { return questionProvider; }

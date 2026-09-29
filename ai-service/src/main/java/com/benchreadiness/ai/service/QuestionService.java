@@ -509,10 +509,13 @@ public class QuestionService {
                     resolveIsCoding(question, null), inferLanguageFromContext(question, req.getJdTitle()), null);
                 return finalizeAndCache(requestCacheKey, req, result);
             } catch (Exception e) {
-                log.warn("Claude failed, falling back to heuristic: {}", e.getMessage());
+                log.error("LLM question generation failed — falling back to canned question pool " +
+                        "(interviewId={}, slot={}, exceptionType={}): {}",
+                        req.getInterviewId(), req.getSlot(), e.getClass().getSimpleName(), e.getMessage(), e);
             }
         } else {
-            log.warn("LLM provider not configured — falling back to heuristic");
+            log.error("LLM provider not configured — falling back to canned question pool " +
+                    "(interviewId={}, slot={})", req.getInterviewId(), req.getSlot());
         }
         QuestionResult fallback = new QuestionResult(fallbackQuestion(req), false, false, null, "FALLBACK",
             false, "python", null);

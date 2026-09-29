@@ -12,6 +12,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,11 +41,19 @@ public class DeepSeekAiClient implements LlmClient {
     @Value("${app.deepseek.assessment-temperature:0.25}")
     private double assessmentTemperature;
 
+    @Value("${app.deepseek.request-timeout-seconds:45}")
+    private int requestTimeoutSeconds;
+
+    private static final long AUTH_FAILURE_COOLDOWN_MS = Duration.ofMinutes(5).toMillis();
+
     private final ComplianceServiceClient complianceServiceClient;
 
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
     private final ObjectMapper objectMapper;
     private volatile boolean authFailed = false;
+    private volatile long authFailedAtMs = 0L;
     private volatile Boolean configuredCache = null;
 
     public DeepSeekAiClient(ComplianceServiceClient complianceServiceClient, ObjectMapper objectMapper) {
@@ -55,7 +64,14 @@ public class DeepSeekAiClient implements LlmClient {
     @Override
     public boolean isConfigured() {
         if (authFailed) {
-            return false;
+            if (System.currentTimeMillis() - authFailedAtMs < AUTH_FAILURE_COOLDOWN_MS) {
+                return false;
+            }
+            // Cooldown elapsed — a stale/transient 401 shouldn't permanently disable the provider.
+            // Allow the next call through; it will re-latch if the key is genuinely still bad.
+            log.info("DeepSeek auth-failure cooldown elapsed — re-enabling for retry");
+            authFailed = false;
+            configuredCache = null;
         }
         if (configuredCache == null) {
             configuredCache = apiKey != null && !apiKey.isBlank();
@@ -129,6 +145,7 @@ public class DeepSeekAiClient implements LlmClient {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(requestTimeoutSeconds))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + apiKey)
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
@@ -152,6 +169,7 @@ public class DeepSeekAiClient implements LlmClient {
 
         if (response.statusCode() == 401) {
             authFailed = true;
+            authFailedAtMs = System.currentTimeMillis();
             configuredCache = false;
             throw new RuntimeException("DeepSeek returned 401: authentication failed (invalid API key)");
         }

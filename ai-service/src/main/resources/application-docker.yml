@@ -29,6 +29,7 @@ app:
     model: ${APP_DEEPSEEK_MODEL:deepseek-chat}
     question-temperature: ${APP_DEEPSEEK_QUESTION_TEMPERATURE:0.55}
     assessment-temperature: ${APP_DEEPSEEK_ASSESSMENT_TEMPERATURE:0.25}
+    request-timeout-seconds: ${APP_DEEPSEEK_REQUEST_TIMEOUT_SECONDS:45}
   ollama:
     base-url: ${APP_OLLAMA_BASE_URL:http://103.182.211.219:11434}
     model: ${APP_OLLAMA_MODEL:qwen2.5:14b}
