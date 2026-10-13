@@ -25,7 +25,9 @@ public class AsyncConfig {
     @Bean(name = "bulkInterviewExecutor")
     public Executor bulkInterviewExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(5);
+        // Fix 6.14: core = max = 20 (the bulk batch limit). With core 5 the pool only grows once the
+        // queue (50) is full, so a 20-candidate batch ran 5 at a time and overran the bulk wait.
+        executor.setCorePoolSize(20);
         executor.setMaxPoolSize(20);
         executor.setQueueCapacity(50);
         executor.setThreadNamePrefix("BulkInterview-");

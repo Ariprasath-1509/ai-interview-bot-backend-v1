@@ -1149,23 +1149,40 @@ public class InterviewService {
                 }, bulkInterviewExecutor)
             ).collect(Collectors.toList());
 
-        // Wait for all — max 120s (rubric generation per candidate can take 30-60s each, but they run in parallel)
+        // Wait for all — rubric generation per candidate can take 30-60s, but they run in parallel
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                    .get(120, TimeUnit.SECONDS);
+                    .get(bulkWaitSeconds(), TimeUnit.SECONDS);
         } catch (java.util.concurrent.TimeoutException e) {
             log.warn("[Bulk] Timed out waiting for all candidates — collecting partial results");
         } catch (Exception e) {
             log.warn("[Bulk] Error waiting for futures: {}", e.getMessage());
         }
 
-        List<BulkCreateInterviewResult.CandidateResult> results = futures.stream().map(f -> {
+        List<BulkCreateInterviewResult.CandidateResult> results = new ArrayList<>();
+        for (int i = 0; i < futures.size(); i++) {
+            CompletableFuture<BulkCreateInterviewResult.CandidateResult> f = futures.get(i);
             if (f.isDone() && !f.isCompletedExceptionally()) {
-                try { return f.get(); } catch (Exception ignored) { }
+                try { results.add(f.get()); continue; } catch (Exception ignored) { }
             }
-            return BulkCreateInterviewResult.CandidateResult.failed("unknown", "Timed out or internal error");
-        }).collect(Collectors.toList());
+            // Fix 6.14: name the candidate. A still-running task keeps going and usually creates the
+            // interview shortly after, so tell staff to check the list instead of retrying blindly.
+            results.add(BulkCreateInterviewResult.CandidateResult.failed(
+                    req.getCandidates().get(i).getEngineerEmail(),
+                    f.isDone() ? "Internal error" : "Still processing — check the interview list before retrying"));
+        }
 
         return new BulkCreateInterviewResult(results);
     }
+
+    /**
+     * Fix 6.14: max wait for a bulk batch. Was 120 s with 5 workers, too short once rubric
+     * generation works (6.10). Must stay below the FE route's Node fetch header timeout (300 s);
+     * nginx (600 s) and the gateway (600 s) are longer.
+     */
+    long bulkWaitSeconds() {
+        return BULK_WAIT_SECONDS;
+    }
+
+    static final long BULK_WAIT_SECONDS = 240;
 }

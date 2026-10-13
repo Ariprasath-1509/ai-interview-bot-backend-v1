@@ -16,6 +16,7 @@ import java.util.concurrent.Executors;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
@@ -71,6 +72,62 @@ class BulkInterviewOrgContextTest {
         String[] after = pool.submit(() -> new String[] { OrgContext.get(), BranchContext.get() }).get();
         assertThat(after[0]).isNull();
         assertThat(after[1]).isNull();
+    }
+
+    @Test
+    void slowCandidateIsReportedByEmailNotUnknown() throws Exception {
+        ExecutorService twoWorkers = Executors.newFixedThreadPool(2);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        try {
+            InterviewService service = spy(new InterviewService(null, null, null, null, null, null,
+                null, null, null, null, null, null, twoWorkers));
+            doReturn(1L).when(service).bulkWaitSeconds();
+            doAnswer(inv -> {
+                String email = ((com.benchreadiness.interview.dto.CreateInterviewRequest) inv.getArgument(0))
+                    .getEngineerEmail();
+                if (email.startsWith("slow")) release.await(10, java.util.concurrent.TimeUnit.SECONDS);
+                Interview created = mock(Interview.class);
+                when(created.getId()).thenReturn("iv-" + email);
+                return created;
+            }).when(service).createInterview(any(), any(), any(), any());
+            BranchInterviewValidator validator = mock(BranchInterviewValidator.class);
+
+            BulkCreateInterviewResult result = service.createBulkInterviews(
+                request("fast@example.com", "slow@example.com"), "admin-1", "ADMIN", validator);
+
+            assertThat(result.getResults()).hasSize(2);
+            assertThat(result.getResults().get(0).getEmail()).isEqualTo("fast@example.com");
+            assertThat(result.getResults().get(0).getStatus()).isEqualTo("OK");
+            assertThat(result.getResults().get(1).getEmail()).isEqualTo("slow@example.com");
+            assertThat(result.getResults().get(1).getStatus()).isEqualTo("FAILED");
+            assertThat(result.getResults().get(1).getError()).startsWith("Still processing");
+        } finally {
+            release.countDown();
+            twoWorkers.shutdownNow();
+        }
+    }
+
+    @Test
+    void bulkExecutorRunsAFullBatchOf20AtOnce() throws Exception {
+        org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor executor =
+            (org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor)
+                new com.benchreadiness.interview.config.AsyncConfig().bulkInterviewExecutor();
+        java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(20);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        try {
+            for (int i = 0; i < 20; i++) {
+                executor.execute(() -> {
+                    started.countDown();
+                    try { release.await(10, java.util.concurrent.TimeUnit.SECONDS); }
+                    catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                });
+            }
+            // Before 6.14 (core 5, queue 50) only 5 would start; the other 15 waited in the queue.
+            assertThat(started.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } finally {
+            release.countDown();
+            executor.shutdown();
+        }
     }
 
     private static BulkCreateInterviewRequest request(String... emails) {
