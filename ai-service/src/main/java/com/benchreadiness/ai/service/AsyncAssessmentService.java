@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -15,6 +17,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AsyncAssessmentService {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AsyncAssessmentService.class);
+
+    /** FAILED reason: the assessment executor (pool + queue) rejected the task. */
+    public static final String REASON_QUEUE_FULL = "QUEUE_FULL";
+    /** FAILED reason: the run stayed PROCESSING longer than app.assessment.stale-run-minutes. */
+    public static final String REASON_STALE_TIMEOUT = "STALE_TIMEOUT";
 
     private final AssessmentService assessmentService;
     private final ComplianceServiceClient complianceServiceClient;
@@ -75,6 +82,49 @@ public class AsyncAssessmentService {
         return loadFromInterview(interviewId);
     }
 
+    /**
+     * Mark one run FAILED (map + DB) if it is still the current run for this interview.
+     * A newer run started meanwhile is left untouched.
+     *
+     * @return true if the run was marked FAILED
+     */
+    public boolean markRunFailed(String interviewId, String runId, String reason) {
+        AssessmentStatus failed = new AssessmentStatus("FAILED", null, reason, runId);
+        boolean[] replaced = {false};
+        assessmentCache.computeIfPresent(interviewId, (id, current) -> {
+            if (runId != null && runId.equals(current.getRunId())) {
+                replaced[0] = true;
+                return failed;
+            }
+            return current;
+        });
+        if (replaced[0]) {
+            persistStatus(interviewId, "FAILED", reason, null, runId);
+        }
+        return replaced[0];
+    }
+
+    /**
+     * Mark runs tracked by this instance that have been PROCESSING longer than {@code maxAge} as FAILED.
+     * Only this instance's in-memory map is checked; DB rows left PROCESSING by a restart are not touched.
+     *
+     * @return number of runs marked FAILED
+     */
+    public int failStaleRuns(Duration maxAge, Instant now) {
+        Instant cutoff = now.minus(maxAge);
+        int count = 0;
+        for (Map.Entry<String, AssessmentStatus> e : assessmentCache.entrySet()) {
+            AssessmentStatus s = e.getValue();
+            if ("PROCESSING".equals(s.getStatus()) && s.getUpdatedAt().isBefore(cutoff)
+                    && markRunFailed(e.getKey(), s.getRunId(), REASON_STALE_TIMEOUT)) {
+                log.warn("Assessment stuck in PROCESSING since {} marked FAILED (interview={}, runId={})",
+                        s.getUpdatedAt(), e.getKey(), s.getRunId());
+                count++;
+            }
+        }
+        return count;
+    }
+
     public void clearAssessmentStatus(String interviewId) {
         assessmentCache.remove(interviewId);
         // Clear persisted COMPLETED state so other instances cannot serve a stale result.
@@ -120,17 +170,25 @@ public class AsyncAssessmentService {
         private final String result;
         private final String error;
         private final String runId;
+        /** When this state was recorded (in memory only); every transition creates a new instance. */
+        private final Instant updatedAt;
 
         public AssessmentStatus(String status, String result, String error, String runId) {
+            this(status, result, error, runId, Instant.now());
+        }
+
+        AssessmentStatus(String status, String result, String error, String runId, Instant updatedAt) {
             this.status = status;
             this.result = result;
             this.error = error;
             this.runId = runId;
+            this.updatedAt = updatedAt;
         }
 
         public String getStatus() { return status; }
         public String getResult() { return result; }
         public String getError() { return error; }
         public String getRunId() { return runId; }
+        public Instant getUpdatedAt() { return updatedAt; }
     }
 }

@@ -24,7 +24,9 @@ import jakarta.validation.Valid;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -37,6 +39,8 @@ import java.util.Map;
 public class AiController {
 
     private static final Logger log = LoggerFactory.getLogger(AiController.class);
+    /** Retry-After sent with 503 when the assessment queue is full (scoring takes ~15–20 s per run). */
+    static final int ASSESS_QUEUE_FULL_RETRY_AFTER_SECONDS = 30;
 
     private final QuestionService questionService;
     private final AssessmentService assessmentService;
@@ -246,7 +250,23 @@ public class AiController {
         asyncAssessmentService.clearAssessmentStatus(req.getInterviewId());
         String runId = asyncAssessmentService.prepareAssessmentRun(req.getInterviewId());
         // Must invoke @Async method from the controller so Spring proxy applies (not self-invocation).
-        asyncAssessmentService.processAssessmentAsync(req, userId, runId);
+        try {
+            asyncAssessmentService.processAssessmentAsync(req, userId, runId);
+        } catch (TaskRejectedException e) {
+            // Pool + queue full. PROCESSING was already persisted above, so close this run as FAILED.
+            log.warn("Assessment queue full, rejected interview {} (runId={}): {}",
+                    req.getInterviewId(), runId, e.getMessage());
+            asyncAssessmentService.markRunFailed(req.getInterviewId(), runId, AsyncAssessmentService.REASON_QUEUE_FULL);
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ASSESS_QUEUE_FULL_RETRY_AFTER_SECONDS))
+                .body(Map.of(
+                    "status", "FAILED",
+                    "error", AsyncAssessmentService.REASON_QUEUE_FULL,
+                    "message", "Assessment queue is full, retry later",
+                    "interviewId", req.getInterviewId(),
+                    "runId", runId
+                ));
+        }
         return ResponseEntity.ok(Map.of(
             "status", "ASSESSMENT_PENDING",
             "message", "Assessment queued for processing",

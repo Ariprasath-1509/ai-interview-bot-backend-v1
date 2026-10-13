@@ -66,8 +66,13 @@ app:
     num-parallel-threads: ${APP_OLLAMA_NUM_PARALLEL_THREADS:4}
   assessment:
     async-enabled: true
-    thread-pool-size: 10
-    queue-capacity: 50
+    # assessmentExecutor bounds (AsyncConfig). Defaults = values hard-coded before fix 6.1 (core 5, max 10, queue 50).
+    core-pool-size: ${APP_ASSESSMENT_CORE_POOL_SIZE:5}
+    thread-pool-size: ${APP_ASSESSMENT_THREAD_POOL_SIZE:10}   # max pool size
+    queue-capacity: ${APP_ASSESSMENT_QUEUE_CAPACITY:50}
+    # Runs tracked by this instance that stay PROCESSING longer than this are marked FAILED (STALE_TIMEOUT).
+    stale-run-minutes: ${APP_ASSESSMENT_STALE_RUN_MINUTES:15}
+    stale-sweep-interval-ms: ${APP_ASSESSMENT_STALE_SWEEP_INTERVAL_MS:60000}
   media:
     stt-provider: ${APP_MEDIA_STT_PROVIDER:sarvam}
     sarvam-api-key: ${SARVAM_API_KEY:}
