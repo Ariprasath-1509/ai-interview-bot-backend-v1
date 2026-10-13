@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>aibot Ops - Production Health & Runtime Lifetime</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: Single-screen operations cockpit. Dark mode, optimized rendering, minimal CPU/memory load. */
+:root{
+  --bg:#111214; --bg-deep:#0b0c0e; --surface:#18191c; --surface-a:rgba(24,25,28,.84); --surface-2:#1f2125; --surface-3:#26292f;
+  --border:#2a2c31; --border-2:#3a3d44;
+  --text:#e7e8ea; --muted:#8a8f98; --faint:#5b6069;
+  --deploy:#f5c518; --healthy:#3ddc97; --degraded:#f5a524; --down:#f25f5c;
+  --f-sans:"Geist", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --f-mono:"Geist Mono", ui-monospace, Consolas, monospace;
+  --side:350px;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:13px/1.45 var(--f-sans)}
+button{font:inherit;font-size:12px;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;transition:border-color .15s, background .15s}
+button:hover{border-color:var(--border-2);background:var(--surface-3)}
+button:focus-visible,.svc:focus-visible,.svc-item-card:focus-visible{outline:2px solid var(--muted);outline-offset:2px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+
+.app{height:100dvh;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:radial-gradient(ellipse at 50% 48%, #17191d 0%, var(--bg) 50%, var(--bg-deep) 100%);padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 20px;flex-wrap:wrap;position:relative;z-index:2}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px}
+.pill{font-size:12px;font-weight:400;color:var(--muted);background:var(--surface-a);border:1px solid var(--border);border-radius:999px;padding:3px 10px}
+.status{display:flex;align-items:center;gap:8px}
+.clock{font:12px var(--f-mono);color:var(--muted);margin-left:6px}
+
+.mode-badge{font:11px var(--f-mono);padding:2px 8px;border-radius:999px;display:flex;align-items:center;gap:5px;cursor:pointer}
+.mode-badge.live{background:rgba(61,220,151,.12);color:var(--healthy);border:1px solid rgba(61,220,151,.3)}
+.mode-badge.stale{background:rgba(245,165,36,.12);color:var(--degraded);border:1px solid rgba(245,165,36,.3)}
+.mode-badge.sim{background:rgba(245,197,24,.12);color:var(--deploy);border:1px solid rgba(245,197,24,.3)}
+.mode-badge.err{background:rgba(242,95,92,.12);color:var(--down);border:1px solid rgba(242,95,92,.3)}
+
+.stage{position:relative;display:grid;grid-template-columns:var(--side) minmax(0,1fr) var(--side);gap:16px;padding-inline:20px;min-height:0}
+#globe{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:grab;display:block;z-index:0}
+.panel{position:relative;z-index:1;display:flex;flex-direction:column;gap:10px;min-height:0;align-self:center;max-height:100%}
+.panel.right{align-self:stretch;padding-block:2px 6px;justify-content:space-between}
+.center{position:relative;z-index:1;pointer-events:none;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding-bottom:18px;text-align:center}
+.cap{font-size:clamp(18px,1.8vw,24px);font-weight:500;letter-spacing:-.01em;transition:color .8s}
+.capsub{color:var(--muted);margin-top:2px}
+#toast{position:absolute;left:50%;top:6px;transform:translate(-50%,-6px);font-size:13px;padding:6px 14px;border-radius:999px;background:#13261d;color:var(--healthy);border:1px solid #24543d;opacity:0;transition:opacity .5s, transform .5s;white-space:nowrap;z-index:3;pointer-events:none}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+
+.card{position:relative;background:var(--surface-a);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid var(--border);border-radius:12px;padding:11px 13px;min-width:0}
+.ttl{font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.ttl-actions{display:flex;align-items:center;gap:4px}
+.tab-pill{font-size:10px;padding:2px 7px;border-radius:6px;background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer}
+.tab-pill.active{background:var(--surface-2);color:var(--text);border-color:var(--border-2)}
+.view-btn{padding:2px 6px;font-size:11px;line-height:1;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted)}
+.view-btn.active{background:var(--surface-2);color:var(--text);border-color:var(--border-2)}
+
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile .k{color:var(--muted);font-size:11px}
+.tile .v{font-size:26px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
+.legend{display:flex;flex-direction:column;gap:6px;color:var(--muted);font-size:11px}
+.legend span{display:flex;align-items:center;gap:7px}
+
+/* Pipeline & Running Beam */
+.beam{position:absolute;inset:-1px;width:calc(100% + 2px);height:calc(100% + 2px);pointer-events:none;overflow:visible}
+.beam rect{fill:none;stroke:var(--deploy);stroke-width:1.6;stroke-dasharray:20 80;animation:run 2.6s linear infinite;width:calc(100% - 1.6px);height:calc(100% - 1.6px)}
+@keyframes run{from{stroke-dashoffset:100}to{stroke-dashoffset:0}}
+.dep-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+.dep-title{font-weight:500;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge{font-size:10px;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.stages{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-bottom:10px}
+.stages .b{height:4px;border-radius:2px;background:var(--border);transition:background .4s}
+.stages span{display:block;color:var(--muted);font-size:9.5px;margin-top:3px}
+
+/* Top 3 Recent Deployments Section */
+.recent-sect{border-top:1px solid rgba(255,255,255,.06);padding-top:8px;margin-top:4px}
+.recent-ttl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;display:flex;justify-content:space-between}
+.recent-list{display:flex;flex-direction:column;gap:4px}
+.recent-item{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11px;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,.02);border:1px solid transparent}
+.recent-item:hover{border-color:var(--border)}
+.recent-item .info{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden}
+.recent-item .id{font:10px var(--f-mono);color:var(--muted)}
+.recent-item .name{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recent-item .sha{font:10px var(--f-mono);color:var(--faint)}
+.recent-item .time{font:10px var(--f-mono);color:var(--muted);white-space:nowrap}
+.badge-mini{font-size:9px;padding:1px 6px;border-radius:999px}
+.badge-mini.ok{background:#13261d;color:var(--healthy);border:1px solid #24543d}
+
+/* Services Container */
+.svc-card{display:flex;flex-direction:column;min-height:0;flex:1;margin-top:8px}
+.svcs-box{overflow-y:auto;overflow-x:hidden;min-height:0;flex:1;margin:0 -4px;padding:0 4px}
+.svcs-box::-webkit-scrollbar{width:4px}
+.svcs-box::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+
+/* List View */
+.svcs-list{display:flex;flex-direction:column;gap:2px}
+.svc{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 7px;border-radius:7px;cursor:pointer;border:1px solid transparent}
+.svc:hover{background:var(--surface-2)}
+.svc .n{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.svc .m{color:var(--muted);font:11px var(--f-mono);white-space:nowrap}
+.svc .beam rect{rx:7px}
+
+/* Card View for Core & Platform Containers */
+.svcs-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+.svc-item-card{position:relative;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:7px 9px;cursor:pointer;display:flex;flex-direction:column;gap:4px;transition:background .15s, border-color .15s}
+.svc-item-card:hover{background:var(--surface-3);border-color:var(--border-2)}
+.svc-item-card .card-head{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.svc-item-card .c-name{font-weight:500;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.svc-item-card .c-tag{font:10px var(--f-mono);padding:1px 5px;border-radius:4px;background:rgba(255,255,255,.05);color:var(--muted);white-space:nowrap}
+.svc-item-card .card-body{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-top:2px}
+.svc-item-card .c-life{font:10.5px var(--f-mono);color:var(--text);font-variant-numeric:tabular-nums}
+.svc-item-card .c-meta{font:10px var(--f-mono);color:var(--muted)}
+.svc-item-card .beam rect{rx:8px}
+
+.sec-sep{grid-column:1 / -1;font-size:10px;text-transform:uppercase;color:var(--faint);letter-spacing:.05em;padding:4px 2px 2px;display:flex;align-items:center;justify-content:space-between}
+
+/* Bottom Bar */
+.bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 20px 10px;position:relative;z-index:2;border-top:1px solid rgba(255,255,255,.04)}
+.bar .lbl{color:var(--faint);font-size:11px;margin-right:2px}
+.hint{margin-left:auto;color:var(--faint);font-size:11px}
+.opt-tag{font-size:10px;color:var(--healthy);background:rgba(61,220,151,.1);padding:2px 6px;border-radius:4px;margin-left:8px;border:1px solid rgba(61,220,151,.25)}
+
+@media (max-width:1150px){:root{--side:310px}.svcs-grid{grid-template-columns:1fr}}
+@media (max-width:900px){
+  .app{height:auto;min-height:100dvh}
+  .stage{grid-template-columns:1fr;padding-inline:14px}
+  #globe{position:relative;height:55vh;order:0}
+  .center{order:1;margin-top:-60px}
+  .panel{align-self:auto;order:2}
+  .panel.right{order:3}
+  .hint{display:none}
+}
+@media (prefers-reduced-motion:reduce){.beam rect{animation-duration:9s}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg>
+      aibot ops <span class="pill" id="envPill">env: qa · fireflink ▾</span>
+      <span class="mode-badge live" id="modeBadge" title="Click to refresh telemetry">● Live Sync</span>
+    </div>
+    <div class="status"><span class="dot" id="hdot"></span><span id="hl"></span><span class="clock" id="clk"></span></div>
+  </header>
+
+  <section class="stage">
+    <canvas id="globe" aria-label="Environment health globe"></canvas>
+
+    <!-- LEFT PANEL: Summary Metrics & Legend -->
+    <aside class="panel left">
+      <div class="tiles">
+        <div class="card tile"><div class="k">Running Containers</div><div class="v" id="nR">12</div></div>
+        <div class="card tile"><div class="k">Healthy</div><div class="v" style="color:var(--healthy)" id="nH">0</div></div>
+        <div class="card tile"><div class="k">Degraded / Slow</div><div class="v" style="color:var(--degraded)" id="nW">0</div></div>
+        <div class="card tile"><div class="k">Down</div><div class="v" style="color:var(--down)" id="nX">0</div></div>
+      </div>
+      <div class="card">
+        <div class="ttl"><span>Globe Telemetry</span></div>
+        <div class="legend">
+          <span><i class="dot" style="background:var(--healthy)"></i>heartbeat: calm pulse when cluster is healthy</span>
+          <span><i class="dot" style="background:var(--degraded)"></i>degraded: amber warning ping, elevated pulse</span>
+          <span><i class="dot" style="background:var(--down)"></i>down: red radar ring, rapid alert beat</span>
+          <span><i style="display:inline-block;width:14px;height:2px;background:var(--deploy)"></i>deploying: running beam around container</span>
+          <span><i class="dot" style="background:var(--healthy);opacity:.5"></i>green shockwave: deployment validated</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER BANNER -->
+    <div class="center">
+      <div id="toast" role="status"></div>
+      <div class="cap" id="cap"></div>
+      <div class="capsub" id="capsub"></div>
+    </div>
+
+    <!-- RIGHT PANEL: Pipeline, Top 3 Deployments, & Core/Platform Services Cards -->
+    <aside class="panel right">
+      <!-- DEPLOYMENT CARD -->
+      <div class="card" id="depCard">
+        <svg class="beam" id="beam" preserveAspectRatio="none" aria-hidden="true"><rect x="0.8" y="0.8" rx="12" ry="12" pathLength="100"/></svg>
+        <div class="ttl"><span>Active Deployment</span><span id="dtime"></span></div>
+        <div class="dep-head">
+          <span class="dep-title" id="dactiveName">ai-service · #142 · v2.8.3</span>
+          <span class="badge" id="dstat"></span>
+        </div>
+        <div class="stages" id="stages"></div>
+
+        <!-- TOP 3 RECENT DEPLOYMENTS -->
+        <div class="recent-sect">
+          <div class="recent-ttl">
+            <span>Recent Activity (Top 3)</span>
+            <span>Jenkins CI</span>
+          </div>
+          <div class="recent-list" id="recentList">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- SERVICES CARD (CORE & PLATFORM RUNTIME) -->
+      <div class="card svc-card">
+        <div class="ttl">
+          <span>Containers & Lifetime</span>
+          <div class="ttl-actions">
+            <button class="tab-pill active" data-tab="all">All (12)</button>
+            <button class="tab-pill" data-tab="core">Core (8)</button>
+            <button class="tab-pill" data-tab="plat">Platform (4)</button>
+            <button class="view-btn" id="toggleView" title="Toggle List/Card view">⊞ Cards</button>
+          </div>
+        </div>
+
+        <div class="svcs-box">
+          <div id="svcsView"></div>
+        </div>
+      </div>
+    </aside>
+  </section>
+
+  <!-- BOTTOM BAR: Prototype simulator & controls -->
+  <footer class="bar">
+    <span class="lbl">Simulator:</span>
+    <button data-sc="ok">All healthy</button>
+    <button data-sc="deg">1 degraded</button>
+    <button data-sc="mix">2 down, 1 degraded</button>
+    <button data-sc="out">Major outage</button>
+    <button id="sim">Replay deployment</button>
+    <button id="resumeLive" style="display:none;background:#13261d;color:var(--healthy);border-color:#24543d">⟳ Resume Live Sync</button>
+    <span class="lbl">· tap any card to test status</span>
+    <span class="hint">0% background CPU when tab hidden</span>
+  </footer>
+</div>
+
+<script>
+(() => {
+/* -------------------------------------------------------------
+   SERVICE & CONTAINER RUNTIME DATA MODEL
+   Separated into Core Microservices & Platform/AI Services
+------------------------------------------------------------- */
+let SV=[
+  // Core Spring Boot Microservices
+  {id:"api-gateway", name:"api-gateway", ver:"v2.4.1", cat:"core", port:6002, uptime:"Up 12d 4h", restarts:0},
+  {id:"auth-service", name:"auth-service", ver:"v1.9.0", cat:"core", port:6004, uptime:"Up 12d 4h", restarts:0},
+  {id:"interview-service", name:"interview-service", ver:"v3.2.0", cat:"core", port:6006, uptime:"Up 12d 4h", restarts:0},
+  {id:"ai-service", name:"ai-service", ver:"v2.8.3", cat:"core", port:6003, uptime:"Up 45m", restarts:0},
+  {id:"ops-service", name:"ops-service", ver:"v1.4.2", cat:"core", port:6005, uptime:"Up 12d 4h", restarts:0},
+  {id:"review-service", name:"review-service", ver:"v1.2.0", cat:"core", port:6008, uptime:"Up 12d 4h", restarts:0},
+  {id:"questionbank-service", name:"questionbank", ver:"v1.6.1", cat:"core", port:6016, uptime:"Up 12d 4h", restarts:0},
+  {id:"screening-service", name:"screening", ver:"v1.1.4", cat:"core", port:6017, uptime:"Up 12d 4h", restarts:0},
+
+  // Platform & AI Inference Engines
+  {id:"eureka-server", name:"eureka-server", ver:"v1.0.3", cat:"plat", port:6009, uptime:"Up 12d 4h", restarts:0},
+  {id:"kokoro-tts", name:"kokoro-tts", ver:"gpu", cat:"plat", port:6014, uptime:"Up 3d 18h", restarts:0},
+  {id:"whisper-stt", name:"whisper-stt", ver:"cpu", cat:"plat", port:6013, uptime:"Up 3d 18h", restarts:0},
+  {id:"logstash", name:"logstash", ver:"8.11", cat:"plat", port:5044, uptime:"Up 12d 4h", restarts:0}
+];
+
+let RECENT_DEPLOYS=[
+  {id:142, svc:"ai-service", ver:"v2.8.3", sha:"6b8e1f0", time:"45m ago", status:"success"},
+  {id:141, svc:"api-gateway", ver:"v2.4.1", sha:"8a3d12c", time:"1d ago", status:"success"},
+  {id:140, svc:"auth-service", ver:"v1.9.0", sha:"e490b81", time:"3d ago", status:"success"}
+];
+
+let st=SV.map(()=>"ok");
+const COL={ok:"var(--healthy)",warn:"var(--degraded)",down:"var(--down)",dep:"var(--deploy)"};
+const STAGES=["trigger","build","push","deploy","health","live"];
+let step=6, timer=null, justDeployed=false, depStart=0, toastTimer=null;
+let currentTab="all"; // "all" | "core" | "plat"
+let viewMode="card";  // "card" | "list"
+let isSimulatorMode=false;
+let lastSyncTime=0;
+const $=id=>document.getElementById(id);
+let prev=[...st];
+const RIPPLE_COL={down:[242,95,92],warn:[245,165,36],ok:[61,220,151]};
+const TOAST_STYLE={down:["#2a1515","var(--down)","#5a2624"],warn:["#2a2210","var(--degraded)","#4a3a17"],ok:["#13261d","var(--healthy)","#24543d"]};
+
+function toast(msg,kind){
+  const t=$("toast"),[bg,fg,bd]=TOAST_STYLE[kind];
+  t.textContent=msg; t.style.background=bg; t.style.color=fg; t.style.borderColor=bd;
+  t.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove("show"),4200);
+}
+
+function announceChanges(){
+  const went={down:[],warn:[],ok:[]};
+  st.forEach((s,i)=>{
+    if(s!==prev[i]){
+      went[s].push(SV[i].name);
+      G.ripple(anchors[i],RIPPLE_COL[s],2800);
+      prev[i]=s;
+    }
+  });
+  const parts=[];
+  if(went.down.length) parts.push(went.down.length===1?`${went.down[0]} is down`:`${went.down.length} services went down`);
+  if(went.warn.length) parts.push(went.warn.length===1?`${went.warn[0]} is degraded`:`${went.warn.length} services degraded`);
+  if(went.ok.length) parts.push(went.ok.length===1?`${went.ok[0]} recovered`:`${went.ok.length} services recovered`);
+  if(parts.length) toast(parts.join(" · "), went.down.length?"down":went.warn.length?"warn":"ok");
+}
+
+function svcState(i){return (i===3 && step<6)?"dep":st[i]}
+
+/* ---------------- Render Deployment Recent History ---------------- */
+function renderRecentDeployments(){
+  $("recentList").innerHTML=RECENT_DEPLOYS.map(d=>`
+    <div class="recent-item">
+      <div class="info">
+        <span class="id">#${d.id}</span>
+        <span class="name">${d.svc}</span>
+        <span class="sha">${d.ver} · ${d.sha}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="time">${d.time}</span>
+        <span class="badge-mini ok">✓ live</span>
+      </div>
+    </div>
+  `).join("");
+}
+
+/* ---------------- Render Main UI (Summary, Pipeline, Services) ---------------- */
+function render(){
+  const filtered=SV.map((item,i)=>({item, i})).filter(({item})=>currentTab==="all" || item.cat===currentTab);
+
+  if(viewMode==="card"){
+    const showHeaders = currentTab === "all";
+    const coreItems = filtered.filter(({item})=>item.cat==="core");
+    const platItems = filtered.filter(({item})=>item.cat==="plat");
+
+    let html = '<div class="svcs-grid">';
+
+    const renderCard = ({item, i}) => {
+      const s=svcState(i);
+      const isDep = s==="dep";
+      const beam=isDep?'<svg class="beam" preserveAspectRatio="none" aria-hidden="true"><rect x="0.8" y="0.8" rx="8" ry="8" pathLength="100"/></svg>':"";
+      const meta = s==="down" ? "DOWN" : s==="warn" ? "DEGRADED" : (i===3&&justDeployed) ? "Up 0m" : item.uptime;
+      const statusColor = COL[s];
+      return `
+        <div class="svc-item-card" tabindex="0" role="button" aria-label="${item.name}, ${s}" data-i="${i}">
+          ${beam}
+          <div class="card-head">
+            <span style="display:flex;align-items:center;gap:6px;min-width:0">
+              <i class="dot" style="background:${statusColor}"></i>
+              <span class="c-name">${item.name}</span>
+            </span>
+            <span class="c-tag">${item.ver}</span>
+          </div>
+          <div class="card-body">
+            <span class="c-life" style="${s==='down'?'color:var(--down)':s==='warn'?'color:var(--degraded)':''}">${meta}</span>
+            <span class="c-meta">:${item.port}</span>
+          </div>
+        </div>
+      `;
+    };
+
+    if(showHeaders && coreItems.length){
+      html += `<div class="sec-sep"><span>Core Microservices (${coreItems.length})</span><span>Spring Boot</span></div>`;
+      html += coreItems.map(renderCard).join("");
+    }
+    if(showHeaders && platItems.length){
+      html += `<div class="sec-sep" style="margin-top:6px"><span>Platform & AI Engines (${platItems.length})</span><span>GPU / Infra</span></div>`;
+      html += platItems.map(renderCard).join("");
+    }
+    if(!showHeaders){
+      html += filtered.map(renderCard).join("");
+    }
+
+    html += '</div>';
+    $("svcsView").innerHTML = html;
+  } else {
+    // List View
+    $("svcsView").innerHTML = `<div class="svcs-list">` + filtered.map(({item, i})=>{
+      const s=svcState(i);
+      const isDep = s==="dep";
+      const beam=isDep?'<svg class="beam" preserveAspectRatio="none" aria-hidden="true"><rect x="0.8" y="0.8" rx="7" ry="7" pathLength="100"/></svg>':"";
+      const meta = s==="down" ? "unreachable" : s==="warn" ? "slow 4.1s" : (i===3&&justDeployed) ? "up 0m" : item.uptime;
+      const mcol = s==="down" ? "color:var(--down)" : s==="warn" ? "color:var(--degraded)" : s==="dep" ? "color:var(--deploy)" : "";
+      return `
+        <div class="svc" tabindex="0" role="button" aria-label="${item.name}, ${s}" data-i="${i}">
+          ${beam}
+          <i class="dot" style="background:${COL[s]}"></i>
+          <span class="n">${item.name} <span style="font-size:10px;color:var(--faint)">(:${item.port})</span></span>
+          <span class="m" style="${mcol}">${item.ver} · ${meta}</span>
+        </div>
+      `;
+    }).join("") + `</div>`;
+  }
+
+  // Summary Tiles calculation
+  const nX=st.filter(s=>s==="down").length, nW=st.filter(s=>s==="warn").length, nH=SV.length-nX-nW;
+  $("nH").textContent=nH; $("nW").textContent=nW; $("nX").textContent=nX; $("nR").textContent=SV.length-nX;
+  $("hdot").style.background=nX?COL.down:nW?COL.warn:COL.ok;
+  $("hl").textContent=nX?`${nX} down · ${nW} degraded`:nW?`${nW} degraded`:`all ${SV.length} containers healthy`;
+
+  const cap=$("cap");
+  cap.textContent=nX>=4?"Major outage":nX?"Incident in progress":nW?"Degraded performance":"All systems normal";
+  cap.style.color=nX?"var(--down)":nW?"var(--degraded)":"var(--text)";
+  $("capsub").textContent=`${SV.length} containers · qa · fireflink`+(step<6?" · 1 active deployment":"");
+
+  // Stages
+  $("stages").innerHTML=STAGES.map((s,i)=>`<div><div class="b" style="background:${i<step?"var(--healthy)":i===step?"var(--deploy)":"var(--border)"}"></div><span>${s}</span></div>`).join("");
+  const live=step>=6;
+  $("beam").style.display=live?"none":"block";
+  const ds=$("dstat");
+  ds.textContent=live?"live · healthy":["triggered","building","pushing","deploying","health check"][step];
+  ds.style.background=live?"#13261d":"#2e2810"; ds.style.color=live?"var(--healthy)":"var(--deploy)";
+}
+
+// Service interaction: click to toggle status (switches to simulator mode)
+$("svcsView").addEventListener("click",e=>{
+  const c=e.target.closest(".svc, .svc-item-card");
+  if(!c) return;
+  const i=+c.dataset.i;
+  enterSimulatorMode();
+  st[i]={ok:"warn",warn:"down",down:"ok"}[st[i]];
+  render();
+  announceChanges();
+});
+
+// Category Tabs
+document.querySelectorAll(".tab-pill").forEach(btn=>{
+  btn.onclick=()=>{
+    document.querySelectorAll(".tab-pill").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    currentTab=btn.dataset.tab;
+    render();
+  };
+});
+
+// View Toggle (Card vs List)
+$("toggleView").onclick=()=>{
+  viewMode = viewMode === "card" ? "list" : "card";
+  $("toggleView").textContent = viewMode === "card" ? "☰ List" : "⊞ Cards";
+  $("toggleView").classList.toggle("active", viewMode === "list");
+  render();
+};
+
+const SC={
+  ok:[],
+  deg:[[9,"warn"]], // kokoro slow
+  mix:[[2,"down"],[9,"down"],[11,"warn"]],
+  out:[[0,"down"],[1,"down"],[2,"down"],[4,"down"],[6,"down"],[9,"warn"],[11,"warn"]]
+};
+function applyScenario(name){
+  enterSimulatorMode();
+  st.fill("ok");
+  SC[name].forEach(([i,s])=>st[i]=s);
+  render();
+  announceChanges();
+}
+document.querySelectorAll("[data-sc]").forEach(b=>b.onclick=()=>applyScenario(b.dataset.sc));
+
+function enterSimulatorMode(){
+  isSimulatorMode=true;
+  $("modeBadge").className="mode-badge sim";
+  $("modeBadge").textContent="⚡ Simulator Mode";
+  $("resumeLive").style.display="inline-block";
+}
+
+$("resumeLive").onclick=()=>{
+  isSimulatorMode=false;
+  $("resumeLive").style.display="none";
+  fetchLiveStatus();
+};
+
+$("modeBadge").onclick=()=>{
+  if(isSimulatorMode){
+    isSimulatorMode=false;
+    $("resumeLive").style.display="none";
+  }
+  fetchLiveStatus();
+};
+
+function playDeploymentSimulation(){
+  enterSimulatorMode();
+  clearInterval(timer);
+  step=0;
+  justDeployed=false;
+  depStart=Date.now();
+  st[3]="ok";
+  render();
+  timer=setInterval(()=>{
+    step++;
+    render();
+    if(step>=6){
+      clearInterval(timer);
+      justDeployed=true;
+      render();
+      G.ripple(G.front(),[61,220,151],3200);
+      toast("✓ ai-service v2.8.3 successfully verified & live","ok");
+    }
+  },1500);
+}
+$("sim").onclick=playDeploymentSimulation;
+
+/* -------------------------------------------------------------
+   LIVE STATUS.JSON FETCHER (ZERO-LOAD RESILIENT CLIENT HOOK)
+   - Fetches ./status.json with cache buster
+   - Validates generatedAt for staleness (> 60s)
+   - Graceful fallback on network drop (preserves last state)
+   - Respects Page Visibility API
+------------------------------------------------------------- */
+async function fetchLiveStatus(){
+  if(isSimulatorMode) return; // Keep simulator override if active
+
+  try {
+    const res = await fetch(`./status.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    // Check data freshness
+    if (data.generatedAt) {
+      const ageSec = Math.round((Date.now() - new Date(data.generatedAt).getTime()) / 1000);
+      if (ageSec > 60) {
+        $("modeBadge").className = "mode-badge stale";
+        $("modeBadge").textContent = `⚠️ Stale (${Math.round(ageSec/60)}m ago)`;
+      } else {
+        $("modeBadge").className = "mode-badge live";
+        $("modeBadge").textContent = "● Live Sync";
+      }
+    }
+
+    if (data.environment) {
+      $("envPill").textContent = `env: ${data.environment} ▾`;
+    }
+
+    // Merge Container data
+    if (Array.isArray(data.containers)) {
+      data.containers.forEach(c => {
+        const idx = SV.findIndex(item => item.id === c.id || item.name === c.name);
+        if (idx !== -1) {
+          if (c.ver) SV[idx].ver = c.ver;
+          if (c.port) SV[idx].port = c.port;
+          if (c.uptime) SV[idx].uptime = c.uptime;
+          if (c.status) {
+            st[idx] = c.status === "healthy" ? "ok" : c.status === "warn" ? "warn" : "down";
+          }
+        }
+      });
+    }
+
+    // Merge recent deployments
+    if (data.deployment && Array.isArray(data.deployment.recent)) {
+      RECENT_DEPLOYS = data.deployment.recent;
+      renderRecentDeployments();
+    }
+
+    render();
+    announceChanges();
+    lastSyncTime = Date.now();
+  } catch (err) {
+    // On fetch error, do not blank screen; show reconnecting
+    if (!isSimulatorMode) {
+      $("modeBadge").className = "mode-badge err";
+      $("modeBadge").textContent = "⚠️ Reconnecting...";
+    }
+  }
+}
+
+// Initial fetch and 15s poll interval
+renderRecentDeployments();
+render();
+fetchLiveStatus();
+setInterval(() => {
+  if (document.visibilityState === "visible") {
+    fetchLiveStatus();
+  }
+}, 15000);
+
+// Clock & elapsed timer
+setInterval(()=>{$("clk").textContent=new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  if(depStart){const s=Math.round((Date.now()-depStart)/1000); $("dtime").textContent=step<6?`${s}s elapsed`:"just now";}},1000);
+
+
+/* -------------------------------------------------------------
+   OPTIMIZED GLOBE ENGINE (MINIMAL CLIENT & GPU LOAD)
+   - Particle count capped at ~900 (crisp, yet 60% less compute)
+   - Throttles rendering to 35 FPS when idle
+   - Completely pauses requestAnimationFrame when browser tab is hidden
+------------------------------------------------------------- */
+const cv=$("globe"), cx=cv.getContext("2d");
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+let W=0,H=0,R=0,CX=0,CY=0,dpr=Math.min(2,window.devicePixelRatio||1), P=[];
+const anchors=SV.map((_,i)=>{
+  const n=SV.length, y=0.7-(i/(n-1))*1.4, r=Math.sqrt(1-y*y), t=i*2.399+0.6;
+  return{x:Math.cos(t)*r, y, z:Math.sin(t)*r};
+});
+
+function buildParticles(){
+  const n=Math.round(Math.min(950, Math.max(650, (R*R)/36)));
+  const ga=Math.PI*(3-Math.sqrt(5));
+  P=[];
+  for(let i=0;i<n;i++){
+    const y=1-(i/(n-1))*2, r=Math.sqrt(1-y*y), t=ga*i;
+    P.push({x:Math.cos(t)*r, y, z:Math.sin(t)*r, ox:0, oy:0, ph:Math.random()*6.283, tw:0.6+Math.random()*0.4});
+  }
+}
+
+function size(){
+  W=cv.clientWidth; H=cv.clientHeight; cv.width=W*dpr; cv.height=H*dpr; cx.setTransform(dpr,0,0,dpr,0,0);
+  const side=parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--side"))||350;
+  const wide=W>900, free=wide?W-2*(side+36):W;
+  R=Math.max(120,Math.min(free*0.5, H*0.37)); CX=W/2; CY=H*(wide?0.46:0.5);
+  buildParticles();
+}
+new ResizeObserver(size).observe(cv); size();
+
+let rotY=0, rotX=0.28, vY=0.0022, vX=0, drag=false, lx=0, ly=0, mx=-9999, my=-9999;
+const ripples=[];
+const G={
+  front(){const cy=Math.cos(rotY),sy=Math.sin(rotY),c=Math.cos(rotX),s=Math.sin(rotX); return {x:-sy*c, y:s, z:cy*c};},
+  ripple(o,col,dur){ripples.push({o,col,t0:performance.now(),dur});}
+};
+function project(x,y,z){
+  const cy=Math.cos(rotY),sy=Math.sin(rotY); let X=x*cy+z*sy, Z=-x*sy+z*cy;
+  const c=Math.cos(rotX),s=Math.sin(rotX); const Y=y*c-Z*s; Z=y*s+Z*c;
+  const k=2.6/(2.6-Z); return {px:CX+X*R*k, py:CY+Y*R*k, z:Z, s:k};
+}
+function nearestOnSphere(sx,sy){
+  let best=null,bd=1e9;
+  for(const p of P){
+    const q=project(p.x,p.y,p.z);
+    if(q.z<0) continue;
+    const d=(q.px-sx)**2+(q.py-sy)**2;
+    if(d<bd){bd=d;best=p;}
+  }
+  return bd<(R*0.25)**2&&best?{x:best.x,y:best.y,z:best.z}:null;
+}
+
+cv.addEventListener("pointerdown",e=>{
+  drag=true; lx=e.clientX; ly=e.clientY; cv.setPointerCapture(e.pointerId); cv.style.cursor="grabbing";
+  const b=cv.getBoundingClientRect(), o=nearestOnSphere(e.clientX-b.left,e.clientY-b.top);
+  if(o) G.ripple(o,[232,234,238],2400);
+});
+cv.addEventListener("pointermove",e=>{
+  const b=cv.getBoundingClientRect(); mx=e.clientX-b.left; my=e.clientY-b.top;
+  if(drag){vY=(e.clientX-lx)*0.0012; vX=(e.clientY-ly)*0.0012; lx=e.clientX; ly=e.clientY;}
+});
+const endDrag=()=>{drag=false; cv.style.cursor="grab";};
+cv.addEventListener("pointerup",endDrag);
+cv.addEventListener("pointercancel",endDrag);
+cv.addEventListener("pointerleave",()=>{mx=my=-9999;});
+
+const BASE=[214,217,224], RED=[242,95,92], AMB=[245,165,36], GRN=[61,220,151];
+const mixc=(a,b,k)=>[a[0]+(b[0]-a[0])*k,a[1]+(b[1]-a[1])*k,a[2]+(b[2]-a[2])*k];
+const ang=(p,a)=>Math.acos(Math.max(-1,Math.min(1,p.x*a.x+p.y*a.y+p.z*a.z)));
+const gauss=(u,c,w)=>Math.exp(-(((u-c)/w)**2));
+let mood=[...GRN], moodSev=0;
+let lastFrame=0;
+let isTabVisible=true;
+
+function frame(t){
+  if(!isTabVisible) return;
+
+  const isBusy = drag || ripples.length > 0 || step < 6;
+  const frameInterval = isBusy ? 16 : 28;
+  if(t - lastFrame < frameInterval){
+    requestAnimationFrame(frame);
+    return;
+  }
+  lastFrame = t;
+
+  cx.clearRect(0,0,W,H);
+  if(!drag){vY+=((reduce?0.0005:0.0022)-vY)*0.015; vX*=0.94; rotX+=(0.28-rotX)*0.01;}
+  rotY+=vY; rotX=Math.max(-0.9,Math.min(0.9,rotX+vX));
+  const sec=t/1000, nDown=st.filter(v=>v==="down").length, nWarn=st.filter(v=>v==="warn").length;
+  const sevTarget=nDown?0.6+Math.min(0.4,nDown*0.08):nWarn?0.3:0;
+  moodSev+=(sevTarget-moodSev)*0.02;
+  const target=nDown?RED:nWarn?AMB:GRN; mood=mixc(mood,target,0.02);
+  const tint=Math.min(1,nDown/5);
+  const base=mixc(BASE,RED,tint*0.3);
+
+  // Heartbeat pulse
+  const period=reduce?6:(3.6-1.6*moodSev), u=(sec%period)/period;
+  const beat=reduce?0:gauss(u,0.06,0.035)+0.55*gauss(u,0.2,0.04);
+  const pulseScale=1+0.016*beat;
+
+  // Globe aura
+  const aura=cx.createRadialGradient(CX,CY,R*0.9,CX,CY,R*1.5);
+  aura.addColorStop(0,`rgba(${mood[0]|0},${mood[1]|0},${mood[2]|0},${(0.05+0.05*moodSev+0.05*beat).toFixed(3)})`);
+  aura.addColorStop(1,"rgba(0,0,0,0)");
+  cx.fillStyle=aura; cx.beginPath(); cx.arc(CX,CY,R*1.5,0,6.283); cx.fill();
+
+  // Heartbeat shockwave ring
+  if(!reduce){
+    const e=u/0.55;
+    if(e<1){
+      cx.strokeStyle=`rgba(${mood[0]|0},${mood[1]|0},${mood[2]|0},${(0.22*(1-e)*(0.6+0.4*moodSev)).toFixed(3)})`;
+      cx.lineWidth=1.2; cx.beginPath(); cx.arc(CX,CY,R*(1.02+e*0.32),0,6.283); cx.stroke();
+    }
+  }
+
+  const issues=[];
+  st.forEach((v,i)=>{if(v!=="ok") issues.push([anchors[i],v,i]);});
+  for(let i=ripples.length-1;i>=0;i--) if(t-ripples[i].t0>ripples[i].dur) ripples.splice(i,1);
+
+  for(const p of P){
+    const breathe=1+0.016*Math.sin(sec*0.6+p.ph);
+    let k=0, c=base, grow=0;
+    for(const [a,v] of issues){
+      const d=ang(p,a);
+      if(v==="down"){
+        const r=0.17;
+        if(d<r){
+          const kk=(1-d/r)*(0.65+0.35*beat);
+          if(kk>k){k=kk;c=mixc(base,RED,kk);grow=kk;}
+        }
+      } else {
+        const r=0.21*(0.88+0.12*Math.sin(sec*1.4));
+        if(d<r){
+          const kk=(1-d/r)*(0.45+0.3*beat);
+          if(kk>k){k=kk;c=mixc(base,AMB,kk);grow=kk*0.6;}
+        }
+      }
+    }
+    let lift=0;
+    for(const r of ripples){
+      const e=(t-r.t0)/r.dur, front=e*Math.PI*0.9, d=Math.abs(ang(p,r.o)-front);
+      if(d<0.3){
+        const g=(1-d/0.3)*(1-e);
+        lift=Math.max(lift,g*0.1);
+        if(g>k){k=g;c=mixc(base,r.col,Math.min(1,g*1.3));grow=g;}
+      }
+    }
+    const s=(breathe+lift)*pulseScale;
+    const q=project(p.x*s,p.y*s,p.z*s);
+    const dx=q.px-mx, dy=q.py-my, d2=dx*dx+dy*dy, rad=drag?150:110;
+    if(d2<rad*rad && q.z>-0.1){
+      const d=Math.sqrt(d2)||1, f=(1-d/rad)**2*(drag?34:22);
+      p.ox+=((dx/d)*f-p.ox)*0.08; p.oy+=((dy/d)*f-p.oy)*0.08;
+    } else {
+      p.ox*=0.955; p.oy*=0.955;
+    }
+    const depth=(q.z+1)/2;
+    const a=Math.min(1,(0.04+0.82*depth*depth)*p.tw*(1+0.18*beat)+0.35*k);
+    const rr=(0.55+1.15*depth)*q.s*0.55+grow*1.4;
+    cx.fillStyle=`rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a.toFixed(3)})`;
+    cx.beginPath(); cx.arc(q.px+p.ox,q.py+p.oy,rr,0,6.283); cx.fill();
+  }
+
+  for(const [a,v,i] of issues){
+    const q=project(a.x*pulseScale,a.y*pulseScale,a.z*pulseScale);
+    if(q.z<0.15) continue;
+    const vis=Math.min(1,(q.z-0.15)*2.5), col=v==="down"?"242,95,92":"245,165,36";
+    const glow=cx.createRadialGradient(q.px,q.py,0,q.px,q.py,R*0.2);
+    glow.addColorStop(0,`rgba(${col},${((v==="down"?0.22:0.14)*(0.7+0.3*beat)*vis).toFixed(3)})`);
+    glow.addColorStop(1,`rgba(${col},0)`);
+    cx.fillStyle=glow; cx.beginPath(); cx.arc(q.px,q.py,R*0.2,0,6.283); cx.fill();
+    if(v==="down"){
+      for(let j=0;j<2;j++){
+        const e=((sec*0.55+j*0.5)%1);
+        cx.strokeStyle=`rgba(${col},${(0.5*(1-e)*vis).toFixed(3)})`;
+        cx.lineWidth=1.2; cx.beginPath(); cx.arc(q.px,q.py,8+e*R*0.22,0,6.283); cx.stroke();
+      }
+    }
+    cx.font="500 12px Geist, Segoe UI, sans-serif";
+    const label=SV[i].name, w=cx.measureText(label).width+16, ly2=q.py-R*0.22;
+    cx.fillStyle=`rgba(17,18,20,${0.82*vis})`;
+    cx.strokeStyle=`rgba(${col},${0.55*vis})`;
+    cx.lineWidth=1;
+    cx.beginPath(); cx.roundRect(q.px-w/2,ly2-11,w,22,11); cx.fill(); cx.stroke();
+    cx.fillStyle=`rgba(${col},${vis})`; cx.textAlign="center"; cx.textBaseline="middle"; cx.fillText(label,q.px,ly2);
+    cx.strokeStyle=`rgba(${col},${0.3*vis})`; cx.beginPath(); cx.moveTo(q.px,ly2+11); cx.lineTo(q.px,q.py-6); cx.stroke();
+  }
+  requestAnimationFrame(frame);
+}
+
+// Start render loop
+requestAnimationFrame(frame);
+
+// Page Visibility API to halt loop when user switches tabs (saves 100% background CPU)
+document.addEventListener("visibilitychange",()=>{
+  isTabVisible=!document.hidden;
+  if(isTabVisible){
+    lastFrame=performance.now();
+    requestAnimationFrame(frame);
+    fetchLiveStatus(); // sync fresh state immediately on refocus
+  }
+});
+
+})();
+</script>
+</body>
+</html>

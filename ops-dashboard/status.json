@@ -1,0 +1,148 @@
+{
+  "environment": "qa · fireflink",
+  "generatedAt": "2026-10-13T13:09:20Z",
+  "summary": {
+    "total": 12,
+    "running": 12,
+    "healthy": 12,
+    "warn": 0,
+    "down": 0
+  },
+  "deployment": {
+    "active": {
+      "service": "ai-service",
+      "build": 142,
+      "version": "v2.8.3",
+      "stage": "live",
+      "status": "success",
+      "elapsedSeconds": 0
+    },
+    "recent": [
+      { "id": 142, "svc": "ai-service", "ver": "v2.8.3", "sha": "6b8e1f0", "time": "45m ago", "status": "success" },
+      { "id": 141, "svc": "api-gateway", "ver": "v2.4.1", "sha": "8a3d12c", "time": "1d ago", "status": "success" },
+      { "id": 140, "svc": "auth-service", "ver": "v1.9.0", "sha": "e490b81", "time": "3d ago", "status": "success" }
+    ]
+  },
+  "containers": [
+    {
+      "id": "api-gateway",
+      "name": "api-gateway",
+      "cat": "core",
+      "port": 6002,
+      "ver": "v2.4.1",
+      "status": "healthy",
+      "uptime": "Up 12d 4h",
+      "restarts": 0
+    },
+    {
+      "id": "auth-service",
+      "name": "auth-service",
+      "cat": "core",
+      "port": 6004,
+      "ver": "v1.9.0",
+      "status": "healthy",
+      "uptime": "Up 12d 4h",
+      "restarts": 0
+    },
+    {
+      "id": "interview-service",
+      "name": "interview-service",
+      "cat": "core",
+      "port": 6006,
+      "ver": "v3.2.0",
+      "status": "healthy",
+      "uptime": "Up 12d 4h",
+      "restarts": 0
+    },
+    {
+      "id": "ai-service",
+      "name": "ai-service",
+      "cat": "core",
+      "port": 6003,
+      "ver": "v2.8.3",
+      "status": "healthy",
+      "uptime": "Up 45m",
+      "restarts": 0
+    },
+    {
+      "id": "ops-service",
+      "name": "ops-service",
+      "cat": "core",
+      "port": 6005,
+      "ver": "v1.4.2",
+      "status": "healthy",
+      "uptime": "Up 12d 4h",
+      "restarts": 0
+    },
+    {
+      "id": "review-service",
+      "name": "review-service",
+      "cat": "core",
+      "port": 6008,
+      "ver": "v1.2.0",
+      "status": "healthy",
+      "uptime": "Up 12d 4h",
+      "restarts": 0
+    },
+    {
+      "id": "questionbank-service",
+      "name": "questionbank",
+      "cat": "core",
+      "port": 6016,
+      "ver": "v1.6.1",
+      "status": "healthy",
+      "uptime": "Up 12d 4h",
+      "restarts": 0
+    },
+    {
+      "id": "screening-service",
+      "name": "screening",
+      "cat": "core",
+      "port": 6017,
+      "ver": "v1.1.4",
+      "status": "healthy",
+      "uptime": "Up 12d 4h",
+      "restarts": 0
+    },
+    {
+      "id": "eureka-server",
+      "name": "eureka-server",
+      "cat": "plat",
+      "port": 6009,
+      "ver": "v1.0.3",
+      "status": "healthy",
+      "uptime": "Up 12d 4h",
+      "restarts": 0
+    },
+    {
+      "id": "kokoro-tts",
+      "name": "kokoro-tts",
+      "cat": "plat",
+      "port": 6014,
+      "ver": "gpu",
+      "status": "healthy",
+      "uptime": "Up 3d 18h",
+      "restarts": 0
+    },
+    {
+      "id": "whisper-stt",
+      "name": "whisper-stt",
+      "cat": "plat",
+      "port": 6013,
+      "ver": "cpu",
+      "status": "healthy",
+      "uptime": "Up 3d 18h",
+      "restarts": 0
+    },
+    {
+      "id": "logstash",
+      "name": "logstash",
+      "cat": "plat",
+      "port": 5044,
+      "ver": "8.11",
+      "status": "healthy",
+      "uptime": "Up 12d 4h",
+      "restarts": 0
+    }
+  ]
+}
