@@ -1093,9 +1093,17 @@ public class InterviewService {
             String userRole,
             com.benchreadiness.interview.service.BranchInterviewValidator branchValidator) {
 
+        // Fix 6.14: OrgContext/BranchContext are ThreadLocals set by HeaderAuthenticationFilter on the
+        // request thread only. Capture them here and re-apply on each worker thread, otherwise every
+        // bulk interview falls back to the default org (TESTYANTRA) and the role's default branch.
+        final String callerOrg = com.benchreadiness.interview.org.OrgContext.get();
+        final String callerBranch = com.benchreadiness.interview.branch.BranchContext.get();
+
         List<CompletableFuture<BulkCreateInterviewResult.CandidateResult>> futures =
             req.getCandidates().stream().map(candidate ->
                 CompletableFuture.supplyAsync(() -> {
+                    com.benchreadiness.interview.org.OrgContext.set(callerOrg);
+                    com.benchreadiness.interview.branch.BranchContext.set(callerBranch);
                     try {
                         // Build a per-candidate CreateInterviewRequest from shared config
                         CreateInterviewRequest single = new CreateInterviewRequest();
@@ -1133,6 +1141,10 @@ public class InterviewService {
                                 candidate.getEngineerEmail(), e.getMessage());
                         return BulkCreateInterviewResult.CandidateResult
                                 .failed(candidate.getEngineerEmail(), e.getMessage());
+                    } finally {
+                        // Pool threads are reused; never leak one caller's org/branch into the next task.
+                        com.benchreadiness.interview.org.OrgContext.clear();
+                        com.benchreadiness.interview.branch.BranchContext.clear();
                     }
                 }, bulkInterviewExecutor)
             ).collect(Collectors.toList());
