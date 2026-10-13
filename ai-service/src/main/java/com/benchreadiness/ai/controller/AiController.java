@@ -506,9 +506,12 @@ public class AiController {
         }
     }
 
+    // Fix 6.10: X-User-Id is optional here. interview-service's bulk create calls this from a
+    // worker thread with no request context, so its Feign interceptor sends no user headers.
+    // userId is only used for token attribution, which already falls back to "system".
     @PostMapping("/generate-rubric")
     public ResponseEntity<?> generateRubric(@RequestBody RubricRequest req,
-                                           @RequestHeader("X-User-Id") String userId) {
+                                           @RequestHeader(value = "X-User-Id", defaultValue = "system") String userId) {
         return ResponseEntity.ok(rubricService.generateRubric(req, userId));
     }
 
