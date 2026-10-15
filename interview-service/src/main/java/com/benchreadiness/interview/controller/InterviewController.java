@@ -559,10 +559,23 @@ public class InterviewController {
         }
     }
 
+    /**
+     * Staff get the full question rows (incl. candidate answers). A candidate may read only their own
+     * interview and gets a slim projection (slot / type / source only); the FE next-question route needs
+     * it for the repeat-question cadence (fix 6.3).
+     */
     @GetMapping("/{id}/questions")
-    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ + "')")
-    public ResponseEntity<?> listQuestions(@PathVariable String id) {
+    @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.READ_AND_CANDIDATE + "')")
+    public ResponseEntity<?> listQuestions(@PathVariable String id,
+                                           @RequestHeader(value = "X-User-Role", required = false) String userRole,
+                                           @RequestHeader(value = "X-User-Email", required = false) String userEmail) {
         try {
+            if (!isStaffReadRole(userRole)) {
+                if (!interviewService.isOwnedByCandidate(id, userEmail)) {
+                    return ResponseEntity.status(403).body(Map.of("error", "Not your interview"));
+                }
+                return ResponseEntity.ok(interviewQuestionService.listByInterviewForCandidate(id));
+            }
             return ResponseEntity.ok(interviewQuestionService.listByInterview(id));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
