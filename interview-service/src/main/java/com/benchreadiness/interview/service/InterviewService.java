@@ -362,19 +362,19 @@ public class InterviewService {
             String.format("Reason: %s", req.getReason() != null ? req.getReason() : "not_prepared"),
             null, null);
 
-        // Broadcast to all branch admins and recruiters so the whole team can review
-        try {
-            Map<String, String> notif = new java.util.HashMap<>();
-            notif.put("interviewId", saved.getId());
-            notif.put("branch", saved.getBranch() != null ? saved.getBranch() : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
-            notif.put("candidateName", engineerName);
-            notif.put("status", InterviewStatus.WITHDRAWN.name());
-            notif.put("proposedVerdict", ReadinessVerdict.WITHDRAWN.name());
-            notif.put("reason", req.getReason() != null ? req.getReason() : "not_prepared");
-            observerServiceClient.notifyInterviewCompleted(notif);
-        } catch (Exception e) {
-            log.warn("Failed to send withdrawal notification for interview {}: {}", saved.getId(), e.getMessage());
-        }
+        // DROPPED (report item 57, mail reduction): staff "review required" mail on withdrawal.
+        // try {
+        //     Map<String, String> notif = new java.util.HashMap<>();
+        //     notif.put("interviewId", saved.getId());
+        //     notif.put("branch", saved.getBranch() != null ? saved.getBranch() : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
+        //     notif.put("candidateName", engineerName);
+        //     notif.put("status", InterviewStatus.WITHDRAWN.name());
+        //     notif.put("proposedVerdict", ReadinessVerdict.WITHDRAWN.name());
+        //     notif.put("reason", req.getReason() != null ? req.getReason() : "not_prepared");
+        //     observerServiceClient.notifyInterviewCompleted(notif);
+        // } catch (Exception e) {
+        //     log.warn("Failed to send withdrawal notification for interview {}: {}", saved.getId(), e.getMessage());
+        // }
 
         return saved;
     }
@@ -399,22 +399,22 @@ public class InterviewService {
             Engineer engineer = engineerRepository.findById(engineerId).orElse(null);
             JobDescription jd = jdRepository.findById(jdId).orElse(null);
             
-            // Send cancellation email only when the interview was scheduled but not yet attended
-            if (engineer != null && engineer.getEmail() != null
-                    && interview.getStatus() == InterviewStatus.SCHEDULED) {
-                try {
-                    Map<String, String> cancelRequest = Map.of(
-                        "candidateEmail", engineer.getEmail(),
-                        "candidateName", engineer.getName() != null ? engineer.getName() : "Candidate",
-                        "interviewId", id,
-                        "jdTitle", jd != null ? jd.getTitle() : "Technical Interview",
-                        "reason", "Interview cancelled by administrator"
-                    );
-                    observerServiceClient.notifyInterviewCancelled(cancelRequest);
-                } catch (Exception e) {
-                    log.warn("Failed to send cancellation email for interview {}: {}", id, e.getMessage());
-                }
-            }
+            // DROPPED (report item 57, mail reduction): cancellation mail to the candidate.
+            // if (engineer != null && engineer.getEmail() != null
+            //         && interview.getStatus() == InterviewStatus.SCHEDULED) {
+            //     try {
+            //         Map<String, String> cancelRequest = Map.of(
+            //             "candidateEmail", engineer.getEmail(),
+            //             "candidateName", engineer.getName() != null ? engineer.getName() : "Candidate",
+            //             "interviewId", id,
+            //             "jdTitle", jd != null ? jd.getTitle() : "Technical Interview",
+            //             "reason", "Interview cancelled by administrator"
+            //         );
+            //         observerServiceClient.notifyInterviewCancelled(cancelRequest);
+            //     } catch (Exception e) {
+            //         log.warn("Failed to send cancellation email for interview {}: {}", id, e.getMessage());
+            //     }
+            // }
             
             // Delete recording file if present
             if (interview.getRecordingPath() != null) {
@@ -648,20 +648,20 @@ public class InterviewService {
                 saved.getProposedVerdict() != null ? saved.getProposedVerdict() : "N/A"),
             null, null);
 
-        // Notify all branch admins and recruiters to review
-        if (saved.getStatus() == InterviewStatus.COMPLETED || saved.getStatus() == InterviewStatus.REVIEW_PENDING) {
-            try {
-                Map<String, String> notif = new java.util.HashMap<>();
-                notif.put("interviewId", saved.getId());
-                notif.put("branch", saved.getBranch() != null ? saved.getBranch() : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
-                notif.put("candidateName", engineerName);
-                notif.put("status", saved.getStatus().name());
-                notif.put("proposedVerdict", saved.getProposedVerdict() != null ? saved.getProposedVerdict().name() : "UNKNOWN");
-                observerServiceClient.notifyInterviewCompleted(notif);
-            } catch (Exception e) {
-                log.warn("Failed to send completion notification for interview {}: {}", saved.getId(), e.getMessage());
-            }
-        }
+        // DROPPED (report item 57, mail reduction): staff "review required" mail on completion.
+        // if (saved.getStatus() == InterviewStatus.COMPLETED || saved.getStatus() == InterviewStatus.REVIEW_PENDING) {
+        //     try {
+        //         Map<String, String> notif = new java.util.HashMap<>();
+        //         notif.put("interviewId", saved.getId());
+        //         notif.put("branch", saved.getBranch() != null ? saved.getBranch() : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
+        //         notif.put("candidateName", engineerName);
+        //         notif.put("status", saved.getStatus().name());
+        //         notif.put("proposedVerdict", saved.getProposedVerdict() != null ? saved.getProposedVerdict().name() : "UNKNOWN");
+        //         observerServiceClient.notifyInterviewCompleted(notif);
+        //     } catch (Exception e) {
+        //         log.warn("Failed to send completion notification for interview {}: {}", saved.getId(), e.getMessage());
+        //     }
+        // }
 
         return saved;
     }

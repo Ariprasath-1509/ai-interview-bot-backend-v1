@@ -2,6 +2,7 @@ package com.benchreadiness.ops.observer.service;
 
 import com.benchreadiness.ops.observer.client.AuthServiceClient;
 import com.benchreadiness.ops.observer.client.InterviewServiceClient;
+import com.benchreadiness.ops.observer.controller.ObserverController;
 import com.benchreadiness.ops.observer.dto.ClientCreatedRequest;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
@@ -54,6 +55,29 @@ class MailReductionTest {
     @Test
     void droppedClientCreatedMailNeverSends() {
         emailService.sendClientCreatedNotification(new ClientCreatedRequest());
+        verifyNoInteractions(mailSender, authServiceClient);
+    }
+
+    @Test
+    void droppedCompletionNoticeNeverSendsEvenWhenTheFlagIsOn() {
+        ReflectionTestUtils.setField(emailService, "completionNotifyEnabled", true);
+        emailService.sendInterviewCompletedNotification(Map.of("interviewId", "interview-1", "branch", "DEVELOPMENT"));
+        verifyNoInteractions(mailSender, authServiceClient);
+    }
+
+    @Test
+    void droppedCancellationMailNeverSends() {
+        emailService.sendInterviewCancellation("user@example.test", "User", "interview-1", "Role", "reason");
+        verifyNoInteractions(mailSender, authServiceClient);
+    }
+
+    @Test
+    void droppedInviteEndpointsAnswerSkippedWithoutSending() {
+        ObserverController controller = new ObserverController(null, null, emailService, digestService, null);
+        assertEquals(Map.of("ok", true, "skipped", true),
+                controller.notifyInterviewCompleted(Map.of("interviewId", "interview-1")).getBody());
+        assertEquals(Map.of("ok", true, "skipped", true),
+                controller.notifyInterviewCancelled(Map.of("interviewId", "interview-1")).getBody());
         verifyNoInteractions(mailSender, authServiceClient);
     }
 

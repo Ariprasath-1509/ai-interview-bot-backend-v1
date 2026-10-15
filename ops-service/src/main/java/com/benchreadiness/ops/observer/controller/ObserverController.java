@@ -63,13 +63,8 @@ public class ObserverController {
 
     @PostMapping("/notify/interview-cancelled")
     public ResponseEntity<?> notifyInterviewCancelled(@RequestBody Map<String, String> req) {
-        try {
-            emailService.sendInterviewCancellation(req.get("candidateEmail"), req.get("candidateName"),
-                req.get("interviewId"), req.get("jdTitle"), req.get("reason"));
-            return ResponseEntity.ok(Map.of("ok", true));
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of("error", "Failed to send email: " + e.getMessage()));
-        }
+        // DROPPED (report item 57): the endpoint stays so old callers get a clean answer, but nothing is sent.
+        return ResponseEntity.ok(Map.of("ok", true, "skipped", true));
     }
 
     /**
@@ -80,12 +75,8 @@ public class ObserverController {
      */
     @PostMapping("/notify/interview-completed")
     public ResponseEntity<?> notifyInterviewCompleted(@RequestBody Map<String, String> req) {
-        try {
-            emailService.sendInterviewCompletedNotification(req);
-            return ResponseEntity.ok(Map.of("ok", true));
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of("error", "Failed to send notifications: " + e.getMessage()));
-        }
+        // DROPPED (report item 57): the endpoint stays so old callers get a clean answer, but nothing is sent.
+        return ResponseEntity.ok(Map.of("ok", true, "skipped", true));
     }
 
     @GetMapping("/events/{interviewId}")

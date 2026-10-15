@@ -139,6 +139,10 @@ public class EmailService {
      * interviews go only to TESTING staff.
      */
     public void sendInterviewCompletedNotification(Map<String, String> req) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Interview completion mail is dropped (item 57)");
+            return;
+        }
         if (!completionNotifyEnabled) {
             log.debug("Interview completion notifications disabled (app.completion-notify.enabled=false)");
             return;
@@ -255,7 +259,12 @@ public class EmailService {
                 footer, "Review Interview", reviewLink);
     }
 
+    /** DROPPED (report item 57): never sends, whoever calls it. The original code stays below for reference. */
     public void sendInterviewCancellation(String toEmail, String candidateName, String interviewId, String jdTitle, String reason) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Interview cancellation mail is dropped (item 57)");
+            return;
+        }
         String name = (candidateName != null && !candidateName.isBlank()) ? candidateName : "Candidate";
         sendEmail(toEmail, "Interview Cancelled - Bench Readiness",
                 buildCancellationEmailTemplate(name, interviewId, jdTitle, reason));
