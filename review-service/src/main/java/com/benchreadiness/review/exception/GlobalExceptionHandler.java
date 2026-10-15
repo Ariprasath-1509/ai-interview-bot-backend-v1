@@ -4,6 +4,7 @@ import feign.FeignException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -112,6 +113,15 @@ public class GlobalExceptionHandler {
             request.getDescription(false).replace("uri=", "")
         );
         return ResponseEntity.status(status).body(error);
+    }
+
+    /** @PreAuthorize refusal (AuthorizationDeniedException is a subclass): 403, WARN, no stack trace. */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex, WebRequest request) {
+        String path = request.getDescription(false).replace("uri=", "");
+        log.warn("Access denied: {}", path);
+        ErrorResponse error = new ErrorResponse(HttpStatus.FORBIDDEN.value(), "Access denied", path);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
     }
 
     @ExceptionHandler(Exception.class)
