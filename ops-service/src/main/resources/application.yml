@@ -82,8 +82,14 @@ app:
   frontend-url: https://prod.voiceaibot.in
   mail:
     from: ${MAIL_FROM:noreply@voiceaibot.in}
-  digest:
-    cron: ${APP_DIGEST_CRON:0 30 13 * * *}
+    provider: ${MAIL_PROVIDER:smtp}
+    reply-to: ${MAIL_REPLY_TO:}
+    max-per-second: ${MAIL_MAX_PER_SECOND:5}
+    dedup-seconds: ${MAIL_DEDUP_SECONDS:120}
+    timeout-seconds: ${MAIL_TIMEOUT_SECONDS:10}
+    postmark:
+      token: ${POSTMARK_SERVER_TOKEN:}
+      stream: ${POSTMARK_MESSAGE_STREAM:outbound}
   completion-notify:
     enabled: ${APP_COMPLETION_NOTIFY_ENABLED:true}
 

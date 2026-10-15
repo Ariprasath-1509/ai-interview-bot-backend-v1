@@ -1,13 +1,11 @@
 package com.benchreadiness.auth.service;
 
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
+import com.benchreadiness.auth.mail.MailGateway;
+import com.benchreadiness.auth.mail.MailMessage;
+import com.benchreadiness.auth.mail.MailResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -18,7 +16,10 @@ public class EmailService {
 
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
-    private final JavaMailSender mailSender;
+    /** Fixed to false on purpose (report item 57): the dropped events must not send under any condition. */
+    private static final boolean DROPPED_EVENTS_ENABLED = false;
+
+    private final MailGateway mailGateway;
 
     @Value("${app.mail.from:noreply@prod.voiceaibot.in}")
     private String from;
@@ -26,8 +27,16 @@ public class EmailService {
     @Value("${app.login-url}")
     private String loginUrl;
 
-    public EmailService(JavaMailSender mailSender) {
-        this.mailSender = mailSender;
+    public EmailService(MailGateway mailGateway) {
+        this.mailGateway = mailGateway;
+    }
+
+    /** Sends through the gateway (duplicate guard, throttle, outcome log) and turns a failure into an exception. */
+    private void sendOrThrow(MailMessage message) {
+        MailResult result = mailGateway.send(message);
+        if (result.isFailed()) {
+            throw new IllegalStateException("Mail not sent (" + message.event() + "): " + result.detail());
+        }
     }
 
     public void sendCandidateWelcomeEmail(String toEmail, String candidateName, String username, String plainPassword) {
@@ -35,90 +44,30 @@ public class EmailService {
             return;
         }
         String name = (candidateName != null && !candidateName.isBlank()) ? candidateName : "Candidate";
-        try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-            helper.setFrom(from);
-            helper.setTo(toEmail.trim());
-            helper.setSubject("Welcome to Bench Readiness — Your Login Credentials");
-            helper.setText(buildCandidateWelcomeTemplate(name, username, plainPassword), true);
-            mailSender.send(mimeMessage);
-            log.info("Candidate welcome email sent to {}", toEmail);
-        } catch (MessagingException e) {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
-            message.setTo(toEmail.trim());
-            message.setSubject("Welcome to Bench Readiness — Your Login Credentials");
-            message.setText(buildCandidateWelcomePlainText(name, username, plainPassword));
-            mailSender.send(message);
-            log.info("Candidate welcome email (plain text) sent to {}", toEmail);
-        } catch (Exception e) {
-            log.warn("Failed to send candidate welcome email to {}: {}", toEmail, e.getMessage());
-            throw e;
-        }
+        sendOrThrow(MailMessage.of("CANDIDATE_CREDENTIALS", toEmail,
+                "Welcome to Bench Readiness — Your Login Credentials",
+                buildCandidateWelcomeTemplate(name, username, plainPassword)));
     }
 
+    /** DROPPED (report item 57): never sends, whoever calls it. */
     public void sendCandidateRegistrationWelcomeEmail(String toEmail, String candidateName) {
-        if (toEmail == null || toEmail.isBlank()) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Registration welcome mail is dropped (item 57)");
             return;
         }
         String name = (candidateName != null && !candidateName.isBlank()) ? candidateName : "Candidate";
-        try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-            helper.setFrom(from);
-            helper.setTo(toEmail.trim());
-            helper.setSubject("Welcome to Bench Readiness");
-            helper.setText(buildCandidateRegistrationWelcomeTemplate(name), true);
-            mailSender.send(mimeMessage);
-            log.info("Candidate registration welcome email sent to {}", toEmail);
-        } catch (MessagingException e) {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
-            message.setTo(toEmail.trim());
-            message.setSubject("Welcome to Bench Readiness");
-            message.setText("Hi " + name + ",\n\nYour Bench Readiness account has been created successfully."
-                + "\n\nLog in at: " + loginUrl
-                + "\n\nUse the email and password you registered with."
-                + "\n\nBench Readiness Team");
-            mailSender.send(message);
-        } catch (Exception e) {
-            log.warn("Failed to send registration welcome email to {}: {}", toEmail, e.getMessage());
-            throw e;
-        }
+        sendOrThrow(MailMessage.of("REGISTRATION_WELCOME", toEmail, "Welcome to Bench Readiness",
+                buildCandidateRegistrationWelcomeTemplate(name)));
     }
 
+    /**
+     * Sends the password reset code. A failure is thrown to the caller (the controller answers with a clear error);
+     * the outcome line is written by the gateway and never holds the code or the full address (report item 53).
+     */
     public void sendOtpEmail(String toEmail, String otp, String userName) {
         String name = (userName != null && !userName.isBlank()) ? userName : "User";
-        
-        try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-            
-            helper.setFrom(from);
-            helper.setTo(toEmail);
-            helper.setSubject("Password Reset OTP - Bench Readiness");
-            
-            String htmlContent = buildOtpEmailTemplate(name, otp);
-            helper.setText(htmlContent, true);
-            
-            mailSender.send(mimeMessage);
-        } catch (MessagingException e) {
-            // Fallback to plain text
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
-            message.setTo(toEmail);
-            message.setSubject("Password Reset OTP - Bench Readiness");
-            message.setText(
-                "Hi " + name + ",\n\n" +
-                "You requested to reset your password. Use the OTP below to proceed:\n\n" +
-                "OTP: " + otp + "\n\n" +
-                "This OTP is valid for 10 minutes.\n\n" +
-                "If you didn't request this, please ignore this email.\n\n" +
-                "Bench Readiness Team"
-            );
-            mailSender.send(message);
-        }
+        sendOrThrow(MailMessage.of("PASSWORD_RESET_OTP", toEmail, "Password Reset OTP - Bench Readiness",
+                buildOtpEmailTemplate(name, otp)).asCritical());
     }
 
     private String buildOtpEmailTemplate(String userName, String otp) {
@@ -260,31 +209,18 @@ public class EmailService {
             + escapeHtml(value) + "</td></tr>";
     }
 
+    /** DROPPED (report item 57): never sends, whoever calls it. */
     public void sendInterviewScheduledEmail(String toEmail, String candidateName,
                                             String scheduledAt, String expiresAt) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Interview scheduled mail is dropped (item 57)");
+            return;
+        }
         if (toEmail == null || toEmail.isBlank()) return;
         String name = (candidateName != null && !candidateName.isBlank()) ? candidateName : "Candidate";
-        try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-            helper.setFrom(from);
-            helper.setTo(toEmail.trim());
-            helper.setSubject("Your Interview Has Been Scheduled — Bench Readiness");
-            helper.setText(buildInterviewScheduledTemplate(name, scheduledAt, expiresAt), true);
-            mailSender.send(mimeMessage);
-            log.info("Interview scheduled email sent to {}", toEmail);
-        } catch (MessagingException e) {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
-            message.setTo(toEmail.trim());
-            message.setSubject("Your Interview Has Been Scheduled — Bench Readiness");
-            message.setText(buildInterviewScheduledPlainText(name, scheduledAt, expiresAt));
-            mailSender.send(message);
-            log.info("Interview scheduled email (plain text) sent to {}", toEmail);
-        } catch (Exception e) {
-            log.warn("Failed to send interview scheduled email to {}: {}", toEmail, e.getMessage());
-            throw e;
-        }
+        sendOrThrow(MailMessage.of("INTERVIEW_SCHEDULED", toEmail,
+                "Your Interview Has Been Scheduled — Bench Readiness",
+                buildInterviewScheduledTemplate(name, scheduledAt, expiresAt)));
     }
 
     private String buildInterviewScheduledPlainText(String name, String scheduledAt, String expiresAt) {

@@ -2,13 +2,12 @@ package com.benchreadiness.ops.observer.service;
 
 import com.benchreadiness.ops.observer.client.AuthServiceClient;
 import com.benchreadiness.ops.observer.dto.ClientCreatedRequest;
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
+import com.benchreadiness.ops.mail.MailGateway;
+import com.benchreadiness.ops.mail.MailMessage;
+import com.benchreadiness.ops.mail.MailResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -24,7 +23,10 @@ public class EmailService {
 
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
-    private final JavaMailSender mailSender;
+    /** Fixed to false on purpose (report item 57): the dropped events must not send under any condition. */
+    private static final boolean DROPPED_EVENTS_ENABLED = false;
+
+    private final MailGateway mailGateway;
     private final AuthServiceClient authServiceClient;
 
     @Value("${app.mail.from}")
@@ -36,32 +38,31 @@ public class EmailService {
     @Value("${app.completion-notify.enabled:true}")
     private boolean completionNotifyEnabled;
 
-    public EmailService(JavaMailSender mailSender, AuthServiceClient authServiceClient) {
-        this.mailSender = mailSender;
+    public EmailService(MailGateway mailGateway, AuthServiceClient authServiceClient) {
+        this.mailGateway = mailGateway;
         this.authServiceClient = authServiceClient;
     }
 
-    private void sendEmail(String toEmail, String subject, String html) {
-        try {
-            MimeMessage mime = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mime, true, "UTF-8");
-            helper.setFrom(from);
-            helper.setTo(toEmail);
-            helper.setSubject(subject);
-            helper.setText(html, true);
-            mailSender.send(mime);
-        } catch (MessagingException e) {
-            throw new RuntimeException("Mail send error: " + e.getMessage(), e);
+    /** Sends through the gateway (duplicate guard, throttle, outcome log) and turns a failure into an exception. */
+    private void sendEmail(String event, String dedupKey, String toEmail, String subject, String html) {
+        MailResult result = mailGateway.send(MailMessage.of(event, toEmail, subject, html).withDedupKey(dedupKey));
+        if (result.isFailed()) {
+            throw new IllegalStateException("Mail not sent (" + event + "): " + result.detail());
         }
     }
 
     public void sendInterviewInvite(String toEmail, String candidateName, String interviewId) {
         String name = (candidateName != null && !candidateName.isBlank()) ? candidateName : "Candidate";
-        sendEmail(toEmail, "Your Technical Interview is Scheduled - Bench Readiness",
+        sendEmail("INTERVIEW_INVITE", interviewId, toEmail, "Your Technical Interview is Scheduled - Bench Readiness",
                 buildInterviewInviteTemplate(name, interviewId));
     }
 
+    /** DROPPED (report item 57): never sends, whoever calls it. The original code stays below for reference. */
     public void sendInterviewAbandoned(String createdByUserId, String interviewId, String reason) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Interview abandoned mail is dropped (item 57), interview={}", interviewId);
+            return;
+        }
         String managerEmail;
         String managerName = "Admin";
         try {
@@ -73,7 +74,7 @@ public class EmailService {
         }
         if (managerEmail == null || managerEmail.isBlank()) return;
 
-        sendEmail(managerEmail, abandonedSubject(reason),
+        sendEmail("INTERVIEW_ABANDONED", interviewId, managerEmail, abandonedSubject(reason),
                 buildInterviewAbandonedTemplate(managerName, interviewId, reason));
     }
 
@@ -87,7 +88,12 @@ public class EmailService {
         };
     }
 
+    /** DROPPED (report item 57): never sends, whoever calls it. The original code stays below for reference. */
     public void sendClientCreatedNotification(ClientCreatedRequest req) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Client created mail is dropped (item 57)");
+            return;
+        }
         try {
             List<Map<String, Object>> recipients = authServiceClient.getClientNotificationRecipients();
             if (recipients == null || recipients.isEmpty()) {
@@ -115,7 +121,7 @@ public class EmailService {
     }
 
     private void sendClientNotificationEmail(String recipientName, String toEmail, ClientCreatedRequest req) {
-        sendEmail(toEmail, "New Client Added — " + safe(req.getClientName()) + " (" + safe(req.getJdRole()) + ")",
+        sendEmail("CLIENT_CREATED", null, toEmail, "New Client Added — " + safe(req.getClientName()) + " (" + safe(req.getJdRole()) + ")",
                 buildClientCreatedTemplate(recipientName, req));
     }
 
@@ -126,6 +132,10 @@ public class EmailService {
      * interviews go only to TESTING staff.
      */
     public void sendInterviewCompletedNotification(Map<String, String> req) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Interview completion mail is dropped (item 57)");
+            return;
+        }
         if (!completionNotifyEnabled) {
             log.debug("Interview completion notifications disabled (app.completion-notify.enabled=false)");
             return;
@@ -175,7 +185,7 @@ public class EmailService {
 
             String recipientName = (String) staff.getOrDefault("name", "Team");
             try {
-                sendEmail(recipientEmail, subject, buildCompletionEmailBody(recipientName, interviewId,
+                sendEmail("INTERVIEW_COMPLETED_STAFF", interviewId, recipientEmail, subject, buildCompletionEmailBody(recipientName, interviewId,
                         candidateName, branch, status, proposedVerdict, reason, reviewLink));
                 sent++;
                 log.info("Interview completion notification sent to {} [branch={}] for interview {}", recipientEmail, branch, interviewId);
@@ -242,9 +252,14 @@ public class EmailService {
                 footer, "Review Interview", reviewLink);
     }
 
+    /** DROPPED (report item 57): never sends, whoever calls it. The original code stays below for reference. */
     public void sendInterviewCancellation(String toEmail, String candidateName, String interviewId, String jdTitle, String reason) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Interview cancellation mail is dropped (item 57)");
+            return;
+        }
         String name = (candidateName != null && !candidateName.isBlank()) ? candidateName : "Candidate";
-        sendEmail(toEmail, "Interview Cancelled - Bench Readiness",
+        sendEmail("INTERVIEW_CANCELLED", interviewId, toEmail, "Interview Cancelled - Bench Readiness",
                 buildCancellationEmailTemplate(name, interviewId, jdTitle, reason));
     }
 

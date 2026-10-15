@@ -30,6 +30,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class EmailService {
 
+    /** Fixed to false on purpose (report item 57): the dropped events must not send under any condition. */
+    private static final boolean DROPPED_EVENTS_ENABLED = false;
+
     private final JavaMailSender     mailSender;
     private final PdfService         pdfService;
     private final EmailLogRepository emailLogRepo;
@@ -42,12 +45,17 @@ public class EmailService {
 
     public record SendResult(int emailsSent, List<String> errors) {}
 
+    /** DROPPED (report item 57): never sends, whoever calls it. The original code stays below for reference. */
     public SendResult sendInterviewPrepEmails(
             UUID sentByUserId,
             List<Map<String, String>> recipients,   // [{email, name, company, round, date}]
             List<QuestionDTO> questions,
             Map<String, String> filters
     ) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Interview prep mail is dropped (item 57)");
+            return new SendResult(0, List.of());
+        }
         int sent = 0;
         List<String> errors = new java.util.ArrayList<>();
         List<String> recipientEmails = new java.util.ArrayList<>();
@@ -122,7 +130,12 @@ public class EmailService {
                 """, company, name, company, round.toUpperCase(), date, questionCount);
     }
 
+    /** DROPPED (report item 57): never sends, whoever calls it. The original code stays below for reference. */
     public void sendVerificationEmail(String toEmail, String name, String token) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Verification mail is dropped (item 57)");
+            return;
+        }
         try {
             String subject = "Verify your QuestionBank Account";
             String verificationUrl = "http://localhost:5173/verify?token=" + token;
@@ -160,7 +173,12 @@ public class EmailService {
                 """, name, verificationUrl);
     }
 
+    /** DROPPED (report item 57): never sends, whoever calls it. The original code stays below for reference. */
     public void sendPasswordResetEmail(String toEmail, String name, String token) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Password reset mail is dropped (item 57)");
+            return;
+        }
         try {
             String subject = "Password Reset Request";
             String resetUrl = "http://localhost:5173/reset-password?token=" + token;

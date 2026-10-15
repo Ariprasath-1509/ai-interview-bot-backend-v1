@@ -133,22 +133,22 @@ public class ClientService {
 
         Client savedClient = clientRepository.save(client);
 
-        // Send notification to all admins and recruiters
-        try {
-            Map<String, Object> notificationRequest = new HashMap<>();
-            notificationRequest.put("clientId", savedClient.getId().toString());
-            notificationRequest.put("clientName", savedClient.getClientName());
-            notificationRequest.put("jdRole", savedClient.getJdRole());
-            notificationRequest.put("jdDescription", savedClient.getJdDescription());
-            notificationRequest.put("positionsVacant", savedClient.getPositionsVacant());
-            notificationRequest.put("benchB2bCandidatesNeeded", savedClient.getBenchB2bCandidatesNeeded());
-            notificationRequest.put("marketCandidatesNeeded", savedClient.getMarketCandidatesNeeded());
-            notificationRequest.put("skillRequirementsSummary", buildSkillRequirementsSummary(savedClient));
-            notificationRequest.put("jdFileName", savedClient.getJdFileName());
-            observerServiceClient.notifyClientCreated(notificationRequest);
-        } catch (Exception e) {
-            log.error("Failed to send client creation notification: {}", e.getMessage());
-        }
+        // DROPPED (report item 57, mail reduction): "new client added" mail to all admins and recruiters.
+        // try {
+        //     Map<String, Object> notificationRequest = new HashMap<>();
+        //     notificationRequest.put("clientId", savedClient.getId().toString());
+        //     notificationRequest.put("clientName", savedClient.getClientName());
+        //     notificationRequest.put("jdRole", savedClient.getJdRole());
+        //     notificationRequest.put("jdDescription", savedClient.getJdDescription());
+        //     notificationRequest.put("positionsVacant", savedClient.getPositionsVacant());
+        //     notificationRequest.put("benchB2bCandidatesNeeded", savedClient.getBenchB2bCandidatesNeeded());
+        //     notificationRequest.put("marketCandidatesNeeded", savedClient.getMarketCandidatesNeeded());
+        //     notificationRequest.put("skillRequirementsSummary", buildSkillRequirementsSummary(savedClient));
+        //     notificationRequest.put("jdFileName", savedClient.getJdFileName());
+        //     observerServiceClient.notifyClientCreated(notificationRequest);
+        // } catch (Exception e) {
+        //     log.error("Failed to send client creation notification: {}", e.getMessage());
+        // }
 
         return convertToDTO(savedClient);
     }

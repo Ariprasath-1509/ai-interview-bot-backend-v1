@@ -41,12 +41,8 @@ public class ObserverController {
 
     @PostMapping("/notify/client-created")
     public ResponseEntity<?> notifyClientCreated(@Valid @RequestBody ClientCreatedRequest req) {
-        try {
-            emailService.sendClientCreatedNotification(req);
-            return ResponseEntity.ok(Map.of("ok", true));
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of("error", "Failed to send notifications: " + e.getMessage()));
-        }
+        // DROPPED (report item 57): the endpoint stays so old callers get a clean answer, but nothing is sent.
+        return ResponseEntity.ok(Map.of("ok", true, "skipped", true));
     }
 
     @PostMapping("/notify/interview-created")
@@ -61,23 +57,14 @@ public class ObserverController {
 
     @PostMapping("/notify/interview-abandoned")
     public ResponseEntity<?> notifyInterviewAbandoned(@Valid @RequestBody InterviewAbandonedRequest req) {
-        try {
-            emailService.sendInterviewAbandoned(req.getCreatedByUserId(), req.getInterviewId(), req.getReason());
-            return ResponseEntity.ok(Map.of("ok", true));
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of("error", "Failed to send email: " + e.getMessage()));
-        }
+        // DROPPED (report item 57): the endpoint stays so old callers get a clean answer, but nothing is sent.
+        return ResponseEntity.ok(Map.of("ok", true, "skipped", true));
     }
 
     @PostMapping("/notify/interview-cancelled")
     public ResponseEntity<?> notifyInterviewCancelled(@RequestBody Map<String, String> req) {
-        try {
-            emailService.sendInterviewCancellation(req.get("candidateEmail"), req.get("candidateName"),
-                req.get("interviewId"), req.get("jdTitle"), req.get("reason"));
-            return ResponseEntity.ok(Map.of("ok", true));
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of("error", "Failed to send email: " + e.getMessage()));
-        }
+        // DROPPED (report item 57): the endpoint stays so old callers get a clean answer, but nothing is sent.
+        return ResponseEntity.ok(Map.of("ok", true, "skipped", true));
     }
 
     /**
@@ -88,12 +75,8 @@ public class ObserverController {
      */
     @PostMapping("/notify/interview-completed")
     public ResponseEntity<?> notifyInterviewCompleted(@RequestBody Map<String, String> req) {
-        try {
-            emailService.sendInterviewCompletedNotification(req);
-            return ResponseEntity.ok(Map.of("ok", true));
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of("error", "Failed to send notifications: " + e.getMessage()));
-        }
+        // DROPPED (report item 57): the endpoint stays so old callers get a clean answer, but nothing is sent.
+        return ResponseEntity.ok(Map.of("ok", true, "skipped", true));
     }
 
     @GetMapping("/events/{interviewId}")
@@ -145,12 +128,24 @@ public class ObserverController {
         }
     }
 
-    /** POST /observer/digest/send — manually trigger the daily platform report (admin only). */
+    /**
+     * POST /observer/digest/send — manually request the platform report (admin only).
+     * The report is mailed to the caller's own address only; there is no scheduled run (report item 57).
+     */
     @PostMapping("/digest/send")
     @PreAuthorize("hasAnyRole('" + StaffSecurityRoles.ADMIN + "')")
     public ResponseEntity<?> triggerDailyDigest(@RequestHeader("X-User-Id") String userId,
                                                  @RequestHeader("X-User-Role") String role) {
-        digestService.sendDailyDigest();
-        return ResponseEntity.ok(Map.of("ok", true, "message", "Daily digest triggered"));
+        return switch (digestService.sendDigestToCaller(userId, role)) {
+            case SENT -> ResponseEntity.ok(Map.of("ok", true, "message", "Report sent to your email address"));
+            case DUPLICATE -> ResponseEntity.status(429)
+                    .body(Map.of("ok", false, "error", "A report was just sent to you. Please check your inbox, or wait a couple of minutes."));
+            case NO_EMAIL -> ResponseEntity.badRequest()
+                    .body(Map.of("ok", false, "error", "No email address is on file for your account"));
+            case UNSUPPORTED_ROLE -> ResponseEntity.status(403)
+                    .body(Map.of("ok", false, "error", "The report is not available for your role"));
+            case FAILED -> ResponseEntity.status(502)
+                    .body(Map.of("ok", false, "error", "The report could not be sent. Please try again later."));
+        };
     }
 }

@@ -23,8 +23,9 @@ public interface AuthServiceClient {
     @GetMapping("/auth/admins")
     List<Map<String, Object>> getAdmins();
 
-    @GetMapping("/auth/internal/pipeline-status")
-    Map<String, Object> getCandidatePipelineStatus(@RequestParam(required = false) String branch);
+    /** Org-scoped by the caller headers the Feign interceptor copies. */
+    @GetMapping("/auth/candidates/pipeline-status")
+    Map<String, Object> getCandidatePipelineStatusForCaller();
 
     @GetMapping("/auth/master-data/{category}")
     List<Map<String, Object>> getMasterDataByCategory(@PathVariable("category") String category,

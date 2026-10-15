@@ -338,22 +338,22 @@ public class InterviewService {
         interview.setEndedAt(Instant.now());
         Interview saved = interviewRepository.save(interview);
 
-        // Notify observer-service to alert bench manager
-        try {
-            // Get createdByUserId from plan
-            String createdByUserId = planRepository.findById(saved.getPlanId())
-                    .map(InterviewPlan::getCreatedByUserId).orElse(null);
-            if (createdByUserId != null) {
-                Map<String, String> abandonRequest = Map.of(
-                    "interviewId", saved.getId(),
-                    "createdByUserId", createdByUserId,
-                    "reason", req.getReason() != null ? req.getReason() : "not_prepared"
-                );
-                observerServiceClient.notifyInterviewAbandoned(abandonRequest);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to notify abandon for {}: {}", saved.getId(), e.getMessage());
-        }
+        // DROPPED (report item 57, mail reduction): "interview abandoned" mail to the creator.
+        // The withdrawal still reaches staff through the completion notice and the digest.
+        // try {
+        //     String createdByUserId = planRepository.findById(saved.getPlanId())
+        //             .map(InterviewPlan::getCreatedByUserId).orElse(null);
+        //     if (createdByUserId != null) {
+        //         Map<String, String> abandonRequest = Map.of(
+        //             "interviewId", saved.getId(),
+        //             "createdByUserId", createdByUserId,
+        //             "reason", req.getReason() != null ? req.getReason() : "not_prepared"
+        //         );
+        //         observerServiceClient.notifyInterviewAbandoned(abandonRequest);
+        //     }
+        // } catch (Exception e) {
+        //     log.warn("Failed to notify abandon for {}: {}", saved.getId(), e.getMessage());
+        // }
 
         // Log audit trail
         Engineer engineer = engineerRepository.findById(saved.getEngineerId()).orElse(null);
@@ -362,19 +362,19 @@ public class InterviewService {
             String.format("Reason: %s", req.getReason() != null ? req.getReason() : "not_prepared"),
             null, null);
 
-        // Broadcast to all branch admins and recruiters so the whole team can review
-        try {
-            Map<String, String> notif = new java.util.HashMap<>();
-            notif.put("interviewId", saved.getId());
-            notif.put("branch", saved.getBranch() != null ? saved.getBranch() : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
-            notif.put("candidateName", engineerName);
-            notif.put("status", InterviewStatus.WITHDRAWN.name());
-            notif.put("proposedVerdict", ReadinessVerdict.WITHDRAWN.name());
-            notif.put("reason", req.getReason() != null ? req.getReason() : "not_prepared");
-            observerServiceClient.notifyInterviewCompleted(notif);
-        } catch (Exception e) {
-            log.warn("Failed to send withdrawal notification for interview {}: {}", saved.getId(), e.getMessage());
-        }
+        // DROPPED (report item 57, mail reduction): staff "review required" mail on withdrawal.
+        // try {
+        //     Map<String, String> notif = new java.util.HashMap<>();
+        //     notif.put("interviewId", saved.getId());
+        //     notif.put("branch", saved.getBranch() != null ? saved.getBranch() : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
+        //     notif.put("candidateName", engineerName);
+        //     notif.put("status", InterviewStatus.WITHDRAWN.name());
+        //     notif.put("proposedVerdict", ReadinessVerdict.WITHDRAWN.name());
+        //     notif.put("reason", req.getReason() != null ? req.getReason() : "not_prepared");
+        //     observerServiceClient.notifyInterviewCompleted(notif);
+        // } catch (Exception e) {
+        //     log.warn("Failed to send withdrawal notification for interview {}: {}", saved.getId(), e.getMessage());
+        // }
 
         return saved;
     }
@@ -399,22 +399,22 @@ public class InterviewService {
             Engineer engineer = engineerRepository.findById(engineerId).orElse(null);
             JobDescription jd = jdRepository.findById(jdId).orElse(null);
             
-            // Send cancellation email only when the interview was scheduled but not yet attended
-            if (engineer != null && engineer.getEmail() != null
-                    && interview.getStatus() == InterviewStatus.SCHEDULED) {
-                try {
-                    Map<String, String> cancelRequest = Map.of(
-                        "candidateEmail", engineer.getEmail(),
-                        "candidateName", engineer.getName() != null ? engineer.getName() : "Candidate",
-                        "interviewId", id,
-                        "jdTitle", jd != null ? jd.getTitle() : "Technical Interview",
-                        "reason", "Interview cancelled by administrator"
-                    );
-                    observerServiceClient.notifyInterviewCancelled(cancelRequest);
-                } catch (Exception e) {
-                    log.warn("Failed to send cancellation email for interview {}: {}", id, e.getMessage());
-                }
-            }
+            // DROPPED (report item 57, mail reduction): cancellation mail to the candidate.
+            // if (engineer != null && engineer.getEmail() != null
+            //         && interview.getStatus() == InterviewStatus.SCHEDULED) {
+            //     try {
+            //         Map<String, String> cancelRequest = Map.of(
+            //             "candidateEmail", engineer.getEmail(),
+            //             "candidateName", engineer.getName() != null ? engineer.getName() : "Candidate",
+            //             "interviewId", id,
+            //             "jdTitle", jd != null ? jd.getTitle() : "Technical Interview",
+            //             "reason", "Interview cancelled by administrator"
+            //         );
+            //         observerServiceClient.notifyInterviewCancelled(cancelRequest);
+            //     } catch (Exception e) {
+            //         log.warn("Failed to send cancellation email for interview {}: {}", id, e.getMessage());
+            //     }
+            // }
             
             // Delete recording file if present
             if (interview.getRecordingPath() != null) {
@@ -648,20 +648,20 @@ public class InterviewService {
                 saved.getProposedVerdict() != null ? saved.getProposedVerdict() : "N/A"),
             null, null);
 
-        // Notify all branch admins and recruiters to review
-        if (saved.getStatus() == InterviewStatus.COMPLETED || saved.getStatus() == InterviewStatus.REVIEW_PENDING) {
-            try {
-                Map<String, String> notif = new java.util.HashMap<>();
-                notif.put("interviewId", saved.getId());
-                notif.put("branch", saved.getBranch() != null ? saved.getBranch() : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
-                notif.put("candidateName", engineerName);
-                notif.put("status", saved.getStatus().name());
-                notif.put("proposedVerdict", saved.getProposedVerdict() != null ? saved.getProposedVerdict().name() : "UNKNOWN");
-                observerServiceClient.notifyInterviewCompleted(notif);
-            } catch (Exception e) {
-                log.warn("Failed to send completion notification for interview {}: {}", saved.getId(), e.getMessage());
-            }
-        }
+        // DROPPED (report item 57, mail reduction): staff "review required" mail on completion.
+        // if (saved.getStatus() == InterviewStatus.COMPLETED || saved.getStatus() == InterviewStatus.REVIEW_PENDING) {
+        //     try {
+        //         Map<String, String> notif = new java.util.HashMap<>();
+        //         notif.put("interviewId", saved.getId());
+        //         notif.put("branch", saved.getBranch() != null ? saved.getBranch() : com.benchreadiness.interview.branch.BranchAccess.defaultBranch());
+        //         notif.put("candidateName", engineerName);
+        //         notif.put("status", saved.getStatus().name());
+        //         notif.put("proposedVerdict", saved.getProposedVerdict() != null ? saved.getProposedVerdict().name() : "UNKNOWN");
+        //         observerServiceClient.notifyInterviewCompleted(notif);
+        //     } catch (Exception e) {
+        //         log.warn("Failed to send completion notification for interview {}: {}", saved.getId(), e.getMessage());
+        //     }
+        // }
 
         return saved;
     }
@@ -977,6 +977,13 @@ public class InterviewService {
         }
     }
 
+    /** True when the edit moves the scheduled start or the expiry to a different instant. */
+    static boolean timeWindowChanged(Instant oldScheduledAt, Instant newScheduledAt,
+                                     Instant oldExpiresAt, Instant newExpiresAt) {
+        return (newScheduledAt != null && !newScheduledAt.equals(oldScheduledAt))
+                || (newExpiresAt != null && !newExpiresAt.equals(oldExpiresAt));
+    }
+
     @Transactional
     public Interview editInterview(String id, com.benchreadiness.interview.dto.UpdateInterviewRequest req) throws Exception {
         Interview interview = interviewRepository.findById(id)
@@ -1004,6 +1011,8 @@ public class InterviewService {
             interview.setQuestionDifficulty(normalizeQuestionDifficulty(req.getQuestionDifficulty()));
         }
         if (req.getIncludeProgrammingQuestions() != null) interview.setIncludeProgrammingQuestions(req.getIncludeProgrammingQuestions());
+        final boolean timeWindowChanged = timeWindowChanged(
+                interview.getScheduledAt(), req.getScheduledAt(), interview.getExpiresAt(), req.getExpiresAt());
         if (req.getScheduledAt() != null) interview.setScheduledAt(req.getScheduledAt());
         if (req.getExpiresAt() != null) {
             interview.setExpiresAt(req.getExpiresAt());
@@ -1063,9 +1072,10 @@ public class InterviewService {
                 log.warn("Could not re-activate market candidate on interview edit {}: {}", id, e.getMessage());
             }
 
-            // Send rescheduled notification to candidate
+            // Send rescheduled notification only when the time window really changed
+            // (report item 57: no mail for edits that leave the schedule as it was)
             try {
-                if (engineer != null && engineer.getEmail() != null) {
+                if (timeWindowChanged && engineer != null && engineer.getEmail() != null) {
                     observerServiceClient.notifyInterviewCreated(Map.of(
                         "interviewId", id,
                         "engineerEmail", engineer.getEmail(),

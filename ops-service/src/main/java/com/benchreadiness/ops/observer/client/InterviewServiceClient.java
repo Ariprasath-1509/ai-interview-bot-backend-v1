@@ -3,7 +3,6 @@ package com.benchreadiness.ops.observer.client;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 import java.util.Map;
@@ -17,6 +16,7 @@ public interface InterviewServiceClient {
     @GetMapping("/interviews/today")
     List<Map<String, Object>> getTodaysInterviews();
 
-    @GetMapping("/analytics/internal/daily-report")
-    Map<String, Object> getDailyReportDataForBranch(@RequestParam(required = false) String branch);
+    /** Org- and branch-scoped by the caller headers the Feign interceptor copies (same data the staff dashboard shows). */
+    @GetMapping("/analytics/daily-report")
+    Map<String, Object> getDailyReportForCaller();
 }

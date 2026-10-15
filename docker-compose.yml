@@ -147,8 +147,8 @@ services:
       GATEWAY_SHARED_KEY: ${GATEWAY_SHARED_KEY:-}
       MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
       MAIL_PORT: ${MAIL_PORT:-587}
-      MAIL_USERNAME: ${MAIL_USERNAME:-learningdevelopment.tyss@gmail.com}
-      MAIL_PASSWORD: ${MAIL_PASSWORD:-xcbc bgrj lbql tgkd}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       APP_INTERVIEW_BASE_URL: ${APP_INTERVIEW_BASE_URL:-https://prod.voiceaibot.in/interview}
       APP_FRONTEND_URL: ${APP_FRONTEND_URL:-https://prod.voiceaibot.in}
       JAVA_OPTS: "-Xms512m -Xmx1280m -XX:+UseG1GC"
@@ -198,8 +198,8 @@ services:
       GATEWAY_SHARED_KEY: ${GATEWAY_SHARED_KEY:-}
       MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
       MAIL_PORT: ${MAIL_PORT:-587}
-      MAIL_USERNAME: ${MAIL_USERNAME:-learningdevelopment.tyss@gmail.com}
-      MAIL_PASSWORD: ${MAIL_PASSWORD:-xcbc bgrj lbql tgkd}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       APP_LOGIN_URL: ${APP_LOGIN_URL:-https://prod.voiceaibot.in/login}
       AUTH_MAX_LOGIN_ATTEMPTS: ${AUTH_MAX_LOGIN_ATTEMPTS:-10}
       AUTH_LOCKOUT_SECONDS: ${AUTH_LOCKOUT_SECONDS:-900}
@@ -551,8 +551,8 @@ services:
       GATEWAY_SHARED_KEY: ${GATEWAY_SHARED_KEY:-}
       MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
       MAIL_PORT: ${MAIL_PORT:-587}
-      MAIL_USERNAME: "${MAIL_USERNAME:-learningdevelopment.tyss@gmail.com}"
-      MAIL_PASSWORD: "${MAIL_PASSWORD:-xcbc bgrj lbql tgkd}"
+      MAIL_USERNAME: "${MAIL_USERNAME:-}"
+      MAIL_PASSWORD: "${MAIL_PASSWORD:-}"
       APP_CLAUDE_API_KEY: ${APP_CLAUDE_API_KEY:-}
       APP_CLAUDE_MODEL: ${APP_CLAUDE_MODEL:-claude-haiku-4-5}
       APP_LLM_PROVIDER: ${APP_LLM_PROVIDER:-claude}
