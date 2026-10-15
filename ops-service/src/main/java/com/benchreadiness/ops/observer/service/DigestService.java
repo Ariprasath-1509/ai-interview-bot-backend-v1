@@ -66,10 +66,10 @@ public class DigestService {
                 return DigestResult.NO_EMAIL;
             }
 
-            Map<String, Object> reportData = interviewServiceClient.getDailyReportDataForBranch(digestBranch);
+            Map<String, Object> reportData = interviewServiceClient.getDailyReportForCaller();
             Map<String, Object> pipelineStatus = null;
             try {
-                pipelineStatus = authServiceClient.getCandidatePipelineStatus(digestBranch);
+                pipelineStatus = authServiceClient.getCandidatePipelineStatusForCaller();
             } catch (Exception e) {
                 log.warn("Failed to fetch pipeline status for digest (branch={}): {}", branchLabel, e.getMessage());
             }

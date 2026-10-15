@@ -95,11 +95,12 @@ class MailReductionTest {
     }
 
     @Test
-    void digestGoesToTheCallerOnlyAndNeverLooksUpOtherAdmins() {
+    void digestUsesOnlyTheCallerScopedDataAndMailsOnlyTheCaller() {
         MimeMessage mime = new MimeMessage(Session.getInstance(new Properties()));
         when(mailSender.createMimeMessage()).thenReturn(mime);
         when(authServiceClient.getUser("u1")).thenReturn(Map.of("email", "caller@example.test"));
-        when(interviewServiceClient.getDailyReportDataForBranch("DEVELOPMENT")).thenReturn(Map.of());
+        when(interviewServiceClient.getDailyReportForCaller()).thenReturn(Map.of());
+        when(authServiceClient.getCandidatePipelineStatusForCaller()).thenReturn(Map.of());
 
         assertEquals(DigestService.DigestResult.SENT, digestService.sendDigestToCaller("u1", "ROLE_ADMIN"));
 
