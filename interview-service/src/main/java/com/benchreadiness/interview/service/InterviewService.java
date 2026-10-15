@@ -464,6 +464,16 @@ public class InterviewService {
         });
     }
 
+    /** Ownership only (no expiry / schedule gate): read access to an in-progress interview's own data. */
+    public boolean isOwnedByCandidate(String interviewId, String userEmail) {
+        if (userEmail == null || userEmail.isBlank()) return false;
+        return interviewRepository.findById(interviewId)
+            .map(interview -> engineerRepository.findByEmail(userEmail)
+                .map(e -> e.getId().equals(interview.getEngineerId()))
+                .orElse(false))
+            .orElse(false);
+    }
+
     public Optional<Interview> findByIdForCandidate(String id, String userEmail) {
         return findById(id).filter(interview -> {
             boolean ownsInterview = engineerRepository.findByEmail(userEmail)

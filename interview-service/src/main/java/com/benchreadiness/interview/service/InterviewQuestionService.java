@@ -87,4 +87,14 @@ public class InterviewQuestionService {
             .map(InterviewQuestionDto::from)
             .toList();
     }
+
+    /** Candidate-safe view: no answers, tags, difficulty or question-bank ids. */
+    @Transactional(readOnly = true)
+    public List<CandidateQuestionDto> listByInterviewForCandidate(String interviewId) {
+        return questionRepository.findByInterviewIdOrderBySlotNumberAsc(interviewId).stream()
+            .map(q -> new CandidateQuestionDto(q.getSlotNumber(), q.getQuestionType(), q.getSource()))
+            .toList();
+    }
+
+    public record CandidateQuestionDto(int slotNumber, String questionType, String source) {}
 }
