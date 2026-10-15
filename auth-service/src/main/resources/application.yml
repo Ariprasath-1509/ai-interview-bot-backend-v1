@@ -75,6 +75,7 @@ app:
   auth:
     max-login-attempts: ${AUTH_MAX_LOGIN_ATTEMPTS:10}
     lockout-seconds: ${AUTH_LOCKOUT_SECONDS:900}
+    attempt-window-seconds: ${AUTH_ATTEMPT_WINDOW_SECONDS:900}
   gateway:
     shared-key: ${GATEWAY_SHARED_KEY:}
   branch-segregation:
