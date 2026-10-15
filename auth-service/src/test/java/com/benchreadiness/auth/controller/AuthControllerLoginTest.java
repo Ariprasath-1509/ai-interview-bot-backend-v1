@@ -42,7 +42,7 @@ class AuthControllerLoginTest {
                 mock(BulkImportService.class), mock(DeploymentService.class), mock(OtpService.class),
                 mock(EmailService.class), mock(CandidateBulkImportService.class), passwordService,
                 mock(RefreshTokenService.class), attempts, auditService,
-                mock(OrganizationFeatureService.class));
+                mock(OrganizationFeatureService.class), mock(com.benchreadiness.auth.service.OtpMailCooldown.class));
     }
 
     private LoginRequest request(String email) {
