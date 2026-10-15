@@ -4,6 +4,7 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.benchreadiness.auth.util.PiiRedactor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -17,6 +18,9 @@ import java.time.format.DateTimeFormatter;
 public class EmailService {
 
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
+
+    /** Fixed to false on purpose (report item 57): the dropped events must not send under any condition. */
+    private static final boolean DROPPED_EVENTS_ENABLED = false;
 
     private final JavaMailSender mailSender;
 
@@ -43,7 +47,7 @@ public class EmailService {
             helper.setSubject("Welcome to Bench Readiness — Your Login Credentials");
             helper.setText(buildCandidateWelcomeTemplate(name, username, plainPassword), true);
             mailSender.send(mimeMessage);
-            log.info("Candidate welcome email sent to {}", toEmail);
+            log.info("MAIL event=CANDIDATE_CREDENTIALS outcome=SENT to={}", PiiRedactor.maskEmail(toEmail));
         } catch (MessagingException e) {
             SimpleMailMessage message = new SimpleMailMessage();
             message.setFrom(from);
@@ -51,14 +55,19 @@ public class EmailService {
             message.setSubject("Welcome to Bench Readiness — Your Login Credentials");
             message.setText(buildCandidateWelcomePlainText(name, username, plainPassword));
             mailSender.send(message);
-            log.info("Candidate welcome email (plain text) sent to {}", toEmail);
+            log.info("MAIL event=CANDIDATE_CREDENTIALS outcome=SENT_PLAIN to={}", PiiRedactor.maskEmail(toEmail));
         } catch (Exception e) {
-            log.warn("Failed to send candidate welcome email to {}: {}", toEmail, e.getMessage());
+            log.warn("MAIL event=CANDIDATE_CREDENTIALS outcome=FAILED to={} reason={}", PiiRedactor.maskEmail(toEmail), e.getClass().getSimpleName());
             throw e;
         }
     }
 
+    /** DROPPED (report item 57): never sends, whoever calls it. The original code stays below for reference. */
     public void sendCandidateRegistrationWelcomeEmail(String toEmail, String candidateName) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Registration welcome mail is dropped (item 57)");
+            return;
+        }
         if (toEmail == null || toEmail.isBlank()) {
             return;
         }
@@ -90,34 +99,39 @@ public class EmailService {
 
     public void sendOtpEmail(String toEmail, String otp, String userName) {
         String name = (userName != null && !userName.isBlank()) ? userName : "User";
-        
+        String subject = "Password Reset OTP - Bench Readiness";
+        String masked = PiiRedactor.maskEmail(toEmail);
+
         try {
-            MimeMessage mimeMessage = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-            
-            helper.setFrom(from);
-            helper.setTo(toEmail);
-            helper.setSubject("Password Reset OTP - Bench Readiness");
-            
-            String htmlContent = buildOtpEmailTemplate(name, otp);
-            helper.setText(htmlContent, true);
-            
-            mailSender.send(mimeMessage);
-        } catch (MessagingException e) {
-            // Fallback to plain text
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(from);
-            message.setTo(toEmail);
-            message.setSubject("Password Reset OTP - Bench Readiness");
-            message.setText(
-                "Hi " + name + ",\n\n" +
-                "You requested to reset your password. Use the OTP below to proceed:\n\n" +
-                "OTP: " + otp + "\n\n" +
-                "This OTP is valid for 10 minutes.\n\n" +
-                "If you didn't request this, please ignore this email.\n\n" +
-                "Bench Readiness Team"
-            );
-            mailSender.send(message);
+            try {
+                MimeMessage mimeMessage = mailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
+                helper.setFrom(from);
+                helper.setTo(toEmail);
+                helper.setSubject(subject);
+                helper.setText(buildOtpEmailTemplate(name, otp), true);
+                mailSender.send(mimeMessage);
+            } catch (MessagingException e) {
+                // Could not build the HTML message: fall back to plain text
+                SimpleMailMessage message = new SimpleMailMessage();
+                message.setFrom(from);
+                message.setTo(toEmail);
+                message.setSubject(subject);
+                message.setText(
+                    "Hi " + name + ",\n\n" +
+                    "You requested to reset your password. Use the OTP below to proceed:\n\n" +
+                    "OTP: " + otp + "\n\n" +
+                    "This OTP is valid for 10 minutes.\n\n" +
+                    "If you didn't request this, please ignore this email.\n\n" +
+                    "Bench Readiness Team"
+                );
+                mailSender.send(message);
+            }
+            // Outcome only: never the OTP, the body or the full address (report item 53)
+            log.info("MAIL event=PASSWORD_RESET_OTP outcome=SENT to={}", masked);
+        } catch (RuntimeException e) {
+            log.warn("MAIL event=PASSWORD_RESET_OTP outcome=FAILED to={} reason={}", masked, e.getClass().getSimpleName());
+            throw e;
         }
     }
 
@@ -260,8 +274,13 @@ public class EmailService {
             + escapeHtml(value) + "</td></tr>";
     }
 
+    /** DROPPED (report item 57): never sends, whoever calls it. The original code stays below for reference. */
     public void sendInterviewScheduledEmail(String toEmail, String candidateName,
                                             String scheduledAt, String expiresAt) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Interview scheduled mail is dropped (item 57)");
+            return;
+        }
         if (toEmail == null || toEmail.isBlank()) return;
         String name = (candidateName != null && !candidateName.isBlank()) ? candidateName : "Candidate";
         try {

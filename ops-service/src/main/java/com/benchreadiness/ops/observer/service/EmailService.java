@@ -24,6 +24,9 @@ public class EmailService {
 
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
+    /** Fixed to false on purpose (report item 57): the dropped events must not send under any condition. */
+    private static final boolean DROPPED_EVENTS_ENABLED = false;
+
     private final JavaMailSender mailSender;
     private final AuthServiceClient authServiceClient;
 
@@ -61,7 +64,12 @@ public class EmailService {
                 buildInterviewInviteTemplate(name, interviewId));
     }
 
+    /** DROPPED (report item 57): never sends, whoever calls it. The original code stays below for reference. */
     public void sendInterviewAbandoned(String createdByUserId, String interviewId, String reason) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Interview abandoned mail is dropped (item 57), interview={}", interviewId);
+            return;
+        }
         String managerEmail;
         String managerName = "Admin";
         try {
@@ -87,7 +95,12 @@ public class EmailService {
         };
     }
 
+    /** DROPPED (report item 57): never sends, whoever calls it. The original code stays below for reference. */
     public void sendClientCreatedNotification(ClientCreatedRequest req) {
+        if (!DROPPED_EVENTS_ENABLED) {
+            log.debug("Client created mail is dropped (item 57)");
+            return;
+        }
         try {
             List<Map<String, Object>> recipients = authServiceClient.getClientNotificationRecipients();
             if (recipients == null || recipients.isEmpty()) {

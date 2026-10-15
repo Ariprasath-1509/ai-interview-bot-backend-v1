@@ -6,7 +6,6 @@ import jakarta.mail.internet.MimeMessage;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -36,65 +35,57 @@ public class DigestService {
         this.interviewServiceClient = interviewServiceClient;
     }
 
-    @Scheduled(cron = "${app.digest.cron}")
-    public void sendDailyDigest() {
-        log.info("Sending daily platform report...");
+    /** Outcome of a manual digest request, so the controller can answer clearly. */
+    public enum DigestResult { SENT, NO_EMAIL, UNSUPPORTED_ROLE, FAILED }
+
+    /**
+     * Sends the platform report to the admin who asked for it, and to nobody else (report item 57).
+     * There is no scheduled run any more: one click is one mail, to the caller's own address.
+     * Branch scope follows the caller's role: SUPER_ADMIN sees everything, ADMIN the DEVELOPMENT
+     * branch, TESTING_ADMIN the TESTING branch.
+     */
+    public DigestResult sendDigestToCaller(String userId, String roleHeader) {
+        String role = roleHeader == null ? "" : roleHeader.replaceFirst("^ROLE_", "");
+        String digestBranch;
+        switch (role) {
+            case "SUPER_ADMIN"   -> digestBranch = null;
+            case "ADMIN"         -> digestBranch = "DEVELOPMENT";
+            case "TESTING_ADMIN" -> digestBranch = "TESTING";
+            default -> {
+                log.info("Digest requested by unsupported role {} — nothing sent", role);
+                return DigestResult.UNSUPPORTED_ROLE;
+            }
+        }
+        String branchLabel = digestBranch != null ? digestBranch : "ALL";
         try {
-            List<Map<String, Object>> recipients = authServiceClient.getAdmins();
-            if (recipients.isEmpty()) {
-                log.warn("No SUPER_ADMIN or ADMIN users found — skipping digest");
-                return;
+            Map<String, Object> user = authServiceClient.getUser(userId);
+            Object emailValue = user != null ? user.get("email") : null;
+            String email = emailValue != null ? emailValue.toString() : null;
+            if (email == null || email.isBlank()) {
+                log.warn("Digest requested by user {} but no email address is on file — nothing sent", userId);
+                return DigestResult.NO_EMAIL;
             }
 
-            for (Map<String, Object> recipient : recipients) {
-                String email = recipient.get("email") != null ? recipient.get("email").toString() : null;
-                String role  = recipient.get("role") != null ? recipient.get("role").toString() : "";
-
-                if (email == null || email.isBlank()) {
-                    log.warn("Skipping admin with no email address");
-                    continue;
-                }
-                // SUPER_ADMIN → full report (no branch filter)
-                // ADMIN       → DEVELOPMENT branch only
-                // TESTING_ADMIN → TESTING branch only
-                String digestBranch = switch (role) {
-                    case "SUPER_ADMIN"    -> null;
-                    case "ADMIN"          -> "DEVELOPMENT";
-                    case "TESTING_ADMIN"  -> "TESTING";
-                    default -> {
-                        log.debug("Skipping digest for unsupported role {} ({})", role, email);
-                        yield "SKIP";
-                    }
-                };
-                if ("SKIP".equals(digestBranch)) continue;
-
-                Map<String, Object> reportData = interviewServiceClient.getDailyReportDataForBranch(digestBranch);
-
-                Map<String, Object> pipelineStatus = null;
-                try {
-                    pipelineStatus = authServiceClient.getCandidatePipelineStatus(digestBranch);
-                } catch (Exception e) {
-                    log.warn("Failed to fetch pipeline status for {}: {}", email, e.getMessage());
-                }
-
-                String subject = buildSubject(reportData, digestBranch);
-                String htmlBody = buildHtmlReport(reportData, pipelineStatus, digestBranch);
-
-                try {
-                    MimeMessage message = mailSender.createMimeMessage();
-                    MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-                    helper.setFrom(from);
-                    helper.setTo(email);
-                    helper.setSubject(subject);
-                    helper.setText(htmlBody, true);
-                    mailSender.send(message);
-                    log.info("Daily report sent to: {} [role={}, branch={}]", email, role, digestBranch != null ? digestBranch : "ALL");
-                } catch (Exception e) {
-                    log.warn("Failed to send report to {}: {}", email, e.getMessage());
-                }
+            Map<String, Object> reportData = interviewServiceClient.getDailyReportDataForBranch(digestBranch);
+            Map<String, Object> pipelineStatus = null;
+            try {
+                pipelineStatus = authServiceClient.getCandidatePipelineStatus(digestBranch);
+            } catch (Exception e) {
+                log.warn("Failed to fetch pipeline status for digest (branch={}): {}", branchLabel, e.getMessage());
             }
+
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(from);
+            helper.setTo(email);
+            helper.setSubject(buildSubject(reportData, digestBranch));
+            helper.setText(buildHtmlReport(reportData, pipelineStatus, digestBranch), true);
+            mailSender.send(message);
+            log.info("Daily report sent to caller user={} [role={}, branch={}]", userId, role, branchLabel);
+            return DigestResult.SENT;
         } catch (Exception e) {
-            log.error("Daily digest failed: {}", e.getMessage(), e);
+            log.warn("Daily report for caller user={} failed: {}", userId, e.getMessage());
+            return DigestResult.FAILED;
         }
     }
 

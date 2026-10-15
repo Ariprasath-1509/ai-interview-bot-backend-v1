@@ -73,6 +73,7 @@ public class AuthController {
     private final LoginAttemptService loginAttemptService;
     private final AuditService auditService;
     private final OrganizationFeatureService organizationFeatureService;
+    private final OtpMailCooldown otpMailCooldown;
 
     public AuthController(UserRepository userRepository, OrganizationRepository organizationRepository, JwtService jwtService,
                          MasterDataService masterDataService,
@@ -84,7 +85,8 @@ public class AuthController {
                          RefreshTokenService refreshTokenService,
                          LoginAttemptService loginAttemptService,
                          AuditService auditService,
-                         OrganizationFeatureService organizationFeatureService) {
+                         OrganizationFeatureService organizationFeatureService,
+                         OtpMailCooldown otpMailCooldown) {
         this.userRepository = userRepository;
         this.organizationRepository = organizationRepository;
         this.jwtService = jwtService;
@@ -94,6 +96,7 @@ public class AuthController {
         this.deploymentService = deploymentService;
         this.otpService = otpService;
         this.emailService = emailService;
+        this.otpMailCooldown = otpMailCooldown;
         this.candidateBulkImportService = candidateBulkImportService;
         this.passwordService = passwordService;
         this.refreshTokenService = refreshTokenService;
@@ -133,13 +136,14 @@ public class AuthController {
         user.setBranch(Branch.isValid(req.getBranch()) ? Branch.normalize(req.getBranch()) : BranchAccess.defaultBranch());
         userRepository.save(user);
         
-        try {
-            emailService.sendCandidateRegistrationWelcomeEmail(user.getEmail(), user.getName());
-        } catch (Exception e) {
-            logger.warn("Failed to send registration welcome email to {}: {}",
-                PiiRedactor.maskEmail(user.getEmail()), e.getMessage());
-        }
-        
+        // DROPPED (report item 57, mail reduction): registration welcome mail.
+        // try {
+        //     emailService.sendCandidateRegistrationWelcomeEmail(user.getEmail(), user.getName());
+        // } catch (Exception e) {
+        //     logger.warn("Failed to send registration welcome email to {}: {}",
+        //         PiiRedactor.maskEmail(user.getEmail()), e.getMessage());
+        // }
+
         auditService.record(user.getId(), user.getName(), "CANDIDATE", "CANDIDATE_REGISTERED",
                 "CANDIDATE", user.getId(),
                 String.format("Registered: %s (%s) - %s", user.getName(),
@@ -525,11 +529,18 @@ public class AuthController {
             return ResponseEntity.status(404).body(Map.of("ok", false, "error", "Email not registered. Please check your email or register first."));
         }
         
+        // One reset mail per address per cooldown window (report items 53 and 57).
+        if (!otpMailCooldown.tryAcquire(req.getEmail())) {
+            logger.info("OTP mail skipped for {}: cooldown active", PiiRedactor.maskEmail(req.getEmail()));
+            return ResponseEntity.status(429).body(Map.of("ok", false,
+                "error", "A code was sent a moment ago. Please check your inbox, or wait a minute and try again."));
+        }
+
         String otp = otpService.generateOtp(req.getEmail());
         try {
             emailService.sendOtpEmail(req.getEmail(), otp, user.getName());
-            logger.info("OTP sent successfully to: {}", PiiRedactor.maskEmail(req.getEmail()));
         } catch (Exception e) {
+            otpMailCooldown.release(req.getEmail());
             logger.error("Failed to send OTP email to {}: {}", PiiRedactor.maskEmail(req.getEmail()), e.getMessage());
             return ResponseEntity.status(500).body(Map.of("ok", false, "error", "Failed to send OTP email. Please try again later."));
         }
@@ -1641,13 +1652,9 @@ public class AuthController {
         if (toEmail == null || toEmail.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "email is required"));
         }
-        try {
-            emailService.sendInterviewScheduledEmail(toEmail, name, scheduledAt, expiresAt);
-            return ResponseEntity.ok(Map.of("ok", true));
-        } catch (Exception e) {
-            logger.warn("Failed to send interview scheduled email to {}: {}", toEmail, e.getMessage());
-            return ResponseEntity.status(500).body(Map.of("ok", false, "error", e.getMessage()));
-        }
+        // DROPPED (report item 57): the invite from ops-service already carries the schedule link.
+        // The endpoint stays so old callers get a clean answer, but nothing is sent.
+        return ResponseEntity.ok(Map.of("ok", true, "skipped", true));
     }
 
     /** PATCH /auth/internal/users/{userId}/active — Activate or deactivate a user (internal service-to-service). */

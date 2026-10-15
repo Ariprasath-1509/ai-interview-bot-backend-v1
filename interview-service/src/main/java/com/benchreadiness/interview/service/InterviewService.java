@@ -338,22 +338,22 @@ public class InterviewService {
         interview.setEndedAt(Instant.now());
         Interview saved = interviewRepository.save(interview);
 
-        // Notify observer-service to alert bench manager
-        try {
-            // Get createdByUserId from plan
-            String createdByUserId = planRepository.findById(saved.getPlanId())
-                    .map(InterviewPlan::getCreatedByUserId).orElse(null);
-            if (createdByUserId != null) {
-                Map<String, String> abandonRequest = Map.of(
-                    "interviewId", saved.getId(),
-                    "createdByUserId", createdByUserId,
-                    "reason", req.getReason() != null ? req.getReason() : "not_prepared"
-                );
-                observerServiceClient.notifyInterviewAbandoned(abandonRequest);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to notify abandon for {}: {}", saved.getId(), e.getMessage());
-        }
+        // DROPPED (report item 57, mail reduction): "interview abandoned" mail to the creator.
+        // The withdrawal still reaches staff through the completion notice and the digest.
+        // try {
+        //     String createdByUserId = planRepository.findById(saved.getPlanId())
+        //             .map(InterviewPlan::getCreatedByUserId).orElse(null);
+        //     if (createdByUserId != null) {
+        //         Map<String, String> abandonRequest = Map.of(
+        //             "interviewId", saved.getId(),
+        //             "createdByUserId", createdByUserId,
+        //             "reason", req.getReason() != null ? req.getReason() : "not_prepared"
+        //         );
+        //         observerServiceClient.notifyInterviewAbandoned(abandonRequest);
+        //     }
+        // } catch (Exception e) {
+        //     log.warn("Failed to notify abandon for {}: {}", saved.getId(), e.getMessage());
+        // }
 
         // Log audit trail
         Engineer engineer = engineerRepository.findById(saved.getEngineerId()).orElse(null);
@@ -977,6 +977,13 @@ public class InterviewService {
         }
     }
 
+    /** True when the edit moves the scheduled start or the expiry to a different instant. */
+    static boolean timeWindowChanged(Instant oldScheduledAt, Instant newScheduledAt,
+                                     Instant oldExpiresAt, Instant newExpiresAt) {
+        return (newScheduledAt != null && !newScheduledAt.equals(oldScheduledAt))
+                || (newExpiresAt != null && !newExpiresAt.equals(oldExpiresAt));
+    }
+
     @Transactional
     public Interview editInterview(String id, com.benchreadiness.interview.dto.UpdateInterviewRequest req) throws Exception {
         Interview interview = interviewRepository.findById(id)
@@ -1004,6 +1011,8 @@ public class InterviewService {
             interview.setQuestionDifficulty(normalizeQuestionDifficulty(req.getQuestionDifficulty()));
         }
         if (req.getIncludeProgrammingQuestions() != null) interview.setIncludeProgrammingQuestions(req.getIncludeProgrammingQuestions());
+        final boolean timeWindowChanged = timeWindowChanged(
+                interview.getScheduledAt(), req.getScheduledAt(), interview.getExpiresAt(), req.getExpiresAt());
         if (req.getScheduledAt() != null) interview.setScheduledAt(req.getScheduledAt());
         if (req.getExpiresAt() != null) {
             interview.setExpiresAt(req.getExpiresAt());
@@ -1063,9 +1072,10 @@ public class InterviewService {
                 log.warn("Could not re-activate market candidate on interview edit {}: {}", id, e.getMessage());
             }
 
-            // Send rescheduled notification to candidate
+            // Send rescheduled notification only when the time window really changed
+            // (report item 57: no mail for edits that leave the schedule as it was)
             try {
-                if (engineer != null && engineer.getEmail() != null) {
+                if (timeWindowChanged && engineer != null && engineer.getEmail() != null) {
                     observerServiceClient.notifyInterviewCreated(Map.of(
                         "interviewId", id,
                         "engineerEmail", engineer.getEmail(),
