@@ -84,6 +84,14 @@ app:
     model: ${APP_SCREENING_OLLAMA_MODEL:qwen3:14b}
   mail:
     from: ${MAIL_FROM:noreply@voiceaibot.in}
+    provider: ${MAIL_PROVIDER:smtp}
+    reply-to: ${MAIL_REPLY_TO:}
+    max-per-second: ${MAIL_MAX_PER_SECOND:5}
+    dedup-seconds: ${MAIL_DEDUP_SECONDS:120}
+    timeout-seconds: ${MAIL_TIMEOUT_SECONDS:10}
+    postmark:
+      token: ${POSTMARK_SERVER_TOKEN:}
+      stream: ${POSTMARK_MESSAGE_STREAM:outbound}
   screening:
     # 'claude' or 'deepseek' — the primary provider; Ollama is always the local-dev/unavailability fallback
     llm-provider: ${APP_SCREENING_LLM_PROVIDER:claude}

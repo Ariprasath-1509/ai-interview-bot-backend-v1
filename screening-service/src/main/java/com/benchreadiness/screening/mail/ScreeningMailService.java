@@ -2,13 +2,9 @@ package com.benchreadiness.screening.mail;
 
 import com.benchreadiness.screening.entity.ScreeningBatch;
 import com.benchreadiness.screening.entity.ScreeningCandidate;
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
 import java.time.ZoneOffset;
@@ -26,7 +22,7 @@ public class ScreeningMailService {
 
     private static final Logger log = LoggerFactory.getLogger(ScreeningMailService.class);
 
-    private final JavaMailSender mailSender;
+    private final MailGateway mailGateway;
 
     @Value("${app.mail.from}")
     private String from;
@@ -37,8 +33,8 @@ public class ScreeningMailService {
     @Value("${app.screening.candidate-link-path}")
     private String candidateLinkPath;
 
-    public ScreeningMailService(JavaMailSender mailSender) {
-        this.mailSender = mailSender;
+    public ScreeningMailService(MailGateway mailGateway) {
+        this.mailGateway = mailGateway;
     }
 
     /** Single source of truth for the candidate's Round 1 link — also used by the admin UI to show a test link. */
@@ -46,18 +42,9 @@ public class ScreeningMailService {
         return frontendBaseUrl + candidateLinkPath + "/" + candidate.getToken();
     }
 
-    private void sendHtml(String to, String subject, String html) {
-        try {
-            MimeMessage mime = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mime, true, "UTF-8");
-            helper.setFrom(from);
-            helper.setTo(to);
-            helper.setSubject(subject);
-            helper.setText(html, true);
-            mailSender.send(mime);
-        } catch (MessagingException e) {
-            log.error("Failed to send screening email to {}: {}", to, e.getMessage());
-        }
+    /** Sends through the gateway (duplicate guard, throttle, outcome log). A failure is logged there and not thrown, as before. */
+    private void sendHtml(String event, String dedupKey, String to, String subject, String html) {
+        mailGateway.send(MailMessage.of(event, to, subject, html).withDedupKey(dedupKey));
     }
 
     public void sendCandidateInvite(ScreeningCandidate candidate, ScreeningBatch batch) {
@@ -82,7 +69,7 @@ public class ScreeningMailService {
                 "This link is single-use and must be completed before the deadline above. Good luck!",
                 "Start Your Test", link);
 
-        sendHtml(candidate.getEmail(), "Your " + batch.getLanguage() + " Screening Test - Bench Readiness", html);
+        sendHtml("SCREENING_INVITE", String.valueOf(batch.getId()), candidate.getEmail(), "Your " + batch.getLanguage() + " Screening Test - Bench Readiness", html);
     }
 
     public void sendConsolidatedReport(ScreeningBatch batch, List<ScreeningCandidate> candidates) {
@@ -110,7 +97,7 @@ public class ScreeningMailService {
                 "Full per-question feedback is available in the admin screening dashboard.",
                 "View Screening Dashboard", frontendBaseUrl + "/admin/screening");
 
-        sendHtml(batch.getAssignerEmail(), batch.getLanguage() + " Screening Results - Bench Readiness", html);
+        sendHtml("SCREENING_REPORT", String.valueOf(batch.getId()), batch.getAssignerEmail(), batch.getLanguage() + " Screening Results - Bench Readiness", html);
     }
 
     private String escapeHtml(String value) {

@@ -1,11 +1,11 @@
 package com.benchreadiness.ops.observer.service;
 
+import com.benchreadiness.ops.mail.MailGateway;
+import com.benchreadiness.ops.mail.MailMessage;
+import com.benchreadiness.ops.mail.MailResult;
 import com.benchreadiness.ops.observer.client.AuthServiceClient;
 import com.benchreadiness.ops.observer.client.InterviewServiceClient;
-import jakarta.mail.internet.MimeMessage;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -18,7 +18,7 @@ public class DigestService {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(DigestService.class);
 
-    private final JavaMailSender mailSender;
+    private final MailGateway mailGateway;
     private final AuthServiceClient authServiceClient;
     private final InterviewServiceClient interviewServiceClient;
 
@@ -28,15 +28,15 @@ public class DigestService {
     @Value("${app.interview-base-url}")
     private String interviewBaseUrl;
 
-    public DigestService(JavaMailSender mailSender, AuthServiceClient authServiceClient,
+    public DigestService(MailGateway mailGateway, AuthServiceClient authServiceClient,
                          InterviewServiceClient interviewServiceClient) {
-        this.mailSender = mailSender;
+        this.mailGateway = mailGateway;
         this.authServiceClient = authServiceClient;
         this.interviewServiceClient = interviewServiceClient;
     }
 
     /** Outcome of a manual digest request, so the controller can answer clearly. */
-    public enum DigestResult { SENT, NO_EMAIL, UNSUPPORTED_ROLE, FAILED }
+    public enum DigestResult { SENT, DUPLICATE, NO_EMAIL, UNSUPPORTED_ROLE, FAILED }
 
     /**
      * Sends the platform report to the admin who asked for it, and to nobody else (report item 57).
@@ -74,13 +74,15 @@ public class DigestService {
                 log.warn("Failed to fetch pipeline status for digest (branch={}): {}", branchLabel, e.getMessage());
             }
 
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            helper.setFrom(from);
-            helper.setTo(email);
-            helper.setSubject(buildSubject(reportData, digestBranch));
-            helper.setText(buildHtmlReport(reportData, pipelineStatus, digestBranch), true);
-            mailSender.send(message);
+            MailResult result = mailGateway.send(MailMessage.of("DAILY_DIGEST", email,
+                    buildSubject(reportData, digestBranch),
+                    buildHtmlReport(reportData, pipelineStatus, digestBranch)));
+            if (result.isDuplicate()) {
+                return DigestResult.DUPLICATE;
+            }
+            if (result.isFailed()) {
+                return DigestResult.FAILED;
+            }
             log.info("Daily report sent to caller user={} [role={}, branch={}]", userId, role, branchLabel);
             return DigestResult.SENT;
         } catch (Exception e) {

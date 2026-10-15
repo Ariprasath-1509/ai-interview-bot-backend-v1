@@ -138,6 +138,8 @@ public class ObserverController {
                                                  @RequestHeader("X-User-Role") String role) {
         return switch (digestService.sendDigestToCaller(userId, role)) {
             case SENT -> ResponseEntity.ok(Map.of("ok", true, "message", "Report sent to your email address"));
+            case DUPLICATE -> ResponseEntity.status(429)
+                    .body(Map.of("ok", false, "error", "A report was just sent to you. Please check your inbox, or wait a couple of minutes."));
             case NO_EMAIL -> ResponseEntity.badRequest()
                     .body(Map.of("ok", false, "error", "No email address is on file for your account"));
             case UNSUPPORTED_ROLE -> ResponseEntity.status(403)
