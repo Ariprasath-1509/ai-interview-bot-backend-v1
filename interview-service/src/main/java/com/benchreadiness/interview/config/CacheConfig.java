@@ -21,7 +21,9 @@ public class CacheConfig {
         manager.setCaches(List.of(
             buildCache("candidateMatches", 300, 1000),      // 5 min TTL
             buildCache("clientMatches", 21600, 1000),       // 6 hours TTL
-            buildCache("clientOverviews", 300, 100)         // 5 min TTL
+            buildCache("clientOverviews", 300, 100),        // 5 min TTL
+            buildCache("eligibleCandidates", 300, 100),     // 5 min TTL, keyed by role
+            buildCache("skillBasedMatches", 300, 1000)      // 5 min TTL
         ));
         return manager;
     }
