@@ -64,9 +64,11 @@ public class AuditService {
                 "Login succeeded for " + PiiRedactor.maskEmail(email));
     }
 
-    public void recordLoginFailure(String email) {
+    public void recordLoginFailure(String email, LoginFailureReason reason) {
+        String masked = PiiRedactor.maskEmailKeepTwo(email);
+        log.warn("login_failed reason={} email={}", reason, masked);
         record("anonymous", null, "ANONYMOUS", "LOGIN_FAILURE", "AUTH", "unknown",
-                "Login failed for " + PiiRedactor.maskEmail(email));
+                "Login failed reason=" + reason + " for " + masked);
     }
 
     public void recordLogout(String userId, String role) {

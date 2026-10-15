@@ -435,22 +435,24 @@ public class AuthController {
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest req) {
         String email = req.getUsername() != null ? req.getUsername().trim() : null;
         if (loginAttemptService.isLocked(email)) {
+            auditService.recordLoginFailure(email, LoginFailureReason.LOCKED);
             return ResponseEntity.status(429).body(
                     new ApiErrorResponse("Too many failed login attempts. Please try again later."));
         }
 
         User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
         if (user == null) {
-            loginAttemptService.recordFailure(email);
-            auditService.recordLoginFailure(email);
+            loginAttemptService.recordUnknownAccountFailure(email);
+            auditService.recordLoginFailure(email, LoginFailureReason.UNKNOWN_ACCOUNT);
             return ResponseEntity.status(401).body(new ApiErrorResponse("Invalid credentials"));
         }
         if (!passwordService.matches(req.getPassword(), user.getPassword())) {
             loginAttemptService.recordFailure(email);
-            auditService.recordLoginFailure(email);
+            auditService.recordLoginFailure(email, LoginFailureReason.WRONG_PASSWORD);
             return ResponseEntity.status(401).body(new ApiErrorResponse("Invalid credentials"));
         }
         if (user.getRole() == UserRole.CANDIDATE && !user.isActive()) {
+            auditService.recordLoginFailure(email, LoginFailureReason.INACTIVE_ACCOUNT);
             return ResponseEntity.status(401).body(
                     new ApiErrorResponse("Your account is not yet active. Please wait until your interview is scheduled."));
         }
