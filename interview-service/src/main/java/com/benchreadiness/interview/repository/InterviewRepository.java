@@ -31,4 +31,8 @@ public interface InterviewRepository extends JpaRepository<Interview, String> {
     List<Interview> findAllPaged(Pageable pageable);
 
     List<Interview> findByStatusAndExpiresAtIsNotNullAndExpiresAtBefore(InterviewStatus status, Instant now);
+
+    /** Fix 60: interviews of one engineer in one org at one exact time, in the given statuses (bulk duplicate check). */
+    List<Interview> findByEngineerIdAndOrgCodeAndScheduledAtAndStatusInOrderByCreatedAtDesc(
+            String engineerId, String orgCode, Instant scheduledAt, java.util.Collection<InterviewStatus> statuses);
 }
