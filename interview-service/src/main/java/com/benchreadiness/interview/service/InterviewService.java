@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -1109,12 +1110,29 @@ public class InterviewService {
         final String callerOrg = com.benchreadiness.interview.org.OrgContext.get();
         final String callerBranch = com.benchreadiness.interview.branch.BranchContext.get();
 
+        // Fix 60: emails already taken by an earlier row of this batch. Rows run in parallel, so two rows
+        // with the same email could both pass the DB check before either saves; the first add() wins.
+        final Set<String> seenInBatch = ConcurrentHashMap.newKeySet();
+
         List<CompletableFuture<BulkCreateInterviewResult.CandidateResult>> futures =
             req.getCandidates().stream().map(candidate ->
                 CompletableFuture.supplyAsync(() -> {
                     com.benchreadiness.interview.org.OrgContext.set(callerOrg);
                     com.benchreadiness.interview.branch.BranchContext.set(callerBranch);
                     try {
+                        String emailKey = candidate.getEngineerEmail() == null
+                                ? null : candidate.getEngineerEmail().trim().toLowerCase(Locale.ROOT);
+                        if (emailKey != null && !emailKey.isEmpty() && !seenInBatch.add(emailKey)) {
+                            return BulkCreateInterviewResult.CandidateResult.failed(
+                                    candidate.getEngineerEmail(), "Duplicate email in this upload; already handled in this batch");
+                        }
+                        Optional<Interview> duplicate = findLiveDuplicate(
+                                candidate.getEngineerEmail(), req.getScheduledAt(), req.getRoundName());
+                        if (duplicate.isPresent()) {
+                            return BulkCreateInterviewResult.CandidateResult.failed(candidate.getEngineerEmail(),
+                                    "Already scheduled for this time (interview " + duplicate.get().getId() + ")");
+                        }
+
                         // Build a per-candidate CreateInterviewRequest from shared config
                         CreateInterviewRequest single = new CreateInterviewRequest();
                         single.setJdTitle(req.getJdTitle());
@@ -1183,6 +1201,31 @@ public class InterviewService {
         }
 
         return new BulkCreateInterviewResult(results);
+    }
+
+    /** Statuses that count as "already scheduled". EXPIRED and WITHDRAWN are excluded so admins can reschedule. */
+    static final List<InterviewStatus> LIVE_STATUSES = List.of(
+            InterviewStatus.DRAFT, InterviewStatus.SCHEDULED, InterviewStatus.IN_PROGRESS,
+            InterviewStatus.REVIEW_PENDING, InterviewStatus.COMPLETED, InterviewStatus.SIGNED_OFF);
+
+    /**
+     * Fix 60: bulk only. An existing live interview for the same engineer (by email), org (current
+     * OrgContext), scheduledAt and, when both sides have one, roundName. Without a scheduledAt the
+     * single path would use "now", so there is no slot to compare and nothing is treated as duplicate.
+     */
+    Optional<Interview> findLiveDuplicate(String engineerEmail, Instant scheduledAt, String roundName) {
+        if (engineerEmail == null || engineerEmail.isBlank() || scheduledAt == null) return Optional.empty();
+        Optional<Engineer> engineer = engineerRepository.findByEmail(engineerEmail);
+        if (engineer.isEmpty()) return Optional.empty();
+        String org = com.benchreadiness.interview.org.OrgContext.getOrDefault();
+        boolean roundSet = roundName != null && !roundName.isBlank();
+        return interviewRepository
+                .findByEngineerIdAndOrgCodeAndScheduledAtAndStatusInOrderByCreatedAtDesc(
+                        engineer.get().getId(), org, scheduledAt, LIVE_STATUSES)
+                .stream()
+                .filter(i -> !roundSet || i.getRoundName() == null || i.getRoundName().isBlank()
+                        || i.getRoundName().trim().equalsIgnoreCase(roundName.trim()))
+                .findFirst();
     }
 
     /**
