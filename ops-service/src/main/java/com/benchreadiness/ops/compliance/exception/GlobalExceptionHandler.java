@@ -3,6 +3,7 @@ package com.benchreadiness.ops.compliance.exception;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -46,6 +47,14 @@ public class GlobalExceptionHandler {
             errors.put(((FieldError) error).getField(), error.getDefaultMessage()));
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
             .body(new ValidationErrorResponse(HttpStatus.BAD_REQUEST.value(), "Validation failed", path(request), errors));
+    }
+
+    /** @PreAuthorize refusal (AuthorizationDeniedException is a subclass): 403, WARN, no stack trace. */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex, WebRequest request) {
+        log.warn("Access denied: {}", path(request));
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+            .body(new ErrorResponse(HttpStatus.FORBIDDEN.value(), "Access denied", path(request)));
     }
 
     @ExceptionHandler(Exception.class)
